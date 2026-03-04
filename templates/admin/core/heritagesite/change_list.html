@@ -1,12 +1,10 @@
 {% extends "admin/change_list.html" %}
 
-{% block object-tools-items %}
-    <li>
-        <span id="mode-status-badge" style="display:inline-block;padding:6px 12px;border-radius:4px;background:#f4f4f5;color:#606266;font-size:12px;">当前模式：查看</span>
-    </li>
-    <li>
-        <a href="#" id="toggle-edit-mode" class="button">进入编辑模式</a>
-    </li>
+{% block content %}
+    <div id="heritage-edit-mode-toolbar" style="margin-bottom:20px;padding:15px;background:#f8f9fa;border-radius:4px;border:1px solid #e9ecef;">
+        <button id="toggle-edit-mode" type="button" class="button" style="padding:8px 16px;font-size:14px;cursor:pointer;">进入编辑模式</button>
+        <span id="mode-status-badge" style="display:inline-block;padding:6px 12px;border-radius:4px;background:#f4f4f5;color:#606266;font-size:12px;margin-left:15px;">当前模式：查看</span>
+    </div>
     {{ block.super }}
 {% endblock %}
 
@@ -45,68 +43,20 @@
     <script>
         (function () {
             let isEditMode = false;
-            let initialized = false;
 
             function findForm() {
-                const direct = document.getElementById('changelist-form');
-                if (direct) {
-                    return direct;
-                }
-                const anyEditableField = document.querySelector('input[name^="form-"], select[name^="form-"], textarea[name^="form-"]');
-                if (anyEditableField && anyEditableField.closest('form')) {
-                    return anyEditableField.closest('form');
-                }
-                return document.querySelector('form');
-            }
-
-            function getChangeListBasePath() {
-                const pathName = window.location.pathname;
-                return pathName.endsWith('/') ? pathName : (pathName + '/');
-            }
-
-            function updateNameLinks(form, enabled) {
-                const rows = form.querySelectorAll('#result_list tbody tr');
-                const basePath = getChangeListBasePath();
-                rows.forEach(function (row) {
-                    const nameCell = row.querySelector('td.field-name');
-                    if (!nameCell) {
-                        return;
-                    }
-
-                    if (enabled) {
-                        if (nameCell.querySelector('a.edit-name-link')) {
-                            return;
-                        }
-                        const checkbox = row.querySelector('input.action-select');
-                        if (!checkbox || !checkbox.value) {
-                            return;
-                        }
-                        const objectId = checkbox.value;
-                        const nameText = nameCell.textContent.trim();
-                        const link = document.createElement('a');
-                        link.href = basePath + objectId + '/change/';
-                        link.className = 'edit-name-link';
-                        link.textContent = nameText;
-                        nameCell.innerHTML = '';
-                        nameCell.appendChild(link);
-                    } else {
-                        const existingLink = nameCell.querySelector('a.edit-name-link');
-                        if (existingLink) {
-                            const plainText = existingLink.textContent;
-                            nameCell.innerHTML = '';
-                            nameCell.textContent = plainText;
-                        }
-                    }
-                });
+                // Django admin 的列表编辑表单 ID
+                return document.getElementById('changelist-form');
             }
 
             function applyMode(enabled) {
                 const form = findForm();
                 if (!form) {
-                    console.warn('[HeritageEdit] changelist-form not found');
+                    console.error('[HeritageEdit] changelist-form not found');
                     return false;
                 }
 
+                // 处理隐藏的编辑模式标志
                 let editModeInput = form.querySelector('input[name="edit_mode"]');
                 if (!editModeInput) {
                     editModeInput = document.createElement('input');
@@ -115,26 +65,24 @@
                     form.appendChild(editModeInput);
                 }
 
+                // 启用/禁用所有可编辑的表单字段
                 const editableInputs = form.querySelectorAll('input[name^="form-"], select[name^="form-"], textarea[name^="form-"]');
                 editableInputs.forEach(function (el) {
                     if (el.type === 'hidden' || el.type === 'checkbox') {
                         return;
                     }
                     el.disabled = !enabled;
-                    if (!enabled) {
-                        el.style.backgroundColor = '#f5f7fa';
-                    } else {
-                        el.style.backgroundColor = '';
-                    }
                 });
 
-                const saveButtons = form.querySelectorAll('input[name="_save"], button[name="_save"]');
-                saveButtons.forEach(function (btn) {
-                    btn.disabled = !enabled;
-                    btn.style.opacity = enabled ? '1' : '0.5';
-                    btn.style.cursor = enabled ? 'pointer' : 'not-allowed';
-                });
+                // 更新保存按钮状态
+                const saveBtn = form.querySelector('input[name="_save"]');
+                if (saveBtn) {
+                    saveBtn.disabled = !enabled;
+                    saveBtn.style.opacity = enabled ? '1' : '0.5';
+                    saveBtn.style.cursor = enabled ? 'pointer' : 'not-allowed';
+                }
 
+                // 更新 UI
                 const toggleBtn = document.getElementById('toggle-edit-mode');
                 const modeStatusBadge = document.getElementById('mode-status-badge');
 
@@ -142,75 +90,73 @@
                     editModeInput.value = '1';
                     if (toggleBtn) {
                         toggleBtn.textContent = '退出编辑模式';
-                        toggleBtn.classList.add('deletelink');
+                        toggleBtn.className = 'button deletelink';
                     }
                     if (modeStatusBadge) {
                         modeStatusBadge.textContent = '当前模式：编辑 ✏️';
-                        modeStatusBadge.classList.remove('mode-status-view');
-                        modeStatusBadge.classList.add('mode-status-edit');
+                        modeStatusBadge.style.background = '#ecf5ff';
+                        modeStatusBadge.style.color = '#409eff';
                     }
+                    console.log('[HeritageEdit] Edit mode activated');
                 } else {
                     editModeInput.value = '0';
                     if (toggleBtn) {
                         toggleBtn.textContent = '进入编辑模式';
-                        toggleBtn.classList.remove('deletelink');
+                        toggleBtn.className = 'button';
                     }
                     if (modeStatusBadge) {
                         modeStatusBadge.textContent = '当前模式：查看';
-                        modeStatusBadge.classList.remove('mode-status-edit');
-                        modeStatusBadge.classList.add('mode-status-view');
+                        modeStatusBadge.style.background = '#f4f4f5';
+                        modeStatusBadge.style.color = '#606266';
                     }
+                    console.log('[HeritageEdit] View mode activated');
                 }
 
-                updateNameLinks(form, enabled);
                 return true;
             }
 
-            function initToggle() {
-                if (initialized) {
-                    return true;
-                }
-
+            // 初始化函数
+            function init() {
                 const toggleBtn = document.getElementById('toggle-edit-mode');
+                
                 if (!toggleBtn) {
-                    return false;
+                    console.error('[HeritageEdit] toggle-edit-mode button not found - will retry');
+                    setTimeout(init, 100);
+                    return;
                 }
 
-                console.log('[HeritageEdit] Initializing toggle button');
+                console.log('[HeritageEdit] Button found, attaching click handler');
 
+                // 移除之前的事件监听器（如果有的话）
+                toggleBtn.onclick = null;
+
+                // 添加点击事件
                 toggleBtn.addEventListener('click', function (event) {
                     event.preventDefault();
-                    event.stopPropagation();
-                    console.log('[HeritageEdit] Toggle clicked, current mode:', isEditMode);
+                    console.log('[HeritageEdit] Button clicked, current mode:', isEditMode);
                     isEditMode = !isEditMode;
                     applyMode(isEditMode);
                 });
 
+                // 初始化为查看模式
                 applyMode(false);
-                initialized = true;
-                return true;
+
+                // 暴露全局函数用于调试
+                window.toggleHeritageEditMode = function () {
+                    console.log('[HeritageEdit] Global function called');
+                    isEditMode = !isEditMode;
+                    applyMode(isEditMode);
+                };
+
+                console.log('[HeritageEdit] Initialization complete');
             }
 
-            // Try to initialize immediately
+            // 确保 DOM 加载完成后初始化
             if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', function () {
-                    if (!initToggle()) {
-                        console.warn('[HeritageEdit] Failed to initialize on DOMContentLoaded');
-                        setTimeout(initToggle, 100);
-                    }
-                });
+                document.addEventListener('DOMContentLoaded', init);
             } else {
-                if (!initToggle()) {
-                    console.warn('[HeritageEdit] Failed to initialize immediately');
-                    setTimeout(initToggle, 100);
-                }
+                init();
             }
-
-            // Expose global function for debugging
-            window.__toggleHeritageEditMode = function () {
-                isEditMode = !isEditMode;
-                applyMode(isEditMode);
-            };
         })();
     </script>
 {% endblock %}
