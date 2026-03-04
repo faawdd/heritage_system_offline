@@ -300,8 +300,65 @@ class InspectionAdmin(admin.ModelAdmin):
 
 @admin.register(ProjectAudit)
 class ProjectAdmin(admin.ModelAdmin):
-    list_display = ('project_name', 'related_site', 'alert_status')
-    readonly_fields = ('is_in_protection_zone', 'is_in_control_zone') # 设置为只读，防止人工篡改计算结果
+    list_display = ('project_name', 'project_unit', 'workflow_status_display', 'alert_status', 'received_date')
+    list_filter = ('workflow_status', 'is_in_protection_zone', 'is_in_control_zone', 'received_date')
+    search_fields = ('project_name', 'project_unit', 'archive_number')
+    readonly_fields = ('is_in_protection_zone', 'is_in_control_zone', 'received_date')
+    date_hierarchy = 'received_date'
+    
+    fieldsets = (
+        ('基本信息', {
+            'fields': ('project_name', 'project_unit', 'related_site', 'project_lon', 'project_lat', 'workflow_status')
+        }),
+        ('阶段1：项目方提交查询函', {
+            'fields': ('inquiry_letter', 'ovital_kml_file', 'received_date'),
+            'classes': ('collapse',)
+        }),
+        ('阶段2：奥维查询', {
+            'fields': ('ovital_query_record', 'ovital_query_date'),
+            'classes': ('collapse',)
+        }),
+        ('阶段3：现场勘察', {
+            'fields': ('site_survey_record', 'site_survey_photos', 'site_survey_date', 
+                      'is_in_protection_zone', 'is_in_control_zone', 'survey_conclusion'),
+            'classes': ('collapse',)
+        }),
+        ('阶段4：上报市文物局', {
+            'fields': ('application_report', 'application_date'),
+            'classes': ('collapse',)
+        }),
+        ('阶段5：市文物局审批', {
+            'fields': ('bureau_approval_reply', 'bureau_approval_date', 'bureau_opinion'),
+            'classes': ('collapse',)
+        }),
+        ('阶段6：回函项目方', {
+            'fields': ('project_reply_letter', 'project_reply_date'),
+            'classes': ('collapse',)
+        }),
+        ('归档管理', {
+            'fields': ('archive_number', 'archived_date'),
+            'classes': ('collapse',)
+        }),
+        ('其他信息', {
+            'fields': ('remarks', 'audit_opinion', 'status', 'file_archive'),
+            'classes': ('collapse',)
+        }),
+    )
+
+    def workflow_status_display(self, obj):
+        status_colors = {
+            'received': '#17a2b8',
+            'ovital_checked': '#007bff',
+            'site_surveyed': '#6f42c1',
+            'application_submitted': '#fd7e14',
+            'bureau_approved': '#28a745',
+            'replied_to_project': '#20c997',
+            'archived': '#6c757d',
+        }
+        color = status_colors.get(obj.workflow_status, '#6c757d')
+        return mark_safe(f'<span style="color: {color}; font-weight: bold;">● {obj.get_workflow_status_display()}</span>')
+    
+    workflow_status_display.short_description = "当前状态"
 
     def alert_status(self, obj):
         if obj.is_in_protection_zone:
@@ -321,7 +378,7 @@ admin.site.site_header = '鄯善县文物数字化管理平台'
 admin.site.site_title = '基层文物管理系统'
 
 # 修改后台首页的欢迎提示文字
-admin.site.index_title = '欢迎使用文物安全巡查与工程核查系统'
+admin.site.index_title = '欢迎使用文物安全巡查与项目管理系统'
 
 
 # ============ 用户和组管理 ============

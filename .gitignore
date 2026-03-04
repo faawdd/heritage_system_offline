@@ -1,9 +1,7 @@
 venv/
 *.pyc
 __pycache__/
-db.sqlite3
 .vscode/
-static/
 media/
 .flutter-plugins
 build/

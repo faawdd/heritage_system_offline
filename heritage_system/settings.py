@@ -165,7 +165,7 @@ SIMPLEUI_CONFIG = {
             'icon': 'fas fa-tasks',
             'models': [
                 {'name': '巡查记录', 'url': 'core/inspectionrecord/', 'icon': 'fas fa-camera'},
-                {'name': '工程核查', 'url': 'core/projectaudit/', 'icon': 'fas fa-shield-alt'},
+                {'name': '项目管理', 'url': 'core/projectaudit/', 'icon': 'fas fa-project-diagram'},
                 {'name': '看护员管理', 'url': 'auth/user/', 'icon': 'fas fa-user-tie'},
             ]
         },
