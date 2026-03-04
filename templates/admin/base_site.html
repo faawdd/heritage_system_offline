@@ -1,0 +1,41 @@
+{% extends "admin/base.html" %}
+{% load static %}
+
+{% block title %}鄯善县文物数字化管理平台{% endblock %}
+
+{% block branding %}
+<div id="site-name">
+    <a href="{% url 'admin:index' %}" style="display: flex; align-items: center; gap: 10px;">
+        <img src="{% static 'img/logo.jpg' %}" alt="Logo" style="height: 40px; width: auto; border-radius: 4px;">
+        <span>鄯善县文物数字化管理平台</span>
+    </a>
+</div>
+{% endblock %}
+
+{% block extrastyle %}
+<style>
+    #header {
+        background-color: #f8f9fa;
+        border-bottom: 2px solid #e9ecef;
+    }
+    
+    #site-name {
+        padding: 0;
+    }
+    
+    #site-name a {
+        color: #333;
+        text-decoration: none;
+        font-size: 18px;
+        font-weight: 500;
+    }
+    
+    #site-name a:hover {
+        color: #0c63e4;
+    }
+    
+    #site-name img {
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+</style>
+{% endblock %}
