@@ -23,10 +23,11 @@ from core.views import (heritage_map_view, heritage_dashboard_view, heritage_sta
                         kanerjing_list_view, kanerjing_stats_api, kanerjing_import_check_view,
                         CustomPasswordChangeDoneView, inspection_mobile_add_view, 
                         inspection_mobile_list_view, export_doc_view, kml_overlay_check_view,
-                        ovkml_converter_view, heritage_classification_stats_api)
+                        ovkml_converter_view, heritage_classification_stats_api, heritage_detail_view)
 
 urlpatterns = [
     path('admin/home/', admin_index_view, name='admin_home'),  # 自定义首页
+    path('admin/heritage/<int:pk>/detail/', heritage_detail_view, name='heritage_detail'),  # 文物详情页（只读）
     path('admin/export_doc/', export_doc_view, name='admin_export_doc'),
     path('admin/ovkml-converter/', ovkml_converter_view, name='ovkml_converter'),
     path('admin/heritage-map/', heritage_map_view, name='heritage_map'),
