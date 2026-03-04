@@ -141,74 +141,59 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 SIMPLEUI_CONFIG = {
-    'system_keep': True,  # 设置为True，系统会自动保留原有的所有菜单，即使你没定义
-    'menu_display': ['文物管理', '日常办公','可视化分析', '系统设置'], 
+    'system_keep': False,
+    'menu_display': ['普查一张图', '工程评审', '自动化办公'],
     'menus': [
         {
-            'name': '首页',
-            'icon': 'fas fa-home',
-            'url': '/admin/',  # 指向后台首页
-        },
-        {
-            'name': '文物管理',
-            'icon': 'fas fa-university',
+            'name': '普查一张图',
+            'icon': 'fas fa-map-marked-alt',
             'models': [
                 {
-                    'name': '不可移动文物',
-                    'icon': 'fas fa-fw fa-book',
-                    'url': 'core/heritagesite/' # 注意这里必须是 core/heritagesite/
-                },
-            ]
-        },
-        {
-            'name': '日常办公',
-            'icon': 'fas fa-tasks',
-            'models': [
-                {'name': '巡查记录', 'url': 'core/inspectionrecord/', 'icon': 'fas fa-camera'},
-                {'name': '项目管理', 'url': 'core/projectaudit/', 'icon': 'fas fa-project-diagram'},
-                {'name': '看护员管理', 'url': 'auth/user/', 'icon': 'fas fa-user-tie'},
-            ]
-        },
-        {
-            'name': '可视化分析',
-            'icon': 'fas fa-chart-pie',
-            'models': [
-                {
-                    'name': '统计仪表板',
-                    'icon': 'fas fa-chart-bar',
-                    'url': '/admin/heritage-dashboard/' # 统计图表页面
+                    'name': '文物点管理',
+                    'icon': 'fas fa-map-pin',
+                    'url': 'core/heritagesite/'
                 },
                 {
-                    'name': '文物分布一张图',
-                    'icon': 'fas fa-map-marked-alt',
-                    'url': '/admin/heritage-map/' # 对应刚才定义的 URL
+                    'name': 'KML/CAD 映射',
+                    'icon': 'fas fa-drafting-compass',
+                    'url': '/admin/heritage-map/'
+                },
+                {
+                    'name': '遥感影像对比',
+                    'icon': 'fas fa-satellite',
+                    'url': '/admin/heritage-dashboard/'
                 }
             ]
         },
         {
-            'name': '坎儿井专项',
-            'icon': 'fas fa-water',
+            'name': '工程评审',
+            'icon': 'fas fa-project-diagram',
             'models': [
                 {
-                    'name': '坎儿井管理',
-                    'icon': 'fas fa-list-ul',
-                    'url': '/admin/kanerjing/' # 坎儿井专项管理页面
+                    'name': '输变电项目',
+                    'icon': 'fas fa-bolt',
+                    'url': 'core/projectaudit/'
                 },
                 {
-                    'name': '导入检查',
-                    'icon': 'fas fa-check-circle',
-                    'url': '/admin/kanerjing-import-check/' # 导入检查报告
+                    'name': '杆塔坐标核查',
+                    'icon': 'fas fa-map-marker-alt',
+                    'url': 'core/coordinate/'
                 }
             ]
         },
         {
-            'name': '系统设置',
-            'icon': 'fas fa-cogs',
+            'name': '自动化办公',
+            'icon': 'fas fa-file-word',
             'models': [
                 {
-                    'name': '用户组管理',
-                    'icon': 'fas fa-users',
-                    'url': 'auth/group/'
+                    'name': '一键公文生成',
+                    'icon': 'fas fa-file-word',
+                    'url': '/admin/export_doc/'
+                },
+                {
+                    'name': '巡查记录',
+                    'icon': 'fas fa-camera',
+                    'url': 'core/inspectionrecord/'
                 }
             ]
         },
@@ -223,6 +208,9 @@ SIMPLEUI_LOGO = '/static/img/logo.jpg' # 使用本地logo.jpg
 SIMPLEUI_HOME_INFO = False
 SIMPLEUI_HOME_QUICK = True  # 保留快速操作栏
 SIMPLEUI_HOME_ACTION = False # 隐藏最近动作
+SIMPLEUI_STATIC_OFFLINE = True
+SIMPLEUI_DEFAULT_THEME = 'purple.css'
+SIMPLEUI_CUSTOM_JS = '/static/admin/js/simpleui_custom.js'
 
 # 自定义登录页标题
 SIMPLEUI_LOGIN_TITLE = '文物管理系统 - 请登录'

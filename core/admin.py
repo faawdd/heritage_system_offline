@@ -1,20 +1,23 @@
 from django.contrib import admin
-from .models import HeritageSite, InspectionRecord, ProjectAudit, UserProfile
+from .models import HeritageSite, InspectionRecord, ProjectAudit, Coordinate, UserProfile
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin, GroupAdmin as BaseGroupAdmin
 from django.utils.html import format_html, mark_safe
 from django.contrib import messages
 import csv
-from django.http import HttpResponse
+from django.http import HttpResponse, FileResponse
 from import_export import resources, fields
 from import_export.admin import ImportExportModelAdmin
 import os
 import zipfile
 import io
-from .utils import generate_word_log, generate_project_docx_response
+from .utils import generate_word_log
 import json
 from django.shortcuts import render
 import re
+from django.conf import settings
+from django.utils import timezone
+from docxtpl import DocxTemplate
 
 
 
@@ -299,6 +302,30 @@ class InspectionAdmin(admin.ModelAdmin):
     batch_export_word.short_description = "批量导出为 Word"
     actions = ['export_as_csv', 'batch_export_word']
 
+class CoordinateInline(admin.TabularInline):
+    model = Coordinate
+    verbose_name = '项目建设区转点坐标'
+    verbose_name_plural = '项目建设区转点坐标'
+    extra = 0
+    fields = (
+        'tower_no',
+        'cgcs2000_x',
+        'cgcs2000_y',
+        'longitude',
+        'latitude',
+        'is_on_boundary',
+        'check_status',
+        'remark',
+    )
+    show_change_link = True
+
+    def formfield_for_dbfield(self, db_field, request, **kwargs):
+        formfield = super().formfield_for_dbfield(db_field, request, **kwargs)
+        if db_field.name == 'tower_no' and formfield:
+            formfield.label = '转点坐标'
+        return formfield
+
+
 @admin.register(ProjectAudit)
 class ProjectAdmin(admin.ModelAdmin):
     list_display = ('project_name', 'project_unit', 'workflow_status_display', 'alert_status', 'received_date')
@@ -306,23 +333,37 @@ class ProjectAdmin(admin.ModelAdmin):
     search_fields = ('project_name', 'project_unit', 'archive_number')
     readonly_fields = ('is_in_protection_zone', 'is_in_control_zone', 'received_date')
     date_hierarchy = 'received_date'
+    inlines = [CoordinateInline]
     
     fieldsets = (
-        ('基本信息', {
+        ('基础信息（标题、字号）', {
             'fields': (
                 'project_name',
+                'archive_number',
+                'workflow_status',
+                'received_date',
+            )
+        }),
+        ('工程概况（地址、规模）', {
+            'fields': (
                 'project_unit',
                 'construction_content',
                 'project_scale',
-                'project_coordinates',
                 'related_site',
+            )
+        }),
+        ('坐标定位信息', {
+            'fields': (
                 'project_lon',
                 'project_lat',
-                'workflow_status',
+                'project_coordinates',
+                'is_in_protection_zone',
+                'is_in_control_zone',
+                'survey_conclusion',
             )
         }),
         ('阶段1：项目方提交查询函', {
-            'fields': ('inquiry_letter', 'ovital_kml_file', 'received_date'),
+            'fields': ('inquiry_letter', 'ovital_kml_file'),
             'classes': ('collapse',)
         }),
         ('阶段2：奥维查询', {
@@ -330,8 +371,7 @@ class ProjectAdmin(admin.ModelAdmin):
             'classes': ('collapse',)
         }),
         ('阶段3：现场勘察', {
-            'fields': ('site_survey_record', 'site_survey_photos', 'site_survey_date', 
-                      'is_in_protection_zone', 'is_in_control_zone', 'survey_conclusion'),
+            'fields': ('site_survey_record', 'site_survey_photos', 'site_survey_date'),
             'classes': ('collapse',)
         }),
         ('阶段4：上报市文物局', {
@@ -347,7 +387,7 @@ class ProjectAdmin(admin.ModelAdmin):
             'classes': ('collapse',)
         }),
         ('归档管理', {
-            'fields': ('archive_number', 'archived_date'),
+            'fields': ('archived_date',),
             'classes': ('collapse',)
         }),
         ('其他信息', {
@@ -380,21 +420,101 @@ class ProjectAdmin(admin.ModelAdmin):
     
     alert_status.short_description = "两线预警状态"
 
-    def export_upward_request_docx(self, request, queryset):
+    def export_standard_request_doc(self, request, queryset):
         if queryset.count() != 1:
-            self.message_user(request, '请只选择 1 条项目记录进行上行文生成。', level=messages.WARNING)
+            self.message_user(request, '请只选择 1 条项目记录进行公文导出。', level=messages.WARNING)
             return
 
         project = queryset.first()
         try:
-            return generate_project_docx_response(project)
-        except FileNotFoundError as exc:
-            self.message_user(request, str(exc), level=messages.ERROR)
-        except Exception as exc:
-            self.message_user(request, f'生成上行文失败：{exc}', level=messages.ERROR)
+            template_candidates = [
+                os.path.join(settings.BASE_DIR, '上行文 {{ file_id }} {{project_name}}.docx'),
+                os.path.join(settings.BASE_DIR, '上行文_模板.docx'),
+            ]
+            template_path = next((path for path in template_candidates if os.path.exists(path)), None)
+            if not template_path:
+                self.message_user(request, f'模板不存在：{template_candidates[0]}', level=messages.ERROR)
+                return
 
-    export_upward_request_docx.short_description = '生成上行文 Word（docxtpl）'
-    actions = ['export_upward_request_docx']
+            doc = DocxTemplate(template_path)
+            coordinates = project.coordinates.all().order_by('tower_no')
+
+            issue_date = project.application_date or project.received_date or timezone.now()
+            file_id = project.archive_number or f"鄯文旅字〔{issue_date.year}〕{project.id}号"
+
+            context = {
+                'project_name': project.project_name,
+                'file_id': file_id,
+                'file_no': file_id,
+                'coordinates': [
+                    {
+                        'tower_no': item.tower_no,
+                        'x': item.cgcs2000_x or '',
+                        'y': item.cgcs2000_y or '',
+                        'lon': item.longitude or '',
+                        'lat': item.latitude or '',
+                    }
+                    for item in coordinates
+                ],
+                'issue_date': f'{issue_date.year}年{issue_date.month}月{issue_date.day}日',
+            }
+
+            doc.render(context)
+            output = io.BytesIO()
+            doc.save(output)
+            output.seek(0)
+
+            filename = f'标准请示公文_{project.project_name}.docx'
+            return FileResponse(
+                output,
+                as_attachment=True,
+                filename=filename,
+                content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+            )
+        except Exception as exc:
+            self.message_user(request, f'导出失败：{exc}', level=messages.ERROR)
+
+    export_standard_request_doc.short_description = '导出标准请示公文'
+    actions = ['export_standard_request_doc']
+
+    class Media:
+        js = ('admin/js/project_quick_nav.js',)
+
+
+@admin.register(Coordinate)
+class CoordinateAdmin(admin.ModelAdmin):
+    list_display = (
+        'project',
+        'tower_no',
+        'cgcs2000_x',
+        'cgcs2000_y',
+        'boundary_label',
+        'check_status',
+        'map_preview',
+    )
+    list_filter = ('is_on_boundary', 'check_status', 'project')
+    search_fields = ('project__project_name', 'tower_no', 'remark')
+
+    def boundary_label(self, obj):
+        if obj.is_on_boundary:
+            return mark_safe('<span class="el-tag el-tag--danger el-tag--mini">边界内</span>')
+        return mark_safe('<span class="el-tag el-tag--success el-tag--mini">边界外</span>')
+
+    boundary_label.short_description = '边界状态'
+
+    def map_preview(self, obj):
+        location_text = (
+            f'杆塔号：{obj.tower_no}\\n'
+            f'CGCS2000：X={obj.cgcs2000_x or "--"}, Y={obj.cgcs2000_y or "--"}\\n'
+            f'经纬度：{obj.longitude or "--"}, {obj.latitude or "--"}\\n'
+            f'说明：{obj.remark or "无"}'
+        )
+        return format_html(
+            '<a href="javascript:void(0);" onclick="alert(\'{}\')">地图预览</a>',
+            location_text.replace("'", "\\\\'")
+        )
+
+    map_preview.short_description = '地图预览'
 
 
 
