@@ -101,6 +101,44 @@
         #result_list tbody td {
             vertical-align: middle;
         }
+
+        /* 查看模式时隐藏和禁用按钮 */
+        .view-mode-active .submit-row,
+        .view-mode-active .actions {
+            opacity: 0.4;
+            pointer-events: none;
+        }
+
+        .view-mode-active .submit-row {
+            border-top: 1px solid #ddd;
+            padding: 10px;
+            background: #f9f9f9;
+        }
+
+        /* 重要：保持过滤器和搜索框始终可用 */
+        .view-mode-active #changelist-search,
+        .view-mode-active #changelist-filter,
+        .view-mode-active .date-hierarchy {
+            opacity: 1 !important;
+            pointer-events: auto !important;
+        }
+
+        .view-mode-active #changelist-search input,
+        .view-mode-active #changelist-search button,
+        .view-mode-active #changelist-filter a,
+        .view-mode-active #changelist-filter input,
+        .view-mode-active .date-hierarchy a {
+            opacity: 1 !important;
+            pointer-events: auto !important;
+            cursor: pointer !important;
+        }
+
+        /* 查看模式下的不可点击链接 */
+        .edit-name-link.disabled {
+            cursor: not-allowed !important;
+            opacity: 0.7;
+            pointer-events: none !important;
+        }
     </style>
     <script>
         (function () {
@@ -191,14 +229,34 @@
                     const nameLink = nameCell ? nameCell.querySelector('a.edit-name-link') : null;
                     let editButtonCell = row.querySelector('td.edit-button-cell');
 
-                    // 更新名称链接的类名和提示
+                    // 更新名称链接的类名、提示和可点击性
                     if (nameLink) {
                         if (enabled) {
+                            // 编辑模式：链接可点击
                             nameLink.className = 'edit-name-link edit-mode';
                             nameLink.title = '点击打开详情页编辑所有字段';
+                            nameLink.href = baseURL + '/core/heritagesite/' + objectId + '/change/';
+                            nameLink.style.pointerEvents = 'auto';
+                            nameLink.style.opacity = '1';
+                            nameLink.style.cursor = 'pointer';
+                            nameLink.classList.remove('disabled');
+                            nameLink.onclick = null;
                         } else {
-                            nameLink.className = 'edit-name-link view-mode';
-                            nameLink.title = '点击打开详情页查看更多信息';
+                            // 查看模式：链接不可点击
+                            nameLink.className = 'edit-name-link view-mode disabled';
+                            nameLink.title = '当前为查看模式，无法编辑。请点击"进入编辑模式"后再编辑';
+                            nameLink.href = 'javascript:void(0);';
+                            nameLink.style.pointerEvents = 'none';
+                            nameLink.style.opacity = '0.7';
+                            nameLink.style.cursor = 'not-allowed';
+                            nameLink.classList.add('disabled');
+                            
+                            // 添加点击阻止
+                            nameLink.onclick = function(e) {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                return false;
+                            };
                         }
                     }
 
@@ -229,6 +287,42 @@
                 });
 
                 console.log('[HeritageEdit] Edit mode updated:', enabled);
+            }
+
+            function hideActionButtonsInViewMode(form, enabled) {
+                // 隐藏/显示操作按钮 - 仅影响编辑相关的按钮，不影响搜索和过滤
+                const submitRow = form.querySelector('.submit-row');  // 保存按钮
+                const actions = form.querySelector('.actions');      // 批量操作
+                const changelist = document.querySelector('#changelist');
+                
+                if (!enabled) {
+                    // 查看模式：隐藏并禁用编辑操作，但保持搜索和过滤可用
+                    if (submitRow) {
+                        submitRow.style.opacity = '0.4';
+                        submitRow.style.pointerEvents = 'none';
+                    }
+                    if (actions) {
+                        actions.style.opacity = '0.4';
+                        actions.style.pointerEvents = 'none';
+                    }
+                    // 标记view-mode-active来应用特殊CSS
+                    if (changelist) {
+                        changelist.classList.add('view-mode-active');
+                    }
+                } else {
+                    // 编辑模式：恢复所有操作
+                    if (submitRow) {
+                        submitRow.style.opacity = '1';
+                        submitRow.style.pointerEvents = 'auto';
+                    }
+                    if (actions) {
+                        actions.style.opacity = '1';
+                        actions.style.pointerEvents = 'auto';
+                    }
+                    if (changelist) {
+                        changelist.classList.remove('view-mode-active');
+                    }
+                }
             }
 
             function applyMode(enabled) {
@@ -270,6 +364,9 @@
                 // 更新编辑模式UI
                 updateEditMode(form, enabled);
 
+                // 隐藏/显示操作按钮
+                hideActionButtonsInViewMode(form, enabled);
+
                 // 更新状态徽章和按钮
                 const toggleBtn = document.getElementById('toggle-edit-mode');
                 const modeStatusBadge = document.getElementById('mode-status-badge');
@@ -293,7 +390,7 @@
                         toggleBtn.className = 'button';
                     }
                     if (modeStatusBadge) {
-                        modeStatusBadge.textContent = '当前模式：查看 - 点击文物名称查看详情';
+                        modeStatusBadge.textContent = '当前模式：查看 - 过滤和搜索仍可用，增删改需进入编辑模式';
                         modeStatusBadge.style.background = '#f4f4f5';
                         modeStatusBadge.style.color = '#606266';
                     }
