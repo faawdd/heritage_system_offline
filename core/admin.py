@@ -5,7 +5,7 @@ from django.contrib.auth.admin import UserAdmin as BaseUserAdmin, GroupAdmin as 
 from django.utils.html import format_html, mark_safe
 from django.contrib import messages
 import csv
-from django.http import HttpResponse, FileResponse
+from django.http import HttpResponse, FileResponse, HttpResponseRedirect
 from import_export import resources, fields
 from import_export.admin import ImportExportModelAdmin
 import os
@@ -110,9 +110,17 @@ class HeritageAdmin(ImportExportModelAdmin):
     resource_class = HeritageResource
     change_list_template = 'admin/core/heritagesite/change_list.html'
     list_display = ('sip_code', 'name', 'address', 'category', 'level', 'manager')
+    list_display_links = None
     list_filter = ('category', 'level', KanerjingFilter)
     search_fields = ('name', 'sip_code', 'address')
     list_editable = ('address', 'manager')
+
+    def changelist_view(self, request, extra_context=None):
+        if request.method == 'POST' and '_save' in request.POST:
+            if request.POST.get('edit_mode') != '1':
+                self.message_user(request, '当前为查看模式，请先点击“进入编辑模式”后再保存。', level=messages.WARNING)
+                return HttpResponseRedirect(request.get_full_path())
+        return super().changelist_view(request, extra_context=extra_context)
 
     def get_queryset(self, request):
         """获取查询集"""

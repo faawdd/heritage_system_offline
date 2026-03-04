@@ -5,7 +5,7 @@ from .models import HeritageSite, InspectionRecord, ProjectAudit, Coordinate
 from .ovkml_converter import parse_ovkml, build_csv_outputs
 import json
 from django.contrib.admin.views.decorators import staff_member_required
-from django.db.models import Count
+from django.db.models import Count, Q
 from django.http import JsonResponse, HttpResponse
 from django.utils import timezone
 from django.conf import settings
@@ -15,6 +15,31 @@ import io
 import zipfile
 import uuid
 import re
+
+TOWNSHIP_NORMALIZATION_RULES = [
+    ('东巴扎回族乡', '东巴扎回族乡'),
+    ('东巴扎乡', '东巴扎回族乡'),
+    ('火车站镇', '火车站镇'),
+    ('吐峪沟乡', '吐峪沟乡'),
+    ('吐峪沟镇', '吐峪沟乡'),
+    ('七克台镇', '七克台镇'),
+    ('七克台乡', '七克台镇'),
+    ('七台镇', '七克台镇'),
+    ('连木沁镇', '连木沁镇'),
+    ('连木沁乡', '连木沁镇'),
+    ('达朗坎乡', '达朗坎乡'),
+    ('达浪坎乡', '达朗坎乡'),
+    ('鲁克沁镇', '鲁克沁镇'),
+    ('辟展镇', '辟展镇'),
+    ('辟展乡', '辟展镇'),
+    ('鄯善镇', '鄯善镇'),
+    ('迪坎镇', '迪坎镇'),
+    ('迪坎乡', '迪坎镇'),
+]
+
+TOWNSHIP_STANDARD_TO_KEYWORDS = {}
+for keyword, standard_name in TOWNSHIP_NORMALIZATION_RULES:
+    TOWNSHIP_STANDARD_TO_KEYWORDS.setdefault(standard_name, set()).add(keyword)
 
 @staff_member_required
 def admin_index_view(request):
@@ -275,11 +300,15 @@ def ovkml_converter_view(request):
 def heritage_dashboard_view(request):
     """文物分类统计面板"""
     total = HeritageSite.objects.count()
-    township_options = sorted(set([
-        _extract_township_name(address)
-        for address in HeritageSite.objects.values_list('address', flat=True)
-        if _extract_township_name(address)
-    ]))
+    township_counter = {}
+    for address in HeritageSite.objects.values_list('address', flat=True):
+        township_name = _extract_township_name(address)
+        if township_name:
+            township_counter[township_name] = township_counter.get(township_name, 0) + 1
+
+    township_options = [
+        item[0] for item in sorted(township_counter.items(), key=lambda x: x[1], reverse=True)
+    ]
 
     context = {
         'total_sites': total,
@@ -296,12 +325,15 @@ def _extract_township_name(address):
         return ''
 
     text = str(address).strip()
-    match = re.search(r'([\u4e00-\u9fa5]{1,20}(?:乡|镇|街道))', text)
+    for keyword, standard_name in TOWNSHIP_NORMALIZATION_RULES:
+        if keyword in text:
+            return standard_name
+
+    match = re.search(r'鄯善县(?:吐鲁番市鄯善县)*(?:东北)?([\u4e00-\u9fa5]{1,12}?(?:回族乡|乡|镇|街道))', text)
     if match:
         return match.group(1)
 
-    fallback = re.split(r'[，,；;、\s]', text)[0]
-    return fallback[:20]
+    return ''
 
 
 @staff_member_required
@@ -319,7 +351,11 @@ def heritage_classification_stats_api(request):
     if level:
         queryset = queryset.filter(level=level)
     if township:
-        queryset = queryset.filter(address__icontains=township)
+        township_keywords = TOWNSHIP_STANDARD_TO_KEYWORDS.get(township, {township})
+        township_query = Q()
+        for keyword in township_keywords:
+            township_query |= Q(address__icontains=keyword)
+        queryset = queryset.filter(township_query)
     if address_keyword:
         queryset = queryset.filter(address__icontains=address_keyword)
 
