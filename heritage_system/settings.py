@@ -154,14 +154,19 @@ SIMPLEUI_CONFIG = {
                     'url': 'core/heritagesite/'
                 },
                 {
-                    'name': 'KML/CAD 映射',
-                    'icon': 'fas fa-drafting-compass',
+                    'name': '文物分布一张图',
+                    'icon': 'fas fa-globe-asia',
                     'url': '/admin/heritage-map/'
                 },
                 {
                     'name': '遥感影像对比',
-                    'icon': 'fas fa-satellite',
-                    'url': '/admin/heritage-dashboard/'
+                    'icon': 'fas fa-drafting-compass',
+                    'url': '/admin/heritage-map/'
+                },
+                {
+                    'name': 'KML叠加检查',
+                    'icon': 'fas fa-layer-group',
+                    'url': '/admin/kml-overlay-check/'
                 }
             ]
         },
@@ -170,14 +175,24 @@ SIMPLEUI_CONFIG = {
             'icon': 'fas fa-project-diagram',
             'models': [
                 {
-                    'name': '输变电项目',
+                    'name': '工程项目管理',
                     'icon': 'fas fa-bolt',
                     'url': 'core/projectaudit/'
                 },
                 {
-                    'name': '杆塔坐标核查',
+                    'name': '项目坐标核查',
                     'icon': 'fas fa-map-marker-alt',
                     'url': 'core/coordinate/'
+                },
+                {
+                    'name': 'OVKML转换导入',
+                    'icon': 'fas fa-file-csv',
+                    'url': '/admin/ovkml-converter/'
+                },
+                {
+                    'name': '项目公文导出',
+                    'icon': 'fas fa-file-export',
+                    'url': '/admin/export_doc/'
                 }
             ]
         },
@@ -185,11 +200,6 @@ SIMPLEUI_CONFIG = {
             'name': '自动化办公',
             'icon': 'fas fa-file-word',
             'models': [
-                {
-                    'name': '一键公文生成',
-                    'icon': 'fas fa-file-word',
-                    'url': '/admin/export_doc/'
-                },
                 {
                     'name': '巡查记录',
                     'icon': 'fas fa-camera',
