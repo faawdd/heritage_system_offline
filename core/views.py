@@ -1,16 +1,108 @@
 # core/views.py
 from django.shortcuts import render
 from django.template.loader import render_to_string
-from .models import HeritageSite, InspectionRecord
+from .models import HeritageSite, InspectionRecord, ProjectAudit, Coordinate
 import json
 from django.contrib.admin.views.decorators import staff_member_required
 from django.db.models import Count
 from django.http import JsonResponse, HttpResponse
+from django.utils import timezone
+from django.conf import settings
+from docxtpl import DocxTemplate
+import os
+import io
+import zipfile
 
 @staff_member_required
 def admin_index_view(request):
     """自定义管理后台首页 - 显示统计仪表板"""
-    return render(request, 'admin/index_dashboard.html')
+    current_year = timezone.now().year
+    total_sites = HeritageSite.objects.count()
+    kanerjing_count = HeritageSite.objects.filter(name__contains='坎儿井').count()
+    reviewed_project_count = ProjectAudit.objects.filter(received_date__year=current_year).count()
+    checked_coordinate_count = Coordinate.objects.filter(check_status='checked').count()
+
+    pending_projects = ProjectAudit.objects.filter(workflow_status='received').order_by('-received_date')[:12]
+    heatmap_points = list(
+        HeritageSite.objects.values('name', 'longitude', 'latitude')
+    )
+
+    context = {
+        'total_sites': total_sites,
+        'kanerjing_count': kanerjing_count,
+        'reviewed_project_count': reviewed_project_count,
+        'checked_coordinate_count': checked_coordinate_count,
+        'pending_projects': pending_projects,
+        'heatmap_points_json': json.dumps(heatmap_points, ensure_ascii=False),
+        'title': '鄯善县文物数字化管理平台',
+    }
+    return render(request, 'admin/home_dashboard.html', context)
+
+
+def _render_project_docx(project):
+    template_candidates = [
+        os.path.join(settings.BASE_DIR, '上行文 {{ file_id }} {{project_name}}.docx'),
+        os.path.join(settings.BASE_DIR, '上行文_模板.docx'),
+    ]
+    template_path = next((path for path in template_candidates if os.path.exists(path)), None)
+    if not template_path:
+        raise FileNotFoundError(f'模板不存在：{template_candidates[0]}')
+
+    doc = DocxTemplate(template_path)
+    issue_date = project.application_date or project.received_date or timezone.now()
+    file_id = project.archive_number or f"鄯文旅字〔{issue_date.year}〕{project.id}号"
+    coordinates = project.coordinates.all().order_by('tower_no')
+
+    context = {
+        'project_name': project.project_name,
+        'file_id': file_id,
+        'file_no': file_id,
+        'issue_date': f'{issue_date.year}年{issue_date.month}月{issue_date.day}日',
+        'coordinates': [
+            {
+                'tower_no': c.tower_no,
+                'x': c.cgcs2000_x or '',
+                'y': c.cgcs2000_y or '',
+                'lon': c.longitude or '',
+                'lat': c.latitude or '',
+            }
+            for c in coordinates
+        ],
+    }
+    doc.render(context)
+    output = io.BytesIO()
+    doc.save(output)
+    output.seek(0)
+    return output
+
+
+@staff_member_required
+def export_doc_view(request):
+    projects = ProjectAudit.objects.order_by('-received_date')[:100]
+    if request.method == 'POST':
+        selected_ids = request.POST.getlist('project_ids')
+        if not selected_ids:
+            return render(request, 'admin/export_doc.html', {
+                'projects': projects,
+                'error': '请至少选择一个项目。'
+            })
+
+        selected_projects = ProjectAudit.objects.filter(id__in=selected_ids)
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            for project in selected_projects:
+                doc_stream = _render_project_docx(project)
+                filename = f'标准请示公文_{project.project_name}_{project.id}.docx'
+                zip_file.writestr(filename, doc_stream.getvalue())
+
+        zip_buffer.seek(0)
+        return HttpResponse(
+            zip_buffer.getvalue(),
+            content_type='application/zip',
+            headers={'Content-Disposition': 'attachment; filename="批量公文导出.zip"'}
+        )
+
+    return render(request, 'admin/export_doc.html', {'projects': projects})
 
 @staff_member_required  # 确保只有登录后台的人能看
 def heritage_map_view(request):

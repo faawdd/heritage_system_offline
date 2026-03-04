@@ -1,0 +1,156 @@
+html, body, .el-menu, .el-submenu, .el-menu-item, .el-table, .results table {
+    font-family: "Microsoft YaHei", "SimSun", "STHeiti", sans-serif !important;
+}
+
+.el-menu-item,
+.el-submenu__title,
+.el-menu--inline .el-menu-item {
+    line-height: 44px !important;
+    height: 44px !important;
+}
+
+.el-menu-item [class^="fa"],
+.el-submenu__title [class^="fa"] {
+    margin-right: 8px;
+}
+
+#changelist table thead th,
+.results table thead th {
+    background: #f2f3f5 !important;
+    text-align: center !important;
+    font-weight: 700 !important;
+    padding: 12px 10px !important;
+}
+
+#changelist table tbody td,
+.results table tbody td {
+    padding-top: 11px !important;
+    padding-bottom: 11px !important;
+    line-height: 1.7 !important;
+}
+
+#changelist table tbody tr,
+.results table tbody tr {
+    min-height: 52px;
+}
+
+.change-form .aligned label,
+.change-form .form-row > div > label,
+.change-form .form-row > label {
+    width: 240px !important;
+    min-width: 240px !important;
+    white-space: nowrap !important;
+    font-weight: 600;
+}
+
+.change-form .aligned .form-row {
+    padding: 12px 14px !important;
+}
+
+.change-form .aligned p,
+.change-form .help,
+.change-form .description {
+    line-height: 1.7 !important;
+}
+
+.project-quick-nav {
+    position: fixed;
+    right: 20px;
+    top: 120px;
+    width: 180px;
+    z-index: 1000;
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.08);
+    padding: 10px;
+}
+
+.project-quick-nav .nav-title {
+    color: #111827;
+    font-weight: 700;
+    margin-bottom: 8px;
+}
+
+.project-quick-nav a {
+    display: block;
+    line-height: 1.5;
+    color: #374151;
+    text-decoration: none;
+    padding: 5px 6px;
+    border-radius: 6px;
+}
+
+.project-quick-nav a:hover {
+    background: #eef2ff;
+    color: #1d4ed8;
+}
+
+@media (max-width: 1400px) {
+    .project-quick-nav {
+        display: none;
+    }
+}
+
+body.model-projectaudit.change-form fieldset.module h2,
+body.model-projectaudit.add-form fieldset.module h2 {
+    font-weight: 700 !important;
+    padding: 12px 14px !important;
+}
+
+body.model-projectaudit.change-form .aligned label,
+body.model-projectaudit.add-form .aligned label,
+body.model-projectaudit.change-form .form-row > div > label,
+body.model-projectaudit.add-form .form-row > div > label {
+    width: 280px !important;
+    min-width: 280px !important;
+    font-weight: 700 !important;
+}
+
+body.model-projectaudit.change-form .aligned .form-row,
+body.model-projectaudit.add-form .aligned .form-row {
+    padding: 14px 16px !important;
+}
+
+body.model-projectaudit.change-form input,
+body.model-projectaudit.change-form select,
+body.model-projectaudit.change-form textarea,
+body.model-projectaudit.add-form input,
+body.model-projectaudit.add-form select,
+body.model-projectaudit.add-form textarea {
+    line-height: 1.7 !important;
+}
+
+body.model-projectaudit.change-form input[type="text"],
+body.model-projectaudit.change-form input[type="number"],
+body.model-projectaudit.change-form select,
+body.model-projectaudit.add-form input[type="text"],
+body.model-projectaudit.add-form input[type="number"],
+body.model-projectaudit.add-form select {
+    min-height: 40px !important;
+}
+
+body.model-projectaudit.change-form textarea,
+body.model-projectaudit.add-form textarea {
+    min-height: 120px;
+}
+
+body.model-projectaudit.change-form .inline-group table thead th,
+body.model-projectaudit.add-form .inline-group table thead th {
+    font-weight: 700 !important;
+    padding: 10px 8px !important;
+}
+
+body.model-projectaudit.change-form .inline-group table tbody td,
+body.model-projectaudit.add-form .inline-group table tbody td {
+    line-height: 1.7 !important;
+    padding: 10px 8px !important;
+}
+
+body.model-projectaudit.change-form .submit-row input,
+body.model-projectaudit.add-form .submit-row input,
+body.model-projectaudit.change-form .submit-row a,
+body.model-projectaudit.add-form .submit-row a {
+    min-height: 38px;
+    padding: 0 14px !important;
+}

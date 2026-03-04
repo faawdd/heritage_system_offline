@@ -214,6 +214,38 @@ class ProjectAudit(models.Model):
         ordering = ['-received_date']
 
 
+class Coordinate(models.Model):
+    """输变电项目杆塔坐标点"""
+    CHECK_STATUS_CHOICES = [
+        ('pending', '待核查'),
+        ('checked', '已核查'),
+    ]
+
+    project = models.ForeignKey(
+        ProjectAudit,
+        on_delete=models.CASCADE,
+        related_name='coordinates',
+        verbose_name='所属工程项目'
+    )
+    tower_no = models.CharField('杆塔号', max_length=50)
+    cgcs2000_x = models.DecimalField('CGCS2000 X', max_digits=16, decimal_places=3, null=True, blank=True)
+    cgcs2000_y = models.DecimalField('CGCS2000 Y', max_digits=16, decimal_places=3, null=True, blank=True)
+    longitude = models.FloatField('经度', null=True, blank=True)
+    latitude = models.FloatField('纬度', null=True, blank=True)
+    is_on_boundary = models.BooleanField('是否位于保护区边界', default=False)
+    check_status = models.CharField('核查状态', max_length=20, choices=CHECK_STATUS_CHOICES, default='pending')
+    remark = models.CharField('位置说明', max_length=255, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.project.project_name}-{self.tower_no}"
+
+    class Meta:
+        verbose_name = '杆塔坐标'
+        verbose_name_plural = verbose_name
+        ordering = ['project_id', 'tower_no']
+
+
 # 4. 用户配置文件（追踪首次登录）
 class UserProfile(models.Model):
     """追踪用户首次登录，提示修改密码"""
