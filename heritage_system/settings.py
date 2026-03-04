@@ -228,3 +228,8 @@ SIMPLEUI_HOME_ACTION = False # 隐藏最近动作
 SIMPLEUI_LOGIN_TITLE = '文物管理系统 - 请登录'
 # 配置自定义首页 URL 路径 - 显示统计仪表板
 SIMPLEUI_HOME_PAGE = '/admin/home/'
+
+try:
+    from local_settings import *
+except ImportError:
+    pass

@@ -6,3 +6,4 @@ media/
 .flutter-plugins
 build/
 staticfiles/
+local_settings.py

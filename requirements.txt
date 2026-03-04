@@ -1,0 +1,22 @@
+# 核心 Web 框架
+Django>=5.0.3
+django-environ>=0.11.2
+
+# 接口开发 (用于对接 Flutter App)
+djangorestframework>=3.15.1
+django-cors-headers>=4.3.1
+
+# 数据库与数据处理
+pandas>=2.2.1
+numpy>=1.26.4
+
+# Word 公文生成 (实现项目管理中的快速发文)
+python-docx>=1.1.0
+docxtpl>=0.16.7
+
+# 图像处理 (用于处理现场照片、水印及公文插图)
+Pillow>=10.2.0
+
+# 生产环境部署 (Fedora/Linux 服务器必备)
+gunicorn>=21.2.0
+whitenoise>=6.6.0
