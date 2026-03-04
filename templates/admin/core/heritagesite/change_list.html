@@ -2,6 +2,9 @@
 
 {% block object-tools-items %}
     <li>
+        <span id="mode-status-badge" style="display:inline-block;padding:6px 10px;border-radius:4px;background:#f4f4f5;color:#606266;font-size:12px;">当前模式：查看</span>
+    </li>
+    <li>
         <a href="javascript:void(0);" id="toggle-edit-mode" class="historylink">进入编辑模式</a>
     </li>
     {{ block.super }}
@@ -18,10 +21,31 @@
             cursor: not-allowed;
             border-color: #e4e7ed;
         }
+
+        .mode-status-view {
+            background: #f4f4f5 !important;
+            color: #606266 !important;
+        }
+
+        .mode-status-edit {
+            background: #ecf5ff !important;
+            color: #409eff !important;
+        }
+
+        .edit-name-link {
+            color: #409eff;
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .edit-name-link:hover {
+            text-decoration: underline;
+        }
     </style>
     <script>
         document.addEventListener('DOMContentLoaded', function () {
             const toggleBtn = document.getElementById('toggle-edit-mode');
+            const modeStatusBadge = document.getElementById('mode-status-badge');
             if (!toggleBtn) {
                 return;
             }
@@ -49,6 +73,46 @@
             const saveButtons = form.querySelectorAll('input[name="_save"], button[name="_save"]');
             let isEditMode = false;
 
+            function getChangeListBasePath() {
+                return window.location.pathname.endsWith('/') ? window.location.pathname : (window.location.pathname + '/');
+            }
+
+            function updateNameLinks(enabled) {
+                const rows = form.querySelectorAll('#result_list tbody tr');
+                const basePath = getChangeListBasePath();
+                rows.forEach(function (row) {
+                    const nameCell = row.querySelector('td.field-name');
+                    if (!nameCell) {
+                        return;
+                    }
+
+                    if (enabled) {
+                        if (nameCell.querySelector('a.edit-name-link')) {
+                            return;
+                        }
+                        const checkbox = row.querySelector('input.action-select');
+                        if (!checkbox || !checkbox.value) {
+                            return;
+                        }
+                        const objectId = checkbox.value;
+                        const nameText = nameCell.textContent.trim();
+                        const link = document.createElement('a');
+                        link.href = basePath + objectId + '/change/';
+                        link.className = 'edit-name-link';
+                        link.textContent = nameText;
+                        nameCell.innerHTML = '';
+                        nameCell.appendChild(link);
+                    } else {
+                        const existingLink = nameCell.querySelector('a.edit-name-link');
+                        if (existingLink) {
+                            const plainText = existingLink.textContent;
+                            nameCell.innerHTML = '';
+                            nameCell.textContent = plainText;
+                        }
+                    }
+                });
+            }
+
             function toggleEditable(enabled) {
                 const editableInputs = form.querySelectorAll('input[name^="form-"] , select[name^="form-"] , textarea[name^="form-"]');
                 editableInputs.forEach(function (el) {
@@ -69,12 +133,24 @@
                     toggleBtn.textContent = '退出编辑模式';
                     toggleBtn.classList.add('deletelink');
                     editModeInput.value = '1';
+                    if (modeStatusBadge) {
+                        modeStatusBadge.textContent = '当前模式：编辑';
+                        modeStatusBadge.classList.remove('mode-status-view');
+                        modeStatusBadge.classList.add('mode-status-edit');
+                    }
                 } else {
                     form.classList.add('readonly-row');
                     toggleBtn.textContent = '进入编辑模式';
                     toggleBtn.classList.remove('deletelink');
                     editModeInput.value = '0';
+                    if (modeStatusBadge) {
+                        modeStatusBadge.textContent = '当前模式：查看';
+                        modeStatusBadge.classList.remove('mode-status-edit');
+                        modeStatusBadge.classList.add('mode-status-view');
+                    }
                 }
+
+                updateNameLinks(enabled);
             }
 
             toggleBtn.addEventListener('click', function (event) {
