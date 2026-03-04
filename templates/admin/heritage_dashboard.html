@@ -203,8 +203,16 @@
         function appendOptions(selectEl, items) {
             items.forEach(item => {
                 const option = document.createElement('option');
-                option.value = item[0] || item;
-                option.textContent = item[1] || item;
+                if (Array.isArray(item)) {
+                    option.value = item[0];
+                    option.textContent = item[1];
+                } else if (typeof item === 'object' && item !== null) {
+                    option.value = item.value;
+                    option.textContent = item.label;
+                } else {
+                    option.value = item;
+                    option.textContent = item;
+                }
                 selectEl.appendChild(option);
             });
         }
