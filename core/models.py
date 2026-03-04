@@ -68,29 +68,94 @@ class InspectionRecord(models.Model):
         verbose_name = "巡查登记存档"
         verbose_name_plural = verbose_name
 
-# 3. 工程建设核查表
+# 3. 项目管理表（原工程建设核查）
 class ProjectAudit(models.Model):
+    WORKFLOW_STATUS_CHOICES = [
+        ('received', '已接收查询函'),
+        ('ovital_checked', '奥维查询完成'),
+        ('site_surveyed', '现场勘察完成'),
+        ('application_submitted', '已上报市文物局'),
+        ('bureau_approved', '市局审批完成'),
+        ('replied_to_project', '已回函项目方'),
+        ('archived', '归档完成'),
+    ]
+    
+    # 基本信息
     project_name = models.CharField("建设项目名称", max_length=200)
-    related_site = models.ForeignKey(HeritageSite, on_delete=models.CASCADE, verbose_name="涉及文物")
+    project_unit = models.CharField("项目单位", max_length=200, blank=True)
+    related_site = models.ForeignKey(HeritageSite, on_delete=models.CASCADE, verbose_name="涉及文物", null=True, blank=True)
+    
     # 拟建项目坐标
-    project_lon = models.FloatField("项目经度")
-    project_lat = models.FloatField("项目纬度")
+    project_lon = models.FloatField("项目经度", null=True, blank=True)
+    project_lat = models.FloatField("项目纬度", null=True, blank=True)
 
+    # 工作流状态
+    workflow_status = models.CharField("工作流状态", max_length=30, choices=WORKFLOW_STATUS_CHOICES, default='received')
+    
+    # 阶段1：项目方提交查询函
+    inquiry_letter = models.FileField("项目方查询函", upload_to='projects/inquiry_letters/', blank=True, help_text="支持PDF或DOCX格式")
+    ovital_kml_file = models.FileField("奥维KML文件", upload_to='projects/kml_files/', blank=True)
+    received_date = models.DateTimeField("接收日期", null=True, blank=True)
+    
+    # 阶段2：奥维查询
+    ovital_query_record = models.TextField("奥维查询记录", blank=True, help_text="记录奥维地图查询情况")
+    ovital_query_date = models.DateTimeField("奥维查询日期", null=True, blank=True)
+    
+    # 阶段3：现场勘察
+    site_survey_record = models.TextField("现场勘察记录", blank=True, help_text="记录现场勘察情况")
+    site_survey_photos = models.FileField("现场勘察照片", upload_to='projects/survey_photos/', blank=True, help_text="可上传照片压缩包")
+    site_survey_date = models.DateTimeField("现场勘察日期", null=True, blank=True)
+    
+    # 两线判断结果
     is_in_protection_zone = models.BooleanField("是否在保护范围内", default=False)
     is_in_control_zone = models.BooleanField("是否在建控地带内", default=False)
-    audit_opinion = models.TextField("核查意见")
-    status = models.CharField("审核状态", max_length=20, choices=[('Pending', '待审'), ('Pass', '通过'), ('Reject', '驳回')])
+    survey_conclusion = models.TextField("勘察结论", blank=True, help_text="项目是否涉及文物的最终结论")
+    
+    # 阶段4：上报市文物局
+    application_report = models.FileField("上报申请报告", upload_to='projects/applications/', blank=True)
+    application_date = models.DateTimeField("上报日期", null=True, blank=True)
+    
+    # 阶段5：市文物局审批
+    bureau_approval_reply = models.FileField("市文物局复函", upload_to='projects/bureau_replies/', blank=True)
+    bureau_approval_date = models.DateTimeField("市局批复日期", null=True, blank=True)
+    bureau_opinion = models.TextField("市局审批意见", blank=True)
+    
+    # 阶段6：回函项目方
+    project_reply_letter = models.FileField("回函项目方", upload_to='projects/project_replies/', blank=True)
+    project_reply_date = models.DateTimeField("回函日期", null=True, blank=True)
+    
+    # 归档信息
+    archive_number = models.CharField("归档编号", max_length=100, blank=True)
+    archived_date = models.DateTimeField("归档日期", null=True, blank=True)
+    
+    # 备注
+    remarks = models.TextField("备注", blank=True)
+    
+    # 旧字段（保留兼容）
+    audit_opinion = models.TextField("核查意见", blank=True)
+    status = models.CharField("审核状态", max_length=20, choices=[('Pending', '待审'), ('Pass', '通过'), ('Reject', '驳回')], default='Pending')
     file_archive = models.FileField("附件存档", upload_to='projects/docs/', blank=True)
+    
+    def __str__(self):
+        return f"{self.project_name} - {self.get_workflow_status_display()}"
+    
     def save(self, *args, **kwargs):
-        # 自动调用文物的判断逻辑
-        check_res = self.related_site.is_inside_zones(self.project_lon, self.project_lat)
-        self.is_in_protection_zone = check_res["in_protection"]
-        self.is_in_control_zone = check_res["in_control"]
+        # 首次创建时自动设置接收日期
+        if not self.pk and not self.received_date:
+            from django.utils import timezone
+            self.received_date = timezone.now()
+        
+        # 如果有相关文物和坐标，自动调用文物的判断逻辑
+        if self.related_site and self.project_lon and self.project_lat:
+            check_res = self.related_site.is_inside_zones(self.project_lon, self.project_lat)
+            self.is_in_protection_zone = check_res["in_protection"]
+            self.is_in_control_zone = check_res["in_control"]
         super().save(*args, **kwargs)
 
     class Meta:
-        verbose_name = "工程建设核查"
+        verbose_name = "项目管理"
         verbose_name_plural = verbose_name
+        ordering = ['-received_date']
 
 
 # 4. 用户配置文件（追踪首次登录）
