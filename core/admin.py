@@ -3,6 +3,7 @@ from .models import HeritageSite, InspectionRecord, ProjectAudit, UserProfile
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin, GroupAdmin as BaseGroupAdmin
 from django.utils.html import format_html, mark_safe
+from django.contrib import messages
 import csv
 from django.http import HttpResponse
 from import_export import resources, fields
@@ -10,7 +11,7 @@ from import_export.admin import ImportExportModelAdmin
 import os
 import zipfile
 import io
-from .utils import generate_word_log
+from .utils import generate_word_log, generate_project_docx_response
 import json
 from django.shortcuts import render
 import re
@@ -308,7 +309,17 @@ class ProjectAdmin(admin.ModelAdmin):
     
     fieldsets = (
         ('基本信息', {
-            'fields': ('project_name', 'project_unit', 'related_site', 'project_lon', 'project_lat', 'workflow_status')
+            'fields': (
+                'project_name',
+                'project_unit',
+                'construction_content',
+                'project_scale',
+                'project_coordinates',
+                'related_site',
+                'project_lon',
+                'project_lat',
+                'workflow_status',
+            )
         }),
         ('阶段1：项目方提交查询函', {
             'fields': ('inquiry_letter', 'ovital_kml_file', 'received_date'),
@@ -368,6 +379,22 @@ class ProjectAdmin(admin.ModelAdmin):
         return mark_safe('<span style="color: green;">✅ 安全距离</span>')
     
     alert_status.short_description = "两线预警状态"
+
+    def export_upward_request_docx(self, request, queryset):
+        if queryset.count() != 1:
+            self.message_user(request, '请只选择 1 条项目记录进行上行文生成。', level=messages.WARNING)
+            return
+
+        project = queryset.first()
+        try:
+            return generate_project_docx_response(project)
+        except FileNotFoundError as exc:
+            self.message_user(request, str(exc), level=messages.ERROR)
+        except Exception as exc:
+            self.message_user(request, f'生成上行文失败：{exc}', level=messages.ERROR)
+
+    export_upward_request_docx.short_description = '生成上行文 Word（docxtpl）'
+    actions = ['export_upward_request_docx']
 
 
 

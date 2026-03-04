@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import User
+import json
 
 # 1. 不可移动文物基础表（结合四普字段）
 class HeritageSite(models.Model):
@@ -35,21 +36,73 @@ class HeritageSite(models.Model):
     protection_zone = models.TextField("保护范围坐标集合", null=True,blank=True, help_text="请输入经纬度序列JSON")
     control_zone = models.TextField("建控地带坐标集合", null=True, blank=True)
 
+    @staticmethod
+    def _point_in_polygon(lon, lat, polygon_points):
+        """射线法判断点是否在多边形内（含边界近似）"""
+        if not polygon_points or len(polygon_points) < 3:
+            return False
+
+        inside = False
+        point_count = len(polygon_points)
+
+        for index in range(point_count):
+            x1, y1 = polygon_points[index]
+            x2, y2 = polygon_points[(index + 1) % point_count]
+
+            if ((y1 > lat) != (y2 > lat)):
+                cross_x = (x2 - x1) * (lat - y1) / (y2 - y1) + x1
+                if lon <= cross_x:
+                    inside = not inside
+
+        return inside
+
+    @staticmethod
+    def _load_polygon_points(zone_text):
+        """将 JSON 坐标解析为 [(lon, lat), ...]"""
+        if not zone_text:
+            return []
+
+        try:
+            parsed = json.loads(zone_text)
+        except Exception:
+            return []
+
+        points = []
+        for item in parsed:
+            if isinstance(item, (list, tuple)) and len(item) >= 2:
+                try:
+                    points.append((float(item[0]), float(item[1])))
+                except (TypeError, ValueError):
+                    continue
+            elif isinstance(item, dict):
+                lon = item.get('lon', item.get('longitude'))
+                lat = item.get('lat', item.get('latitude'))
+                try:
+                    points.append((float(lon), float(lat)))
+                except (TypeError, ValueError):
+                    continue
+
+        return points
+
     def is_inside_zones(self, lon, lat):
         """判断给定的点是否落入两线"""
-        p = Point(lon, lat)
         results = {"in_protection": False, "in_control": False}
+        try:
+            point_lon = float(lon)
+            point_lat = float(lat)
+        except (TypeError, ValueError):
+            return results
         
         # 检查保护范围
         if self.protection_zone:
-            poly = Polygon(json.loads(self.protection_zone))
-            if poly.contains(p):
+            protection_points = self._load_polygon_points(self.protection_zone)
+            if self._point_in_polygon(point_lon, point_lat, protection_points):
                 results["in_protection"] = True
         
         # 检查建控地带
         if self.control_zone:
-            poly = Polygon(json.loads(self.control_zone))
-            if poly.contains(p):
+            control_points = self._load_polygon_points(self.control_zone)
+            if self._point_in_polygon(point_lon, point_lat, control_points):
                 results["in_control"] = True
                 
         return results
@@ -83,6 +136,9 @@ class ProjectAudit(models.Model):
     # 基本信息
     project_name = models.CharField("建设项目名称", max_length=200)
     project_unit = models.CharField("项目单位", max_length=200, blank=True)
+    construction_content = models.TextField("工程建设内容与地址", default='')
+    project_scale = models.CharField("项目建设的规模", max_length=500, default='')
+    project_coordinates = models.TextField("项目选址的经纬度坐标", default='')
     related_site = models.ForeignKey(HeritageSite, on_delete=models.CASCADE, verbose_name="涉及文物", null=True, blank=True)
     
     # 拟建项目坐标
