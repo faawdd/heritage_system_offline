@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>文物一张图</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        body, html, #map { margin: 0; padding: 0; width: 100%; height: 100vh; overflow: hidden; }
+        
+        /* 顶部左侧功能区容器 */
+        .map-header {
+            position: absolute;
+            top: 15px;
+            left: 55px; /* 避开左上角缩放按钮 */
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        /* 标题样式 */
+        .map-title {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(4px);
+            padding: 8px 16px;
+            border-radius: 4px;
+            border-left: 4px solid #409EFF;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            font-size: 16px;
+            font-weight: bold;
+            color: #2c3e50;
+            white-space: nowrap;
+        }
+
+        /* 搜索框容器 */
+        .search-box {
+            position: relative;
+            width: 260px;
+        }
+
+        #search-input {
+            width: 100%;
+            height: 36px;
+            padding: 0 12px;
+            border: none;
+            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.95);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            outline: none;
+            font-size: 13px;
+        }
+
+        #search-input:focus {
+            box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.2);
+        }
+
+        /* 搜索结果列表 */
+        #search-results {
+            position: absolute;
+            top: 42px;
+            left: 0;
+            width: 100%;
+            background: #fff;
+            max-height: 250px;
+            overflow-y: auto;
+            border-radius: 4px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            display: none;
+        }
+
+        .result-item {
+            padding: 10px 15px;
+            cursor: pointer;
+            font-size: 13px;
+            border-bottom: 1px solid #f2f6fc;
+        }
+
+        .result-item:hover {
+            background-color: #ecf5ff;
+            color: #409EFF;
+        }
+
+        /* 右上角图层切换控件美化 */
+        .leaflet-control-layers {
+            border: none !important;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2) !important;
+            border-radius: 6px !important;
+        }
+
+        /* 左下角图例 */
+        .legend-container {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(4px);
+            padding: 15px;
+            border-radius: 6px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+            z-index: 1000;
+            min-width: 180px;
+        }
+
+        .legend-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #2c3e50;
+            font-size: 13px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+            font-size: 12px;
+            color: #555;
+        }
+
+        .legend-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            border: 1px solid #fff;
+            margin-right: 8px;
+            box-shadow: 0 0 2px rgba(0,0,0,0.3);
+        }
+
+        /* 右下角坐标显示 */
+        .coordinates-display {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(4px);
+            padding: 10px 15px;
+            border-radius: 6px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+            z-index: 1000;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            color: #333;
+            min-width: 220px;
+        }
+
+        .coordinates-label {
+            color: #409EFF;
+            font-weight: bold;
+            margin-right: 5px;
+        }
+
+        /* 筛选器容器 */
+        .filter-box {
+            position: absolute;
+            top: 15px;
+            right: 55px;
+            z-index: 1000;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(4px);
+            padding: 10px 15px;
+            border-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .filter-title {
+            font-size: 12px;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 5px;
+        }
+
+        .filter-options {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .filter-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: #555;
+        }
+
+        .filter-checkbox {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+            accent-color: #409EFF;
+        }
+
+        .filter-label {
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex: 1;
+        }
+
+        .filter-color-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            border: 1px solid rgba(0,0,0,0.2);
+        }
+    </style>
+</head>
+<body>
+    <div class="map-header">
+        <div class="map-title">鄯善县文物分布可视化平台</div>
+        <div class="search-box">
+            <input type="text" id="search-input" placeholder="输入文物名称搜索..." />
+            <div id="search-results"></div>
+        </div>
+    </div>
+
+    <!-- 筛选器 -->
+    <div class="filter-box">
+        <div class="filter-title">等级筛选</div>
+        <div class="filter-options">
+            <div class="filter-item">
+                <input type="checkbox" class="filter-checkbox" id="filter-GB" checked data-level="GB">
+                <label class="filter-label" for="filter-GB">
+                    <div class="filter-color-dot" style="background-color: #e63946;"></div>
+                    <span>全国重点</span>
+                </label>
+            </div>
+            <div class="filter-item">
+                <input type="checkbox" class="filter-checkbox" id="filter-SB" checked data-level="SB">
+                <label class="filter-label" for="filter-SB">
+                    <div class="filter-color-dot" style="background-color: #f4a261;"></div>
+                    <span>自治区级</span>
+                </label>
+            </div>
+            <div class="filter-item">
+                <input type="checkbox" class="filter-checkbox" id="filter-XB" checked data-level="XB">
+                <label class="filter-label" for="filter-XB">
+                    <div class="filter-color-dot" style="background-color: #2a9d8f;"></div>
+                    <span>县级</span>
+                </label>
+            </div>
+            <div class="filter-item">
+                <input type="checkbox" class="filter-checkbox" id="filter-DS" checked data-level="DS">
+                <label class="filter-label" for="filter-DS">
+                    <div class="filter-color-dot" style="background-color: #457b9d;"></div>
+                    <span>尚未定级</span>
+                </label>
+            </div>
+        </div>
+    </div>
+    
+    <div id="map"></div>
+
+    <!-- 左下角图例 -->
+    <div class="legend-container">
+        <div class="legend-title">文物等级说明</div>
+        <div class="legend-item">
+            <div class="legend-color" style="background-color: #e63946;"></div>
+            <span>全国重点文物保护单位</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background-color: #f4a261;"></div>
+            <span>自治区级文物保护单位</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background-color: #2a9d8f;"></div>
+            <span>县级文物保护单位</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background-color: #457b9d;"></div>
+            <span>尚未定级的不可移动文物</span>
+        </div>
+    </div>
+
+    <!-- 右下角坐标显示 -->
+    <div class="coordinates-display">
+        <div><span class="coordinates-label">纬度:</span> <span id="lat-display">--</span></div>
+        <div><span class="coordinates-label">经度:</span> <span id="lng-display">--</span></div>
+    </div>
+
+    <script>
+        var tk = "424ac2af85564078477428c1a2b72018";
+
+        // 1. 图层获取函数
+        function getTdtLayer(type, label) {
+            var base = L.tileLayer('https://t{s}.tianditu.gov.cn/' + type + '_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=' + type + '&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILECOL={x}&TILEROW={y}&TILEMATRIX={z}&tk=' + tk, { subdomains: ['0', '1', '2', '3', '4', '5', '6', '7'] });
+            var anno = L.tileLayer('https://t{s}.tianditu.gov.cn/' + label + '_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=' + label + '&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILECOL={x}&TILEROW={y}&TILEMATRIX={z}&tk=' + tk, { subdomains: ['0', '1', '2', '3', '4', '5', '6', '7'] });
+            return L.layerGroup([base, anno]);
+        }
+
+        var imgLayer = getTdtLayer('img', 'cia'); // 卫星
+        var vecLayer = getTdtLayer('vec', 'cva'); // 电子
+        var terLayer = getTdtLayer('ter', 'cta'); // 地形
+
+        // 2. 初始化地图
+        var map = L.map('map', {
+            center: [42.84, 90.21],
+            zoom: 10,
+            layers: [imgLayer] 
+        });
+
+        // 3. 配置切换控件 (设置 collapsed: true 减少遮挡)
+        var baseMaps = {
+            "卫星影像": imgLayer,
+            "电子地图": vecLayer,
+            "地形地貌": terLayer
+        };
+        L.control.layers(baseMaps, null, { collapsed: true }).addTo(map);
+
+// 4. 数据渲染与搜索索引
+        const levelColors = {
+            'GB': '#e63946', // 全国重点 - 红色
+            'SB': '#f4a261', // 自治区级 - 橙色
+            'XB': '#2a9d8f', // 县级 - 绿色
+            'DS': '#457b9d'  // 尚未定级 - 蓝色
+        };
+        
+        const levelNames = {
+            'GB': '全国重点文物保护单位',
+            'SB': '自治区级文物保护单位',
+            'XB': '县级文物保护单位',
+            'DS': '尚未定级的不可移动文物'
+        };
+
+        var sites = {{ sites_json|safe }};
+        var markersGroup = [];
+        var markerMap = {}; 
+
+        // 核心修复：确保每一行 site 都是独立处理的
+        sites.forEach(function(site) {
+            // 1. 获取当前点的级别并强制清洗（去空格、转大写）
+            // 注意：这里必须使用局部变量，防止被其他点位干扰
+            var currentLevel = String(site.level || "").trim().toUpperCase();
+            
+            // 2. 匹配颜色和名称
+            // 如果匹配不到，强制设为灰色，这样你就能一眼看出哪些数据没对上
+            var pointColor = levelColors[currentLevel] || '#666666'; 
+            var displayName = levelNames[currentLevel] || "未知等级(" + currentLevel + ")";
+
+            var marker = L.circleMarker([site.lat, site.lng], {
+                radius: 8,
+                fillColor: pointColor,   // 关键：确保这里使用的是当前循环的 pointColor
+                color: "#ffffff",
+                weight: 2,
+                opacity: 1,
+                fillOpacity: 0.8
+            }).addTo(map);
+
+            var popupContent = `
+                <div style="font-family: 'Microsoft YaHei'; padding: 5px; min-width: 150px;">
+                    <h4 style="margin: 0 0 8px 0; color: #333;">${site.name}</h4>
+                    <p style="margin: 4px 0; font-size: 13px;">
+                        <b>等级：</b><span style="font-weight:bold; color:${pointColor}">${displayName}</span>
+                    </p>
+                    <hr style="border:none; border-top:1px dashed #eee; margin: 8px 0;">
+                    <a href="/admin/core/heritagesite/?q=${encodeURIComponent(site.name)}" 
+                       target="_blank" 
+                       style="color: #409EFF; text-decoration: none; font-size: 12px;">查看系统详情 →</a>
+                </div>
+            `;
+            marker.bindPopup(popupContent);
+            
+            // 为marker添加level属性，用于筛选
+            marker.siteLevel = currentLevel;
+            
+            markerMap[site.name] = marker;
+            markersGroup.push(marker);
+        });
+        // 5. 自动缩放
+        if (markersGroup.length > 0) {
+            var group = new L.featureGroup(markersGroup);
+            map.fitBounds(group.getBounds().pad(0.1));
+        }
+
+        // 5.5 实时显示鼠标位置坐标
+        var latDisplay = document.getElementById('lat-display');
+        var lngDisplay = document.getElementById('lng-display');
+        
+        map.on('mousemove', function(e) {
+            var lat = e.latlng.lat.toFixed(6); // 保留6位小数
+            var lng = e.latlng.lng.toFixed(6);
+            latDisplay.textContent = lat;
+            lngDisplay.textContent = lng;
+        });
+
+        // 鼠标离开地图时重置坐标显示
+        map.on('mouseleave', function() {
+            latDisplay.textContent = '--';
+            lngDisplay.textContent = '--';
+        });
+
+        // 5.6 筛选功能实现
+        function updateMarkerVisibility() {
+            var visibleLevels = [];
+            document.querySelectorAll('.filter-checkbox').forEach(function(checkbox) {
+                if (checkbox.checked) {
+                    visibleLevels.push(checkbox.dataset.level);
+                }
+            });
+            
+            markersGroup.forEach(function(marker) {
+                if (visibleLevels.includes(marker.siteLevel)) {
+                    if (!map.hasLayer(marker)) {
+                        marker.addTo(map);
+                    }
+                } else {
+                    if (map.hasLayer(marker)) {
+                        map.removeLayer(marker);
+                    }
+                }
+            });
+        }
+
+        // 为筛选复选框添加事件监听
+        document.querySelectorAll('.filter-checkbox').forEach(function(checkbox) {
+            checkbox.addEventListener('change', updateMarkerVisibility);
+        });
+
+        // 7. 搜索功能实现
+        var searchInput = document.getElementById('search-input');
+        var searchResults = document.getElementById('search-results');
+
+        searchInput.addEventListener('input', function() {
+            var val = this.value.trim();
+            searchResults.innerHTML = '';
+            
+            if (!val) {
+                searchResults.style.display = 'none';
+                return;
+            }
+
+            var matches = sites.filter(function(s) {
+                return s.name.indexOf(val) !== -1;
+            });
+
+            if (matches.length > 0) {
+                searchResults.style.display = 'block';
+                matches.forEach(function(m) {
+                    var div = document.createElement('div');
+                    div.className = 'result-item';
+                    div.textContent = m.name;
+                    div.onclick = function() {
+                        var targetMarker = markerMap[m.name];
+                        map.flyTo(targetMarker.getLatLng(), 15, { duration: 1 });
+                        targetMarker.openPopup();
+                        searchResults.style.display = 'none';
+                        searchInput.value = m.name;
+                    };
+                    searchResults.appendChild(div);
+                });
+            } else {
+                searchResults.style.display = 'none';
+            }
+        });
+
+        // 点击地图其他地方关闭结果框
+        map.on('mousedown', function() {
+            searchResults.style.display = 'none';
+        });
+    </script>
+</body>
+</html>
