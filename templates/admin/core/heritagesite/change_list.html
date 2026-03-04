@@ -43,123 +43,149 @@
         }
     </style>
     <script>
-        document.addEventListener('DOMContentLoaded', function () {
-            const toggleBtn = document.getElementById('toggle-edit-mode');
-            const modeStatusBadge = document.getElementById('mode-status-badge');
-            if (!toggleBtn) {
-                return;
-            }
-
-            let form = document.getElementById('changelist-form');
-            if (!form) {
-                const anyEditableField = document.querySelector('input[name^="form-"], select[name^="form-"], textarea[name^="form-"]');
-                if (anyEditableField) {
-                    form = anyEditableField.closest('form');
+        (function () {
+            function findForm() {
+                const direct = document.getElementById('changelist-form');
+                if (direct) {
+                    return direct;
                 }
+                const anyEditableField = document.querySelector('input[name^="form-"], select[name^="form-"], textarea[name^="form-"]');
+                if (anyEditableField && anyEditableField.closest('form')) {
+                    return anyEditableField.closest('form');
+                }
+                return document.querySelector('form');
             }
-            if (!form) {
-                return;
-            }
-
-            let editModeInput = form.querySelector('input[name="edit_mode"]');
-            if (!editModeInput) {
-                editModeInput = document.createElement('input');
-                editModeInput.type = 'hidden';
-                editModeInput.name = 'edit_mode';
-                editModeInput.value = '0';
-                form.appendChild(editModeInput);
-            }
-
-            const saveButtons = form.querySelectorAll('input[name="_save"], button[name="_save"]');
-            let isEditMode = false;
 
             function getChangeListBasePath() {
                 return window.location.pathname.endsWith('/') ? window.location.pathname : (window.location.pathname + '/');
             }
 
-            function updateNameLinks(enabled) {
-                const rows = form.querySelectorAll('#result_list tbody tr');
-                const basePath = getChangeListBasePath();
-                rows.forEach(function (row) {
-                    const nameCell = row.querySelector('td.field-name');
-                    if (!nameCell) {
-                        return;
-                    }
-
-                    if (enabled) {
-                        if (nameCell.querySelector('a.edit-name-link')) {
-                            return;
-                        }
-                        const checkbox = row.querySelector('input.action-select');
-                        if (!checkbox || !checkbox.value) {
-                            return;
-                        }
-                        const objectId = checkbox.value;
-                        const nameText = nameCell.textContent.trim();
-                        const link = document.createElement('a');
-                        link.href = basePath + objectId + '/change/';
-                        link.className = 'edit-name-link';
-                        link.textContent = nameText;
-                        nameCell.innerHTML = '';
-                        nameCell.appendChild(link);
-                    } else {
-                        const existingLink = nameCell.querySelector('a.edit-name-link');
-                        if (existingLink) {
-                            const plainText = existingLink.textContent;
-                            nameCell.innerHTML = '';
-                            nameCell.textContent = plainText;
-                        }
-                    }
-                });
-            }
-
-            function toggleEditable(enabled) {
-                const editableInputs = form.querySelectorAll('input[name^="form-"] , select[name^="form-"] , textarea[name^="form-"]');
-                editableInputs.forEach(function (el) {
-                    if (el.type === 'hidden') {
-                        return;
-                    }
-                    el.disabled = !enabled;
-                });
-
-                saveButtons.forEach(function (btn) {
-                    btn.disabled = !enabled;
-                    btn.style.opacity = enabled ? '1' : '0.6';
-                    btn.style.cursor = enabled ? 'pointer' : 'not-allowed';
-                });
-
-                if (enabled) {
-                    form.classList.remove('readonly-row');
-                    toggleBtn.textContent = '退出编辑模式';
-                    toggleBtn.classList.add('deletelink');
-                    editModeInput.value = '1';
-                    if (modeStatusBadge) {
-                        modeStatusBadge.textContent = '当前模式：编辑';
-                        modeStatusBadge.classList.remove('mode-status-view');
-                        modeStatusBadge.classList.add('mode-status-edit');
-                    }
-                } else {
-                    form.classList.add('readonly-row');
-                    toggleBtn.textContent = '进入编辑模式';
-                    toggleBtn.classList.remove('deletelink');
-                    editModeInput.value = '0';
-                    if (modeStatusBadge) {
-                        modeStatusBadge.textContent = '当前模式：查看';
-                        modeStatusBadge.classList.remove('mode-status-edit');
-                        modeStatusBadge.classList.add('mode-status-view');
-                    }
+            function initToggle() {
+                const toggleBtn = document.getElementById('toggle-edit-mode');
+                const modeStatusBadge = document.getElementById('mode-status-badge');
+                if (!toggleBtn) {
+                    return false;
+                }
+                if (toggleBtn.dataset.bound === '1') {
+                    return true;
                 }
 
-                updateNameLinks(enabled);
+                let isEditMode = false;
+
+                function updateNameLinks(form, enabled) {
+                    const rows = form.querySelectorAll('#result_list tbody tr');
+                    const basePath = getChangeListBasePath();
+                    rows.forEach(function (row) {
+                        const nameCell = row.querySelector('td.field-name');
+                        if (!nameCell) {
+                            return;
+                        }
+
+                        if (enabled) {
+                            if (nameCell.querySelector('a.edit-name-link')) {
+                                return;
+                            }
+                            const checkbox = row.querySelector('input.action-select');
+                            if (!checkbox || !checkbox.value) {
+                                return;
+                            }
+                            const objectId = checkbox.value;
+                            const nameText = nameCell.textContent.trim();
+                            const link = document.createElement('a');
+                            link.href = basePath + objectId + '/change/';
+                            link.className = 'edit-name-link';
+                            link.textContent = nameText;
+                            nameCell.innerHTML = '';
+                            nameCell.appendChild(link);
+                        } else {
+                            const existingLink = nameCell.querySelector('a.edit-name-link');
+                            if (existingLink) {
+                                const plainText = existingLink.textContent;
+                                nameCell.innerHTML = '';
+                                nameCell.textContent = plainText;
+                            }
+                        }
+                    });
+                }
+
+                function applyMode(enabled) {
+                    const form = findForm();
+                    if (!form) {
+                        return;
+                    }
+
+                    let editModeInput = form.querySelector('input[name="edit_mode"]');
+                    if (!editModeInput) {
+                        editModeInput = document.createElement('input');
+                        editModeInput.type = 'hidden';
+                        editModeInput.name = 'edit_mode';
+                        form.appendChild(editModeInput);
+                    }
+
+                    const editableInputs = form.querySelectorAll('input[name^="form-"], select[name^="form-"], textarea[name^="form-"]');
+                    editableInputs.forEach(function (el) {
+                        if (el.type === 'hidden') {
+                            return;
+                        }
+                        el.disabled = !enabled;
+                    });
+
+                    const saveButtons = form.querySelectorAll('input[name="_save"], button[name="_save"]');
+                    saveButtons.forEach(function (btn) {
+                        btn.disabled = !enabled;
+                        btn.style.opacity = enabled ? '1' : '0.6';
+                        btn.style.cursor = enabled ? 'pointer' : 'not-allowed';
+                    });
+
+                    if (enabled) {
+                        form.classList.remove('readonly-row');
+                        toggleBtn.textContent = '退出编辑模式';
+                        toggleBtn.classList.add('deletelink');
+                        editModeInput.value = '1';
+                        if (modeStatusBadge) {
+                            modeStatusBadge.textContent = '当前模式：编辑';
+                            modeStatusBadge.classList.remove('mode-status-view');
+                            modeStatusBadge.classList.add('mode-status-edit');
+                        }
+                    } else {
+                        form.classList.add('readonly-row');
+                        toggleBtn.textContent = '进入编辑模式';
+                        toggleBtn.classList.remove('deletelink');
+                        editModeInput.value = '0';
+                        if (modeStatusBadge) {
+                            modeStatusBadge.textContent = '当前模式：查看';
+                            modeStatusBadge.classList.remove('mode-status-edit');
+                            modeStatusBadge.classList.add('mode-status-view');
+                        }
+                    }
+
+                    updateNameLinks(form, enabled);
+                }
+
+                window.__toggleHeritageEditMode = function () {
+                    isEditMode = !isEditMode;
+                    applyMode(isEditMode);
+                };
+
+                toggleBtn.addEventListener('click', function (event) {
+                    event.preventDefault();
+                    window.__toggleHeritageEditMode();
+                });
+                toggleBtn.onclick = function () {
+                    window.__toggleHeritageEditMode();
+                    return false;
+                };
+
+                toggleBtn.dataset.bound = '1';
+                applyMode(false);
+                return true;
             }
 
-            toggleBtn.addEventListener('click', function (event) {
-                event.preventDefault();
-                isEditMode = !isEditMode;
-                toggleEditable(isEditMode);
-            });
-
-            toggleEditable(false);
-        });
+            if (!initToggle()) {
+                document.addEventListener('DOMContentLoaded', initToggle);
+                setTimeout(initToggle, 300);
+                setTimeout(initToggle, 1000);
+            }
+        })();
     </script>
 {% endblock %}
