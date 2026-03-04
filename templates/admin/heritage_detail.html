@@ -522,17 +522,17 @@
                             {% for record in inspection_records %}
                                 <div class="inspection-item">
                                     <div class="inspection-date">
-                                        📅 {{ record.inspection_date|date:"Y年m月d日 H:i" }}
+                                        📅 {{ record.inspect_time|date:"Y年m月d日 H:i" }}
                                         {% if record.inspector %}
-                                            — 巡查员：{{ record.inspector }}
+                                            — 巡查员：{{ record.inspector.get_full_name|default:record.inspector.username }}
                                         {% endif %}
                                     </div>
                                     <div class="inspection-content">
-                                        {{ record.observation|default:"(无记录)" }}
+                                        {{ record.issue_details|default:"(正常)" }}
                                     </div>
-                                    {% if record.status %}
+                                    {% if record.is_normal is not None %}
                                         <div style="margin-top: 8px; font-size: 12px; color: #909399;">
-                                            状况：{{ record.get_status_display }}
+                                            状况：{% if record.is_normal %}正常{% else %}发现问题{% endif %}
                                         </div>
                                     {% endif %}
                                 </div>
