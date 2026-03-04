@@ -2,7 +2,7 @@
 
 {% block object-tools-items %}
     <li>
-        <a href="#" id="toggle-edit-mode" class="historylink">进入编辑模式</a>
+        <a href="javascript:void(0);" id="toggle-edit-mode" class="historylink">进入编辑模式</a>
     </li>
     {{ block.super }}
 {% endblock %}
@@ -22,8 +22,18 @@
     <script>
         document.addEventListener('DOMContentLoaded', function () {
             const toggleBtn = document.getElementById('toggle-edit-mode');
-            const form = document.getElementById('changelist-form');
-            if (!toggleBtn || !form) {
+            if (!toggleBtn) {
+                return;
+            }
+
+            let form = document.getElementById('changelist-form');
+            if (!form) {
+                const anyEditableField = document.querySelector('input[name^="form-"], select[name^="form-"], textarea[name^="form-"]');
+                if (anyEditableField) {
+                    form = anyEditableField.closest('form');
+                }
+            }
+            if (!form) {
                 return;
             }
 
@@ -36,12 +46,15 @@
                 form.appendChild(editModeInput);
             }
 
-            const saveButtons = form.querySelectorAll('input[name="_save"]');
+            const saveButtons = form.querySelectorAll('input[name="_save"], button[name="_save"]');
             let isEditMode = false;
 
             function toggleEditable(enabled) {
                 const editableInputs = form.querySelectorAll('input[name^="form-"] , select[name^="form-"] , textarea[name^="form-"]');
                 editableInputs.forEach(function (el) {
+                    if (el.type === 'hidden') {
+                        return;
+                    }
                     el.disabled = !enabled;
                 });
 

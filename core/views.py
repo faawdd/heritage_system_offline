@@ -307,7 +307,11 @@ def heritage_dashboard_view(request):
             township_counter[township_name] = township_counter.get(township_name, 0) + 1
 
     township_options = [
-        item[0] for item in sorted(township_counter.items(), key=lambda x: x[1], reverse=True)
+        {
+            'value': item[0],
+            'label': _to_township_full_name(item[0]),
+        }
+        for item in sorted(township_counter.items(), key=lambda x: x[1], reverse=True)
     ]
 
     context = {
@@ -334,6 +338,14 @@ def _extract_township_name(address):
         return match.group(1)
 
     return ''
+
+
+def _to_township_full_name(township_name):
+    if not township_name:
+        return ''
+    if township_name.startswith('鄯善县'):
+        return township_name
+    return f'鄯善县{township_name}'
 
 
 @staff_member_required
@@ -374,7 +386,10 @@ def heritage_classification_stats_api(request):
             key = township_name or '未标注乡镇'
             township_counter[key] = township_counter.get(key, 0) + 1
         sorted_items = sorted(township_counter.items(), key=lambda x: x[1], reverse=True)
-        labels = [item[0] for item in sorted_items]
+        labels = [
+            '未标注乡镇' if item[0] == '未标注乡镇' else _to_township_full_name(item[0])
+            for item in sorted_items
+        ]
         data = [item[1] for item in sorted_items]
     else:
         stats = queryset.values('category').annotate(count=Count('id')).order_by('-count')
