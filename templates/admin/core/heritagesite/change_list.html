@@ -27,6 +27,15 @@
                 return;
             }
 
+            let editModeInput = form.querySelector('input[name="edit_mode"]');
+            if (!editModeInput) {
+                editModeInput = document.createElement('input');
+                editModeInput.type = 'hidden';
+                editModeInput.name = 'edit_mode';
+                editModeInput.value = '0';
+                form.appendChild(editModeInput);
+            }
+
             const saveButtons = form.querySelectorAll('input[name="_save"]');
             let isEditMode = false;
 
@@ -46,10 +55,12 @@
                     form.classList.remove('readonly-row');
                     toggleBtn.textContent = '退出编辑模式';
                     toggleBtn.classList.add('deletelink');
+                    editModeInput.value = '1';
                 } else {
                     form.classList.add('readonly-row');
                     toggleBtn.textContent = '进入编辑模式';
                     toggleBtn.classList.remove('deletelink');
+                    editModeInput.value = '0';
                 }
             }
 
