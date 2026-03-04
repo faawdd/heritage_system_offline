@@ -173,7 +173,6 @@
                 }
 
                 const rows = table.querySelectorAll('tbody tr');
-                const baseURL = getAdminBaseURL();
 
                 rows.forEach(function (row) {
                     const checkbox = row.querySelector('input[type="checkbox"].action-select');
@@ -194,7 +193,8 @@
                         const nameText = nameCell.textContent.trim();
 
                         nameLink = document.createElement('a');
-                        nameLink.href = baseURL + '/core/heritagesite/' + objectId + '/change/';
+                        // 默认指向详情页（查看模式）
+                        nameLink.href = '/admin/heritage/' + objectId + '/detail/';
                         nameLink.className = 'edit-name-link view-mode';
                         nameLink.textContent = nameText;
                         nameLink.title = '点击打开详情页查看更多信息';
@@ -232,7 +232,7 @@
                     // 更新名称链接的类名、提示和可点击性
                     if (nameLink) {
                         if (enabled) {
-                            // 编辑模式：链接可点击
+                            // 编辑模式：链接指向编辑页面，可点击
                             nameLink.className = 'edit-name-link edit-mode';
                             nameLink.title = '点击打开详情页编辑所有字段';
                             nameLink.href = baseURL + '/core/heritagesite/' + objectId + '/change/';
@@ -242,21 +242,15 @@
                             nameLink.classList.remove('disabled');
                             nameLink.onclick = null;
                         } else {
-                            // 查看模式：链接不可点击
-                            nameLink.className = 'edit-name-link view-mode disabled';
-                            nameLink.title = '当前为查看模式，无法编辑。请点击"进入编辑模式"后再编辑';
-                            nameLink.href = 'javascript:void(0);';
-                            nameLink.style.pointerEvents = 'none';
-                            nameLink.style.opacity = '0.7';
-                            nameLink.style.cursor = 'not-allowed';
-                            nameLink.classList.add('disabled');
-                            
-                            // 添加点击阻止
-                            nameLink.onclick = function(e) {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                return false;
-                            };
+                            // 查看模式：链接指向只读详情页，点击打开详情页面
+                            nameLink.className = 'edit-name-link view-mode';
+                            nameLink.title = '点击打开详情页查看更多信息';
+                            nameLink.href = '/admin/heritage/' + objectId + '/detail/';
+                            nameLink.style.pointerEvents = 'auto';
+                            nameLink.style.opacity = '0.8';
+                            nameLink.style.cursor = 'pointer';
+                            nameLink.classList.remove('disabled');
+                            nameLink.onclick = null;
                         }
                     }
 

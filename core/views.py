@@ -15,6 +15,7 @@ import io
 import zipfile
 import uuid
 import re
+from django.shortcuts import get_object_or_404
 
 TOWNSHIP_NORMALIZATION_RULES = [
     ('东巴扎回族乡', '东巴扎回族乡'),
@@ -40,6 +41,37 @@ TOWNSHIP_NORMALIZATION_RULES = [
 TOWNSHIP_STANDARD_TO_KEYWORDS = {}
 for keyword, standard_name in TOWNSHIP_NORMALIZATION_RULES:
     TOWNSHIP_STANDARD_TO_KEYWORDS.setdefault(standard_name, set()).add(keyword)
+
+
+@staff_member_required
+def heritage_detail_view(request, pk):
+    """文物档案详情页 - 只读查看模式"""
+    heritage = get_object_or_404(HeritageSite, pk=pk)
+    
+    # 解析两线坐标数据
+    try:
+        protection_zone_data = json.loads(heritage.protection_zone) if heritage.protection_zone else []
+    except:
+        protection_zone_data = []
+    
+    try:
+        control_zone_data = json.loads(heritage.control_zone) if heritage.control_zone else []
+    except:
+        control_zone_data = []
+    
+    # 获取相关的巡查记录
+    inspection_records = InspectionRecord.objects.filter(
+        heritage_site=heritage
+    ).order_by('-inspection_date')[:10]
+    
+    context = {
+        'heritage': heritage,
+        'protection_zone_data': protection_zone_data,
+        'control_zone_data': control_zone_data,
+        'inspection_records': inspection_records,
+        'title': f'文物档案详情 - {heritage.name}',
+    }
+    return render(request, 'admin/heritage_detail.html', context)
 
 @staff_member_required
 def admin_index_view(request):
