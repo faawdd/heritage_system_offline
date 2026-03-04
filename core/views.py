@@ -2,6 +2,7 @@
 from django.shortcuts import render
 from django.template.loader import render_to_string
 from .models import HeritageSite, InspectionRecord, ProjectAudit, Coordinate
+from .ovkml_converter import parse_ovkml, build_csv_outputs
 import json
 from django.contrib.admin.views.decorators import staff_member_required
 from django.db.models import Count
@@ -12,6 +13,7 @@ from docxtpl import DocxTemplate
 import os
 import io
 import zipfile
+import uuid
 
 @staff_member_required
 def admin_index_view(request):
@@ -121,6 +123,151 @@ def heritage_map_view(request):
         'title': '鄯善县文物分布一张图'
     }
     return render(request, 'admin/heritage_map.html', context)
+
+
+@staff_member_required
+def kml_overlay_check_view(request):
+    """KML叠加检查页面"""
+    sites = HeritageSite.objects.all()
+    sites_data = []
+    for site in sites:
+        sites_data.append({
+            "name": site.name,
+            "lng": float(site.longitude),
+            "lat": float(site.latitude),
+            "level": site.level
+        })
+
+    context = {
+        'sites_json': json.dumps(sites_data),
+        'title': 'KML叠加检查'
+    }
+    return render(request, 'admin/kml_overlay_check.html', context)
+
+
+@staff_member_required
+def ovkml_converter_view(request):
+    """OVKML 网页转换工具：提取坐标并导出可导入 ProjectAudit 的 CSV。"""
+    context = {
+        'title': 'OVKML转换导入',
+        'input_crs': 'wgs84',
+        'output_crs': 'cgcs2000',
+        'deduplicate': True,
+    }
+
+    if request.method == 'POST':
+        upload_file = request.FILES.get('ovkml_file')
+        input_crs = request.POST.get('input_crs', 'wgs84')
+        output_crs = request.POST.get('output_crs', 'cgcs2000')
+        action = request.POST.get('action', 'convert')
+        deduplicate = request.POST.get('deduplicate') == 'on'
+
+        context['input_crs'] = input_crs
+        context['output_crs'] = output_crs
+        context['deduplicate'] = deduplicate
+
+        if not upload_file:
+            context['error'] = '请先选择 OVKML/KML 文件。'
+            return render(request, 'admin/ovkml_converter.html', context)
+
+        filename = (upload_file.name or '').lower()
+        if not (filename.endswith('.kml') or filename.endswith('.ovkml')):
+            context['error'] = '文件格式不正确，请上传 .kml 或 .ovkml 文件。'
+            return render(request, 'admin/ovkml_converter.html', context)
+
+        try:
+            records = parse_ovkml(upload_file.read(), input_crs=input_crs, output_crs=output_crs)
+        except Exception as exc:
+            context['error'] = f'解析失败：{exc}'
+            return render(request, 'admin/ovkml_converter.html', context)
+
+        if not records:
+            context['error'] = '未提取到 Placemark，请检查文件内容或嵌套结构。'
+            return render(request, 'admin/ovkml_converter.html', context)
+
+        project_csv, detail_csv = build_csv_outputs(records)
+
+        export_dir = os.path.join(settings.MEDIA_ROOT, 'ovkml_exports')
+        os.makedirs(export_dir, exist_ok=True)
+        export_id = uuid.uuid4().hex
+
+        project_filename = f'{export_id}_projectaudit.csv'
+        detail_filename = f'{export_id}_detail.csv'
+        project_path = os.path.join(export_dir, project_filename)
+        detail_path = os.path.join(export_dir, detail_filename)
+
+        with open(project_path, 'w', encoding='utf-8-sig', newline='') as f:
+            f.write(project_csv)
+        with open(detail_path, 'w', encoding='utf-8-sig', newline='') as f:
+            f.write(detail_csv)
+
+        preview_rows = []
+        for item in records[:100]:
+            preview_rows.append({
+                'project_name': item.project_name,
+                'geometry_type': item.geometry_type,
+                'vertex_count': item.vertex_count,
+                'project_lon': '' if item.target_lon is None else f'{item.target_lon:.10f}',
+                'project_lat': '' if item.target_lat is None else f'{item.target_lat:.10f}',
+                'cgcs2000_x': '' if item.cgcs2000_x is None else f'{item.cgcs2000_x:.3f}',
+                'cgcs2000_y': '' if item.cgcs2000_y is None else f'{item.cgcs2000_y:.3f}',
+                'source_folder': item.source_folder,
+            })
+
+        context.update({
+            'success': True,
+            'total_count': len(records),
+            'preview_rows': preview_rows,
+            'project_csv_url': f"{settings.MEDIA_URL}ovkml_exports/{project_filename}",
+            'detail_csv_url': f"{settings.MEDIA_URL}ovkml_exports/{detail_filename}",
+            'preview_truncated': len(records) > 100,
+        })
+
+        if action == 'import':
+            existing_keys = set()
+            if deduplicate:
+                for item in ProjectAudit.objects.only('project_name', 'project_lon', 'project_lat'):
+                    lon_key = '' if item.project_lon is None else f"{item.project_lon:.6f}"
+                    lat_key = '' if item.project_lat is None else f"{item.project_lat:.6f}"
+                    existing_keys.add((item.project_name.strip(), lon_key, lat_key))
+
+            batch_seen = set()
+            to_create = []
+            skipped_count = 0
+
+            for item in records:
+                lon_key = '' if item.target_lon is None else f"{item.target_lon:.6f}"
+                lat_key = '' if item.target_lat is None else f"{item.target_lat:.6f}"
+                row_key = (item.project_name.strip(), lon_key, lat_key)
+
+                if deduplicate and (row_key in existing_keys or row_key in batch_seen):
+                    skipped_count += 1
+                    continue
+
+                batch_seen.add(row_key)
+                to_create.append(
+                    ProjectAudit(
+                        project_name=item.project_name,
+                        project_unit='',
+                        construction_content='',
+                        project_scale='',
+                        project_coordinates=item.project_coordinates,
+                        project_lon=item.target_lon,
+                        project_lat=item.target_lat,
+                        workflow_status='received',
+                        remarks=f"来源文件夹:{item.source_folder or '-'}; 几何:{item.geometry_type}; 顶点:{item.vertex_count}; 导入来源:OVKML转换工具",
+                        received_date=timezone.now(),
+                    )
+                )
+
+            if to_create:
+                ProjectAudit.objects.bulk_create(to_create)
+
+            context['import_done'] = True
+            context['import_count'] = len(to_create)
+            context['import_skipped_count'] = skipped_count
+
+    return render(request, 'admin/ovkml_converter.html', context)
 
 
 @staff_member_required

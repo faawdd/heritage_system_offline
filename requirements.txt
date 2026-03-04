@@ -9,6 +9,7 @@ django-cors-headers>=4.3.1
 # 数据库与数据处理
 pandas>=2.2.1
 numpy>=1.26.4
+pyproj>=3.6.1
 
 # Word 公文生成 (实现项目管理中的快速发文)
 python-docx>=1.1.0

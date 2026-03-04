@@ -22,12 +22,15 @@ from core.views import (heritage_map_view, heritage_dashboard_view, heritage_sta
                         heritage_stats_by_category_api, admin_index_view,
                         kanerjing_list_view, kanerjing_stats_api, kanerjing_import_check_view,
                         CustomPasswordChangeDoneView, inspection_mobile_add_view, 
-                        inspection_mobile_list_view, export_doc_view)
+                        inspection_mobile_list_view, export_doc_view, kml_overlay_check_view,
+                        ovkml_converter_view)
 
 urlpatterns = [
     path('admin/home/', admin_index_view, name='admin_home'),  # 自定义首页
     path('admin/export_doc/', export_doc_view, name='admin_export_doc'),
+    path('admin/ovkml-converter/', ovkml_converter_view, name='ovkml_converter'),
     path('admin/heritage-map/', heritage_map_view, name='heritage_map'),
+    path('admin/kml-overlay-check/', kml_overlay_check_view, name='kml_overlay_check'),
     path('admin/heritage-dashboard/', heritage_dashboard_view, name='heritage_dashboard'),
     path('admin/kanerjing/', kanerjing_list_view, name='kanerjing_list'),  # 坎儿井专项管理
     path('admin/kanerjing-import-check/', kanerjing_import_check_view, name='kanerjing_import_check'),  # 导入检查
