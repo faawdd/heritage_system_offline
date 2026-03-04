@@ -108,10 +108,11 @@ class KanerjingFilter(admin.SimpleListFilter):
 class HeritageAdmin(ImportExportModelAdmin):
 # 注意：这里只能写 HeritageSite 模型里有的字段
     resource_class = HeritageResource
-    list_display = ('sip_code', 'name', 'category', 'level', 'manager')
+    change_list_template = 'admin/core/heritagesite/change_list.html'
+    list_display = ('sip_code', 'name', 'address', 'category', 'level', 'manager')
     list_filter = ('category', 'level', KanerjingFilter)
     search_fields = ('name', 'sip_code', 'address')
-    list_editable = ('manager',) # 记得这个逗号
+    list_editable = ('address', 'manager')
 
     def get_queryset(self, request):
         """获取查询集"""
