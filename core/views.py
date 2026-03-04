@@ -59,10 +59,10 @@ def heritage_detail_view(request, pk):
     except:
         control_zone_data = []
     
-    # 获取相关的巡查记录
+    # 获取相关的巡查记录（字段名是 site，不是 heritage_site）
     inspection_records = InspectionRecord.objects.filter(
-        heritage_site=heritage
-    ).order_by('-inspection_date')[:10]
+        site=heritage
+    ).order_by('-inspect_time')[:10]
     
     context = {
         'heritage': heritage,
