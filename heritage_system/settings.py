@@ -159,9 +159,9 @@ SIMPLEUI_CONFIG = {
                     'url': '/admin/heritage-map/'
                 },
                 {
-                    'name': '遥感影像对比',
+                    'name': '文物分类统计面板',
                     'icon': 'fas fa-drafting-compass',
-                    'url': '/admin/heritage-map/'
+                    'url': '/admin/heritage-dashboard/'
                 },
                 {
                     'name': 'KML叠加检查',

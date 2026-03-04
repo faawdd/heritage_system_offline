@@ -14,6 +14,7 @@ import os
 import io
 import zipfile
 import uuid
+import re
 
 @staff_member_required
 def admin_index_view(request):
@@ -272,33 +273,84 @@ def ovkml_converter_view(request):
 
 @staff_member_required
 def heritage_dashboard_view(request):
-    """统计仪表板视图"""
-    # 按分类统计
-    category_stats = HeritageSite.objects.values('category').annotate(count=Count('id'))
-    category_data = {
-        'labels': [dict(HeritageSite.CATEGORY_CHOICES).get(cat['category'], cat['category']) 
-                   for cat in category_stats],
-        'data': [cat['count'] for cat in category_stats]
-    }
-    
-    # 按保护等级统计
-    level_stats = HeritageSite.objects.values('level').annotate(count=Count('id'))
-    level_data = {
-        'labels': [dict(HeritageSite.LEVEL_CHOICES).get(lev['level'], lev['level']) 
-                   for lev in level_stats],
-        'data': [lev['count'] for lev in level_stats]
-    }
-    
-    # 总数统计
+    """文物分类统计面板"""
     total = HeritageSite.objects.count()
-    
+    township_options = sorted(set([
+        _extract_township_name(address)
+        for address in HeritageSite.objects.values_list('address', flat=True)
+        if _extract_township_name(address)
+    ]))
+
     context = {
-        'category_stats_json': json.dumps(category_data),
-        'level_stats_json': json.dumps(level_data),
         'total_sites': total,
-        'title': '文物统计仪表板'
+        'title': '文物分类统计面板',
+        'category_choices_json': json.dumps(list(HeritageSite.CATEGORY_CHOICES), ensure_ascii=False),
+        'level_choices_json': json.dumps(list(HeritageSite.LEVEL_CHOICES), ensure_ascii=False),
+        'township_options_json': json.dumps(township_options, ensure_ascii=False),
     }
     return render(request, 'admin/heritage_dashboard.html', context)
+
+
+def _extract_township_name(address):
+    if not address:
+        return ''
+
+    text = str(address).strip()
+    match = re.search(r'([\u4e00-\u9fa5]{1,20}(?:乡|镇|街道))', text)
+    if match:
+        return match.group(1)
+
+    fallback = re.split(r'[，,；;、\s]', text)[0]
+    return fallback[:20]
+
+
+@staff_member_required
+def heritage_classification_stats_api(request):
+    """文物分类统计面板实时数据 API（支持高级筛选）"""
+    category = request.GET.get('category', '').strip()
+    level = request.GET.get('level', '').strip()
+    township = request.GET.get('township', '').strip()
+    address_keyword = request.GET.get('address_keyword', '').strip()
+    group_by = request.GET.get('group_by', 'category').strip()
+
+    queryset = HeritageSite.objects.all()
+    if category:
+        queryset = queryset.filter(category=category)
+    if level:
+        queryset = queryset.filter(level=level)
+    if township:
+        queryset = queryset.filter(address__icontains=township)
+    if address_keyword:
+        queryset = queryset.filter(address__icontains=address_keyword)
+
+    labels = []
+    data = []
+
+    if group_by == 'level':
+        stats = queryset.values('level').annotate(count=Count('id')).order_by('-count')
+        level_name_map = dict(HeritageSite.LEVEL_CHOICES)
+        labels = [level_name_map.get(item['level'], item['level']) for item in stats]
+        data = [item['count'] for item in stats]
+    elif group_by == 'township':
+        township_counter = {}
+        for item in queryset.values('address'):
+            township_name = _extract_township_name(item.get('address'))
+            key = township_name or '未标注乡镇'
+            township_counter[key] = township_counter.get(key, 0) + 1
+        sorted_items = sorted(township_counter.items(), key=lambda x: x[1], reverse=True)
+        labels = [item[0] for item in sorted_items]
+        data = [item[1] for item in sorted_items]
+    else:
+        stats = queryset.values('category').annotate(count=Count('id')).order_by('-count')
+        category_name_map = dict(HeritageSite.CATEGORY_CHOICES)
+        labels = [category_name_map.get(item['category'], item['category']) for item in stats]
+        data = [item['count'] for item in stats]
+
+    return JsonResponse({
+        'labels': labels,
+        'data': data,
+        'total': queryset.count(),
+    })
 
 
 @staff_member_required
