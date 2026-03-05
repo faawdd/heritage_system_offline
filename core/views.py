@@ -16,6 +16,17 @@ import zipfile
 import uuid
 import re
 from django.shortcuts import get_object_or_404
+from heritage_system.version import VERSION, VERSION_HISTORY
+
+
+@staff_member_required
+def system_version_api(request):
+    """获取系统版本号信息 API"""
+    return JsonResponse({
+        'status': 'success',
+        'version': VERSION,
+        'version_history': VERSION_HISTORY,
+    })
 
 TOWNSHIP_NORMALIZATION_RULES = [
     ('东巴扎回族乡', '东巴扎回族乡'),

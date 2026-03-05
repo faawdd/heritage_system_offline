@@ -49,5 +49,59 @@
     #site-name img {
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
     }
+    
+    /* 版本号样式 */
+    #footer-version {
+        position: fixed;
+        bottom: 0;
+        right: 0;
+        background: rgba(255, 255, 255, 0.95);
+        border: 1px solid #ddd;
+        border-bottom: none;
+        border-right: none;
+        padding: 8px 12px;
+        font-size: 12px;
+        color: #666;
+        border-radius: 4px 0 0 0;
+        z-index: 999;
+        box-shadow: -2px -2px 4px rgba(0, 0, 0, 0.1);
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+    
+    #footer-version:hover {
+        color: #0c63e4;
+        background: rgba(255, 255, 255, 1);
+        box-shadow: -2px -2px 8px rgba(0, 0, 0, 0.15);
+    }
+    
+    #footer-version-tooltip {
+        display: none;
+        position: absolute;
+        bottom: 40px;
+        right: 0;
+        background: #333;
+        color: white;
+        padding: 10px 15px;
+        border-radius: 4px;
+        font-size: 12px;
+        white-space: nowrap;
+        z-index: 1000;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    }
+    
+    #footer-version:hover #footer-version-tooltip {
+        display: block;
+    }
 </style>
 {% endblock %}
+
+
+{% block footer %}
+{{ block.super }}
+<div id="footer-version">
+    {{ APP_VERSION_STRING }}
+    <div id="footer-version-tooltip">
+        {{ APP_VERSION_NAME }} ({{ APP_RELEASE_DATE }})
+    </div>
+</div>

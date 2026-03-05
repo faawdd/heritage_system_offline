@@ -185,6 +185,7 @@ class InspectionAdmin(admin.ModelAdmin):
         根据用户权限动态设置只读字段
         - 看护员用户：inspector 字段只读（锁定为自己）
         - 管理员用户：inspector 字段可编辑
+        - 超级管理员：所有字段可编辑
         """
         readonly = list(self.readonly_fields)
         
@@ -245,12 +246,25 @@ class InspectionAdmin(admin.ModelAdmin):
     display_photo.short_description = "现场照片"
 
     def get_queryset(self, request):
-        """看护员只能看自己的巡查记录"""
+        """
+        根据用户权限过滤查询集
+        - 超级管理员和管理员：查看所有巡查记录
+        - 文物看护员：只能查看自己的巡查记录
+        """
         qs = super().get_queryset(request)
-        if request.user.is_superuser or request.user.is_staff and request.user.groups.filter(name='管理员').exists():
+        
+        # 检查用户权限
+        is_admin = request.user.is_superuser or request.user.groups.filter(name='管理员').exists()
+        is_inspector = request.user.groups.filter(name='文物看护员').exists()
+        
+        if is_admin:
+            # 管理员可以查看所有记录
             return qs
-        # 普通看护员只能看自己的记录
-        return qs.filter(inspector=request.user)
+        elif is_inspector:
+            # 看护员只能看自己的记录
+            return qs.filter(inspector=request.user)
+        
+        return qs
 
     def save_model(self, request, obj, form, change):
         """
@@ -535,6 +549,189 @@ admin.site.site_title = '基层文物管理系统'
 
 # 修改后台首页的欢迎提示文字
 admin.site.index_title = '欢迎使用文物安全巡查与项目管理系统'
+
+
+# ============ 用户和组权限管理 ============
+
+class CustomUserAdmin(BaseUserAdmin):
+    """优化的用户管理界面 - 支持实时权限调整"""
+    list_display = ('username', 'get_full_name', 'email', 'is_staff', 'is_active', 'get_groups', 'last_login')
+    list_filter = ('is_staff', 'is_active', 'groups', 'date_joined')
+    search_fields = ('username', 'first_name', 'last_name', 'email')
+    ordering = ('username',)
+    readonly_fields = ('last_login', 'date_joined')
+    
+    fieldsets = (
+        (None, {'fields': ('username', 'password')}),
+        ('个人信息', {
+            'fields': ('first_name', 'last_name', 'email'),
+            'classes': ('wide',)
+        }),
+        ('权限与用户组', {
+            'fields': ('is_active', 'is_staff', 'is_superuser', 'groups'),
+            'description': '☝️ 在"用户组"中选择用户所属的组，每个组对应不同的权限级别。修改后立即生效。',
+            'classes': ('wide',)
+        }),
+        ('重要日期', {
+            'fields': ('last_login', 'date_joined'),
+            'classes': ('collapse',)
+        }),
+    )
+    add_fieldsets = (
+        (None, {
+            'classes': ('wide',),
+            'fields': ('username', 'password1', 'password2'),
+        }),
+        ('个人信息（可选）', {
+            'classes': ('collapse',),
+            'fields': ('first_name', 'last_name', 'email'),
+        }),
+        ('权限设置', {
+            'fields': ('is_active', 'groups'),
+            'description': '✓ 新用户默认为非活跃状态。请选择用户组后激活账户。',
+        }),
+    )
+
+    def get_full_name(self, obj):
+        """显示全名或用户名"""
+        return obj.get_full_name() or '---'
+    get_full_name.short_description = '姓名'
+
+    def get_groups(self, obj):
+        """显示用户所属组，超级管理员用特殊标记"""
+        groups = list(obj.groups.all())
+        if obj.is_superuser:
+            return mark_safe('<span style="color: #f57c00; font-weight: bold;">👑 超级管理员</span>')
+        if not groups:
+            return '---'
+        return ', '.join([f'<span style="background: #e3f2fd; padding: 2px 6px; border-radius: 3px; margin-right: 4px;">{g.name}</span>' for g in groups])
+    get_groups.short_description = '用户组'
+
+    def save_model(self, request, obj, form, change):
+        """保存用户时生成或更新UserProfile"""
+        super().save_model(request, obj, form, change)
+        # 确保每个用户都有profile记录
+        from core.models import UserProfile
+        UserProfile.objects.get_or_create(user=obj)
+
+
+class CustomGroupAdmin(BaseGroupAdmin):
+    """优化的用户组管理界面 - 支持实时权限调整"""
+    list_display = ('name', 'get_description', 'get_permission_count', 'get_members_count')
+    filter_horizontal = ('permissions',)
+    search_fields = ('name',)
+    readonly_fields = ('get_members_list',)
+
+    fieldsets = (
+        ('用户组信息', {
+            'fields': ('name', 'get_members_list'),
+        }),
+        ('权限配置', {
+            'fields': ('permissions',),
+            'description': '✓ 选择此用户组拥有的权限。修改后立即生效。',
+        }),
+    )
+
+    def get_description(self, obj):
+        """显示用户组描述"""
+        descriptions = {
+            '超级管理员': '🔑 最高权限',
+            '管理员': '🔧 系统管理',
+            '文物看护员': '👷 巡查员工',
+        }
+        return descriptions.get(obj.name, '用户组')
+    get_description.short_description = '描述'
+
+    def get_permission_count(self, obj):
+        """权限数量"""
+        return obj.permissions.count()
+    get_permission_count.short_description = '权限数'
+
+    def get_members_count(self, obj):
+        """组成员数量"""
+        return obj.user_set.count()
+    get_members_count.short_description = '成员数'
+
+    def get_members_list(self, obj):
+        """显示用户组内的全部成员"""
+        members = obj.user_set.all()
+        if not members:
+            return '（无成员）'
+        
+        member_html = '<ul style="margin: 10px 0;">'
+        for user in members:
+            icon = '👑' if user.is_superuser else '✓'
+            member_html += f'<li>{icon} {user.get_full_name() or user.username} <small>({user.username})</small></li>'
+        member_html += '</ul>'
+        return mark_safe(member_html)
+    get_members_list.short_description = '成员列表'
+
+
+class UserProfileAdmin(admin.ModelAdmin):
+    """用户密码修改记录和登录状态管理"""
+    list_display = ('get_user_display', 'get_groups_display', 'has_changed_password', 'first_login_at', 'status_indicator')
+    list_filter = ('has_changed_password', 'created_at', 'first_login_at')
+    search_fields = ('user__username', 'user__first_name', 'user__last_name')
+    readonly_fields = ('user', 'first_login_at', 'created_at')
+    
+    fieldsets = (
+        ('基本信息', {
+            'fields': ('user',)
+        }),
+        ('登录状态', {
+            'fields': ('has_changed_password', 'first_login_at'),
+            'description': '追踪用户首次登录和密码修改情况'
+        }),
+        ('系统信息', {
+            'fields': ('created_at',),
+            'classes': ('collapse',)
+        }),
+    )
+
+    def get_user_display(self, obj):
+        """显示用户信息"""
+        user = obj.user
+        full_name = user.get_full_name()
+        if full_name:
+            return f'{full_name} ({user.username})'
+        return user.username
+    get_user_display.short_description = '用户'
+
+    def get_groups_display(self, obj):
+        """显示用户所属组"""
+        groups = obj.user.groups.all()
+        if obj.user.is_superuser:
+            return mark_safe('<span style="color: #f57c00; font-weight: bold;">👑 超级管理员</span>')
+        if not groups:
+            return '---'
+        return ', '.join([g.name for g in groups])
+    get_groups_display.short_description = '用户组'
+
+    def status_indicator(self, obj):
+        """状态指示器"""
+        if obj.has_changed_password:
+            return mark_safe('<span style="color: green;">✓ 已修改密码</span>')
+        else:
+            return mark_safe('<span style="color: orange;">⚠️ 未修改密码</span>')
+    status_indicator.short_description = '密码状态'
+
+    def has_add_permission(self, request):
+        """防止直接添加UserProfile，应通过User创建"""
+        return False
+
+
+# 注册或重新注册 User 和 Group
+if admin.site.is_registered(User):
+    admin.site.unregister(User)
+admin.site.register(User, CustomUserAdmin)
+
+if admin.site.is_registered(Group):
+    admin.site.unregister(Group)
+admin.site.register(Group, CustomGroupAdmin)
+
+# 注册 UserProfile
+if not admin.site.is_registered(UserProfile):
+    admin.site.register(UserProfile, UserProfileAdmin)
 
 
 # ============ 用户和组管理 ============

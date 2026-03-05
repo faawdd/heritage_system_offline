@@ -123,16 +123,53 @@
         .map-container {
             width: 100%;
             height: 400px;
-            border: 1px solid #ccc;
+            border: 1px solid #dcdfe6;
             border-radius: 4px;
             overflow: hidden;
             margin: 15px 0;
-            background: #f5f7fa url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text x="50" y="50" text-anchor="middle" dy=".3em" font-size="12" fill="%23999">加载地图中...</text></svg>') center/contain no-repeat;
+            background: #f5f7fa;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
         }
 
         #heritage-map {
             width: 100%;
             height: 100%;
+        }
+
+        /* 地图图层控制美化 */
+        #heritage-map .leaflet-control-layers {
+            border: none !important;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15) !important;
+            border-radius: 4px !important;
+            background-color: rgba(255, 255, 255, 0.95) !important;
+            backdrop-filter: blur(4px);
+        }
+
+        #heritage-map .leaflet-control-layers label {
+            font-size: 13px;
+            margin-bottom: 6px;
+        }
+
+        #heritage-map .leaflet-control-layers input {
+            margin-right: 8px;
+            cursor: pointer;
+        }
+
+        /* 优化Popup弹窗样式 */
+        #heritage-map .leaflet-popup-content-wrapper {
+            border-radius: 6px;
+            box-shadow: 0 3px 12px rgba(0,0,0,0.15);
+            background: rgba(255, 255, 255, 0.98);
+            padding: 0 !important;
+        }
+
+        #heritage-map .leaflet-popup-content {
+            margin: 12px;
+            font-size: 13px;
+        }
+
+        #heritage-map .leaflet-popup-tip {
+            background: rgba(255, 255, 255, 0.98);
         }
 
         .coordinates-table {
@@ -444,12 +481,28 @@
                     </div>
                 </div>
 
-                <div style="margin-top: 20px;">
-                    <div class="section-title">🗺️ 地图预览</div>
-                    <div class="map-container">
-                        <div id="heritage-map"></div>
-                    </div>
+            <div class="detail-section">
+                <div class="section-title">🗺️ 地图预览</div>
+                <div class="coordinates-block" style="background: #f0f9ff; border-color: #b3e5fc; padding: 10px; margin-bottom: 10px;">
+                    <p style="margin: 0; font-size: 12px; color: #0097a7;">
+                        <strong>💡 提示：</strong> 
+                        可在右上角切换【卫星影像】、【电子地图】、【地形地貌】等底图显示。
+                        {% if protection_zone_data or control_zone_data %}
+                            <span style="display: block; margin-top: 5px;">
+                            {% if protection_zone_data %}
+                                <span style="color: #e6a23c;">■</span> 黄色范围为保护范围&nbsp;&nbsp;
+                            {% endif %}
+                            {% if control_zone_data %}
+                                <span style="color: #f56c6c;">■</span> 红色范围为建控地带
+                            {% endif %}
+                            </span>
+                        {% endif %}
+                    </p>
                 </div>
+                <div class="map-container">
+                    <div id="heritage-map"></div>
+                </div>
+            </div>
             </div>
         </div>
 
@@ -576,87 +629,160 @@
             event.target.classList.add('active');
         }
 
+        // 天地图token（与文物一张图保持一致）
+        var tk = "424ac2af85564078477428c1a2b72018";
+
+        // 获取天地图图层（支持卫星、电子地图、地形）
+        function getTdtLayer(type, label) {
+            var base = L.tileLayer('https://t{s}.tianditu.gov.cn/' + type + '_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=' + type + '&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILECOL={x}&TILEROW={y}&TILEMATRIX={z}&tk=' + tk, { 
+                subdomains: ['0', '1', '2', '3', '4', '5', '6', '7'] 
+            });
+            var anno = L.tileLayer('https://t{s}.tianditu.gov.cn/' + label + '_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=' + label + '&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILECOL={x}&TILEROW={y}&TILEMATRIX={z}&tk=' + tk, { 
+                subdomains: ['0', '1', '2', '3', '4', '5', '6', '7'] 
+            });
+            return L.layerGroup([base, anno]);
+        }
+
         // 初始化地图
         function initMap() {
             const mapContainer = document.getElementById('heritage-map');
-            if (!mapContainer) return;
+            if (!mapContainer || mapContainer._leafletMap) return; // 防止重复初始化
 
             const lat = {{ heritage.latitude|default:39.5 }};
             const lon = {{ heritage.longitude|default:116.5 }};
+
+            // 创建地图图层
+            var imgLayer = getTdtLayer('img', 'cia'); // 卫星
+            var vecLayer = getTdtLayer('vec', 'cva'); // 电子
+            var terLayer = getTdtLayer('ter', 'cta'); // 地形
 
             // 初始化Leaflet地图
             const map = L.map('heritage-map', {
                 center: [lat, lon],
                 zoom: 15,
+                layers: [imgLayer],
                 scrollWheelZoom: true
             });
 
-            // 添加天地图底图
-            L.tileLayer('https://t0.tianditu.com/vec_w/wmts?tk=您的天地图Key高德地图备选&p=wmts&x={x}&y={y}&z={z}&style=default', {
-                attribution: '© 高德地图',
-                subdomains: ['0', '1', '2'],
-                maxZoom: 20
+            // 标记地图对象，防止重复初始化
+            mapContainer._leafletMap = map;
+
+            // 配置图层切换控件
+            var baseMaps = {
+                "卫星影像": imgLayer,
+                "电子地图": vecLayer,
+                "地形地貌": terLayer
+            };
+            L.control.layers(baseMaps, null, { 
+                position: 'topright',
+                collapsed: true 
             }).addTo(map);
+
+            // 获取等级和颜色映射
+            const levelColors = {
+                'GB': '#e63946', // 全国重点 - 红色
+                'SB': '#f4a261', // 自治区级 - 橙色
+                'XB': '#2a9d8f', // 县级 - 绿色
+                'DS': '#457b9d'  // 尚未定级 - 蓝色
+            };
+
+            // 获取文物等级
+            const heritageLevel = "{{ heritage.level|default:'DS' }}" || 'DS';
+            const markerColor = levelColors[heritageLevel.trim()] || '#409eff';
 
             // 在地图上标记文物点
             const marker = L.circleMarker([lat, lon], {
-                radius: 8,
-                fillColor: '#409eff',
-                color: '#0088cc',
-                weight: 2,
-                opacity: 0.8,
-                fillOpacity: 0.7
+                radius: 10,
+                fillColor: markerColor,
+                color: '#ffffff',
+                weight: 3,
+                opacity: 1,
+                fillOpacity: 0.8
             }).addTo(map);
 
             marker.bindPopup(`
-                <div style="text-align: center; min-width: 150px;">
-                    <strong>{{ heritage.name }}</strong><br/>
-                    <small>{{ heritage.get_level_display }}</small><br/>
-                    <code style="font-size: 11px;">{{ heritage.longitude }}, {{ heritage.latitude }}</code>
+                <div style="font-family: 'Microsoft YaHei'; min-width: 200px;">
+                    <h4 style="margin: 0 0 8px 0; color: #333;">{{ heritage.name }}</h4>
+                    <p style="margin: 4px 0; font-size: 12px;">
+                        <b>等级：</b><span style="color:${markerColor}">{{ heritage.get_level_display }}</span>
+                    </p>
+                    <p style="margin: 4px 0; font-size: 12px;">
+                        <b>类别：</b>{{ heritage.get_category_display }}
+                    </p>
+                    <hr style="border:none; border-top:1px dashed #eee; margin: 8px 0;">
+                    <code style="font-size: 11px; color: #666;">
+                        纬度: {{ heritage.latitude }}<br/>
+                        经度: {{ heritage.longitude }}
+                    </code>
                 </div>
             `);
 
-            // 如果有保护范围或建控地带，绘制在地图上
+            // 用于自动缩放的bounds
+            let mapBounds = L.latLngBounds([lat, lon]);
+
+            // 如果检测到保护范围数据，绘制在地图上
             {% if protection_zone_data %}
                 try {
                     const protectionPoints = {{ protection_zone_data|safe }};
-                    if (protectionPoints && protectionPoints.length > 0) {
+                    if (protectionPoints && protectionPoints.length > 2) {
                         const latLngs = protectionPoints.map(p => [p[1], p[0]]);
                         const polygon = L.polygon(latLngs, {
                             color: '#e6a23c',
                             weight: 2,
-                            opacity: 0.6,
-                            fillOpacity: 0.1,
-                            fillColor: '#e6a23c'
+                            opacity: 0.8,
+                            fillOpacity: 0.15,
+                            fillColor: '#e6a23c',
+                            className: 'protection-zone-poly'
                         }).addTo(map);
-                        polygon.bindPopup('保护范围');
+                        polygon.bindPopup(`
+                            <div style="font-family: 'Microsoft YaHei';">
+                                <strong style="color: #e6a23c;">保护范围</strong><br/>
+                                <small style="color: #666;">共 ${protectionPoints.length} 个围点</small>
+                            </div>
+                        `);
+                        // 扩展bounds
+                        latLngs.forEach(point => mapBounds.extend(point));
                     }
                 } catch (e) {
                     console.error('Failed to draw protection zone:', e);
                 }
             {% endif %}
 
+            // 如果检测到建控地带数据，绘制在地图上
             {% if control_zone_data %}
                 try {
                     const controlPoints = {{ control_zone_data|safe }};
-                    if (controlPoints && controlPoints.length > 0) {
+                    if (controlPoints && controlPoints.length > 2) {
                         const latLngs = controlPoints.map(p => [p[1], p[0]]);
                         const polygon = L.polygon(latLngs, {
                             color: '#f56c6c',
                             weight: 2,
-                            opacity: 0.6,
-                            fillOpacity: 0.05,
+                            opacity: 0.8,
+                            fillOpacity: 0.08,
                             fillColor: '#f56c6c',
-                            dashArray: '5, 5'
+                            dashArray: '5, 5',
+                            className: 'control-zone-poly'
                         }).addTo(map);
-                        polygon.bindPopup('建控地带');
+                        polygon.bindPopup(`
+                            <div style="font-family: 'Microsoft YaHei';">
+                                <strong style="color: #f56c6c;">建控地带</strong><br/>
+                                <small style="color: #666;">共 ${controlPoints.length} 个围点</small>
+                            </div>
+                        `);
+                        // 扩展bounds
+                        latLngs.forEach(point => mapBounds.extend(point));
                     }
                 } catch (e) {
                     console.error('Failed to draw control zone:', e);
                 }
             {% endif %}
 
-            // 调整视图以适应所有图层
+            // 自动调整视图以适应所有对象
+            if (mapBounds.isValid()) {
+                map.fitBounds(mapBounds, { padding: [50, 50] });
+            }
+
+            // 调整视图
             map.invalidateSize();
         }
 
@@ -671,7 +797,16 @@
         window.switchTab = function(event, tabName) {
             originalSwitchTab(event, tabName);
             if (tabName === 'coordinates') {
-                setTimeout(initMap, 100);
+                setTimeout(() => {
+                    const mapContainer = document.getElementById('heritage-map');
+                    if (mapContainer && mapContainer._leafletMap) {
+                        // 地图已初始化，刷新大小
+                        mapContainer._leafletMap.invalidateSize();
+                    } else {
+                        // 地图未初始化，执行初始化
+                        initMap();
+                    }
+                }, 100);
             }
         };
     </script>
