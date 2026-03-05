@@ -14,6 +14,33 @@
             padding: 20px;
         }
         .container { max-width: 1400px; margin: 0 auto; }
+        
+        /* 版本号样式 */
+        .version-badge {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.95);
+            border: 1px solid #ddd;
+            padding: 8px 12px;
+            font-size: 12px;
+            color: #666;
+            border-radius: 4px;
+            z-index: 999;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            cursor: help;
+            transition: all 0.3s ease;
+        }
+        
+        .version-badge:hover {
+            color: #0c63e4;
+            background: rgba(255, 255, 255, 1);
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+            transform: translateY(-2px);
+        }
+        
+        .header { max-width: 1400px; margin: 0 auto; }
+        .container { max-width: 1400px; margin: 0 auto; }
         .header, .card {
             background: #fff;
             border-radius: 10px;
@@ -315,5 +342,10 @@
         bindChangeEvents();
         loadStats();
     </script>
+    
+    <!-- 版本号显示 -->
+    <div class="version-badge" title="{{ APP_VERSION_NAME }} - Released on {{ APP_RELEASE_DATE }}">
+        {{ APP_VERSION_STRING }}
+    </div>
 </body>
 </html>

@@ -1,5 +1,17 @@
 import json
 from .models import HeritageSite
+from heritage_system.version import VERSION, get_version_string
+
+
+def version_context(request):
+    """为模板提供版本号信息"""
+    return {
+        'APP_VERSION': VERSION['version'],
+        'APP_VERSION_STRING': get_version_string(),
+        'APP_VERSION_NAME': VERSION['version_name'],
+        'APP_RELEASE_DATE': VERSION['release_date'],
+    }
+
 
 def heritage_map_context(request):
     if request.path == '/admin/':
