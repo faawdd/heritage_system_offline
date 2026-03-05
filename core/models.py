@@ -260,3 +260,39 @@ class UserProfile(models.Model):
     class Meta:
         verbose_name = "用户密码修改记录"
         verbose_name_plural = verbose_name
+
+
+# 5. 用户管理审计日志
+class UserManagementAudit(models.Model):
+    """记录用户和用户组的管理操作"""
+    ACTION_CHOICES = [
+        ('add_user', '创建用户'),
+        ('change_user', '修改用户'),
+        ('delete_user', '删除用户'),
+        ('add_group', '创建用户组'),
+        ('change_group', '修改用户组'),
+        ('delete_group', '删除用户组'),
+        ('add_to_group', '添加用户到组'),
+        ('remove_from_group', '从组移除用户'),
+    ]
+    
+    operator = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='management_actions', verbose_name='操作员')
+    action = models.CharField('操作类型', max_length=20, choices=ACTION_CHOICES)
+    target_user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='management_logs', verbose_name='目标用户')
+    target_group = models.ForeignKey('auth.Group', on_delete=models.SET_NULL, null=True, blank=True, verbose_name='目标用户组')
+    details = models.TextField('操作详情', blank=True)
+    created_at = models.DateTimeField('操作时间', auto_now_add=True)
+    
+    def __str__(self):
+        target = self.target_user or self.target_group
+        return f"{self.operator} - {self.get_action_display()} - {target}"
+    
+    class Meta:
+        verbose_name = "用户管理审计日志"
+        verbose_name_plural = verbose_name
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['-created_at']),
+            models.Index(fields=['operator']),
+            models.Index(fields=['action']),
+        ]

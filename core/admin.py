@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import HeritageSite, InspectionRecord, ProjectAudit, Coordinate, UserProfile
+from .models import HeritageSite, InspectionRecord, ProjectAudit, Coordinate, UserProfile, UserManagementAudit
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin, GroupAdmin as BaseGroupAdmin
 from django.utils.html import format_html, mark_safe
@@ -607,12 +607,68 @@ class CustomUserAdmin(BaseUserAdmin):
         return ', '.join([f'<span style="background: #e3f2fd; padding: 2px 6px; border-radius: 3px; margin-right: 4px;">{g.name}</span>' for g in groups])
     get_groups.short_description = '用户组'
 
+    def has_add_permission(self, request):
+        """只有超级管理员可以添加用户"""
+        return request.user.is_superuser
+
+    def has_change_permission(self, request, obj=None):
+        """只有超级管理员可以修改用户"""
+        return request.user.is_superuser
+
+    def has_delete_permission(self, request, obj=None):
+        """只有超级管理员可以删除用户"""
+        return request.user.is_superuser
+
+    def has_view_permission(self, request, obj=None):
+        """只有超级管理员和管理员可以查看用户列表"""
+        return request.user.is_superuser or request.user.groups.filter(name='管理员').exists()
+
+    def get_queryset(self, request):
+        """超级管理员可以看到所有用户，管理员只能看到非超级管理员的用户"""
+        qs = super().get_queryset(request)
+        if not request.user.is_superuser:
+            # 管理员看不到超级管理员和其他管理员
+            qs = qs.exclude(is_superuser=True).exclude(groups__name='管理员')
+        return qs
+
     def save_model(self, request, obj, form, change):
-        """保存用户时生成或更新UserProfile"""
+        """保存用户时生成或更新UserProfile，并记录操作"""
         super().save_model(request, obj, form, change)
         # 确保每个用户都有profile记录
         from core.models import UserProfile
         UserProfile.objects.get_or_create(user=obj)
+        
+        # 记录操作日志
+        action = "修改用户" if change else "新建用户"
+        self._log_action(request, obj, action)
+
+    def delete_model(self, request, obj):
+        """删除用户前记录日志"""
+        self._log_action(request, obj, "删除用户")
+        super().delete_model(request, obj)
+
+    def _log_action(self, request, obj, action):
+        """记录用户管理操作"""
+        try:
+            from django.contrib.admin.models import LogEntry, ADDITION, CHANGE, DELETION
+            from django.contrib.contenttypes.models import ContentType
+            
+            action_flag = {
+                "新建用户": ADDITION,
+                "修改用户": CHANGE,
+                "删除用户": DELETION,
+            }.get(action, CHANGE)
+            
+            LogEntry.objects.create(
+                user=request.user,
+                content_type=ContentType.objects.get_for_model(User),
+                object_id=obj.pk,
+                object_repr=str(obj),
+                action_flag=action_flag,
+                change_message=f"{action}: {obj.username}"
+            )
+        except Exception:
+            pass
 
 
 class CustomGroupAdmin(BaseGroupAdmin):
@@ -665,6 +721,66 @@ class CustomGroupAdmin(BaseGroupAdmin):
         member_html += '</ul>'
         return mark_safe(member_html)
     get_members_list.short_description = '成员列表'
+
+    def has_add_permission(self, request):
+        """只有超级管理员可以创建新用户组"""
+        return request.user.is_superuser
+
+    def has_change_permission(self, request, obj=None):
+        """只有超级管理员可以修改用户组"""
+        return request.user.is_superuser
+
+    def has_delete_permission(self, request, obj=None):
+        """只有超级管理员可以删除用户组"""
+        if obj and obj.user_set.exists():
+            # 不允许删除有成员的用户组
+            return False
+        return request.user.is_superuser
+
+    def has_view_permission(self, request, obj=None):
+        """只有超级管理员和管理员可以查看用户组列表"""
+        return request.user.is_superuser or request.user.groups.filter(name='管理员').exists()
+
+    def save_model(self, request, obj, form, change):
+        """保存用户组时记录操作"""
+        super().save_model(request, obj, form, change)
+        self._log_action(request, obj, change)
+
+    def delete_model(self, request, obj):
+        """删除用户组前检查并记录日志"""
+        if obj.user_set.exists():
+            from django.contrib import messages
+            messages.error(request, f'无法删除用户组"{obj.name}"，因为它仍有 {obj.user_set.count()} 个成员。请先移除所有成员。')
+            return
+        self._log_action(request, obj, False, is_delete=True)
+        super().delete_model(request, obj)
+
+    def _log_action(self, request, obj, change, is_delete=False):
+        """记录用户组管理操作"""
+        try:
+            from django.contrib.admin.models import LogEntry, ADDITION, CHANGE, DELETION
+            from django.contrib.contenttypes.models import ContentType
+            
+            if is_delete:
+                action_flag = DELETION
+                message = f"删除用户组: {obj.name}"
+            elif change:
+                action_flag = CHANGE
+                message = f"修改用户组: {obj.name}"
+            else:
+                action_flag = ADDITION
+                message = f"新建用户组: {obj.name}"
+            
+            LogEntry.objects.create(
+                user=request.user,
+                content_type=ContentType.objects.get_for_model(Group),
+                object_id=obj.pk,
+                object_repr=str(obj),
+                action_flag=action_flag,
+                change_message=message
+            )
+        except Exception:
+            pass
 
 
 class UserProfileAdmin(admin.ModelAdmin):
@@ -720,6 +836,80 @@ class UserProfileAdmin(admin.ModelAdmin):
         return False
 
 
+class UserManagementAuditAdmin(admin.ModelAdmin):
+    """用户管理审计日志 - 记录所有用户和用户组的管理操作"""
+    list_display = ('created_at', 'operator', 'get_action_display_colored', 'get_target', 'details_preview')
+    list_filter = ('action', 'created_at', 'operator')
+    search_fields = ('operator__username', 'target_user__username', 'target_group__name', 'details')
+    readonly_fields = ('operator', 'action', 'target_user', 'target_group', 'details', 'created_at')
+    date_hierarchy = 'created_at'
+    ordering = ['-created_at']
+    
+    fieldsets = (
+        ('操作信息', {
+            'fields': ('operator', 'action', 'created_at')
+        }),
+        ('操作目标', {
+            'fields': ('target_user', 'target_group')
+        }),
+        ('操作详情', {
+            'fields': ('details',),
+            'classes': ('collapse',)
+        }),
+    )
+
+    def get_action_display_colored(self, obj):
+        """带颜色的操作类型显示"""
+        colors = {
+            'add_user': '#28a745',
+            'change_user': '#007bff',
+            'delete_user': '#dc3545',
+            'add_group': '#28a745',
+            'change_group': '#007bff',
+            'delete_group': '#dc3545',
+            'add_to_group': '#17a2b8',
+            'remove_from_group': '#ffc107',
+        }
+        color = colors.get(obj.action, '#6c757d')
+        return mark_safe(f'<span style="color: {color}; font-weight: bold;">{obj.get_action_display()}</span>')
+    get_action_display_colored.short_description = '操作类型'
+
+    def get_target(self, obj):
+        """显示操作的目标"""
+        if obj.target_user:
+            icon = '👤'
+            name = obj.target_user.get_full_name() or obj.target_user.username
+            return mark_safe(f'{icon} {name} <small>({obj.target_user.username})</small>')
+        elif obj.target_group:
+            return mark_safe(f'👥 {obj.target_group.name}')
+        return '---'
+    get_target.short_description = '操作目标'
+
+    def details_preview(self, obj):
+        """操作详情预览"""
+        if obj.details:
+            preview = obj.details[:50] + ('...' if len(obj.details) > 50 else '')
+            return preview
+        return '---'
+    details_preview.short_description = '详情预览'
+
+    def has_add_permission(self, request):
+        """防止手动添加审计记录"""
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        """防止修改审计记录"""
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        """只有超级管理员可以删除审计记录"""
+        return request.user.is_superuser
+
+    def has_view_permission(self, request, obj=None):
+        """只有超级管理员和管理员可以查看审计日志"""
+        return request.user.is_superuser or request.user.groups.filter(name='管理员').exists()
+
+
 # 注册或重新注册 User 和 Group
 if admin.site.is_registered(User):
     admin.site.unregister(User)
@@ -732,6 +922,10 @@ admin.site.register(Group, CustomGroupAdmin)
 # 注册 UserProfile
 if not admin.site.is_registered(UserProfile):
     admin.site.register(UserProfile, UserProfileAdmin)
+
+# 注册 UserManagementAudit
+if not admin.site.is_registered(UserManagementAudit):
+    admin.site.register(UserManagementAudit, UserManagementAuditAdmin)
 
 
 
