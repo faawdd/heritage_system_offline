@@ -12,7 +12,6 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 
 from pathlib import Path
 import os
-from .version import VERSION, get_version_string
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -28,16 +27,15 @@ SECRET_KEY = 'django-insecure-^me3znqxm6l8%m-cxs7k$=m7=eg0h_8d&kx+p88dzsz+sg#wh*
 DEBUG = False
 ALLOWED_HOSTS = ['beichenhome.top', 'localhost', '127.0.0.1', '[::1]']
 
-# 静态文件收集目录
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
-
-# CSRF 信任域名（IPv6 环境必须）
+# CSRF 信任域名 - 生产环境保持HTTPS配置
 CSRF_TRUSTED_ORIGINS = ['https://beichenhome.top:9081']
 SECURE_SSL_REDIRECT = True
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
-# Application definition
+
+# 静态文件收集目录
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 INSTALLED_APPS = [
     'simpleui',
@@ -76,7 +74,6 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'core.context_processors.heritage_map_context',
-                'core.context_processors.version_context',
             ],
         },
     },
@@ -144,69 +141,74 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 SIMPLEUI_CONFIG = {
-    'system_keep': False,
-    'menu_display': ['普查一张图', '工程评审', '自动化办公'],
+    'system_keep': True,  # 设置为True，系统会自动保留原有的所有菜单，即使你没定义
+    'menu_display': ['文物管理', '日常办公','可视化分析', '系统设置'], 
     'menus': [
         {
-            'name': '普查一张图',
-            'icon': 'fas fa-map-marked-alt',
+            'name': '首页',
+            'icon': 'fas fa-home',
+            'url': '/admin/',  # 指向后台首页
+        },
+        {
+            'name': '文物管理',
+            'icon': 'fas fa-university',
             'models': [
                 {
-                    'name': '文物点管理',
-                    'icon': 'fas fa-map-pin',
-                    'url': 'core/heritagesite/'
+                    'name': '不可移动文物',
+                    'icon': 'fas fa-fw fa-book',
+                    'url': 'core/heritagesite/' # 注意这里必须是 core/heritagesite/
+                },
+            ]
+        },
+        {
+            'name': '日常办公',
+            'icon': 'fas fa-tasks',
+            'models': [
+                {'name': '巡查记录', 'url': 'core/inspectionrecord/', 'icon': 'fas fa-camera'},
+                {'name': '项目管理', 'url': 'core/projectaudit/', 'icon': 'fas fa-project-diagram'},
+                {'name': '看护员管理', 'url': 'auth/user/', 'icon': 'fas fa-user-tie'},
+            ]
+        },
+        {
+            'name': '可视化分析',
+            'icon': 'fas fa-chart-pie',
+            'models': [
+                {
+                    'name': '统计仪表板',
+                    'icon': 'fas fa-chart-bar',
+                    'url': '/admin/heritage-dashboard/' # 统计图表页面
                 },
                 {
                     'name': '文物分布一张图',
-                    'icon': 'fas fa-globe-asia',
-                    'url': '/admin/heritage-map/'
-                },
-                {
-                    'name': '文物分类统计面板',
-                    'icon': 'fas fa-drafting-compass',
-                    'url': '/admin/heritage-dashboard/'
-                },
-                {
-                    'name': 'KML叠加检查',
-                    'icon': 'fas fa-layer-group',
-                    'url': '/admin/kml-overlay-check/'
+                    'icon': 'fas fa-map-marked-alt',
+                    'url': '/admin/heritage-map/' # 对应刚才定义的 URL
                 }
             ]
         },
         {
-            'name': '工程评审',
-            'icon': 'fas fa-project-diagram',
+            'name': '坎儿井专项',
+            'icon': 'fas fa-water',
             'models': [
                 {
-                    'name': '工程项目管理',
-                    'icon': 'fas fa-bolt',
-                    'url': 'core/projectaudit/'
+                    'name': '坎儿井管理',
+                    'icon': 'fas fa-list-ul',
+                    'url': '/admin/kanerjing/' # 坎儿井专项管理页面
                 },
                 {
-                    'name': '项目坐标核查',
-                    'icon': 'fas fa-map-marker-alt',
-                    'url': 'core/coordinate/'
-                },
-                {
-                    'name': 'OVKML转换导入',
-                    'icon': 'fas fa-file-csv',
-                    'url': '/admin/ovkml-converter/'
-                },
-                {
-                    'name': '项目公文导出',
-                    'icon': 'fas fa-file-export',
-                    'url': '/admin/export_doc/'
+                    'name': '导入检查',
+                    'icon': 'fas fa-check-circle',
+                    'url': '/admin/kanerjing-import-check/' # 导入检查报告
                 }
             ]
         },
         {
-            'name': '自动化办公',
-            'icon': 'fas fa-file-word',
+            'name': '系统设置',
+            'icon': 'fas fa-cogs',
             'models': [
                 {
-                    'name': '巡查记录',
-                    'icon': 'fas fa-camera',
-                    'url': 'core/inspectionrecord/'
+                    'name': '用户组管理',
+                    'icon': 'fas fa-users',
+                    'url': 'auth/group/'
                 }
             ]
         },
@@ -229,8 +231,3 @@ SIMPLEUI_CUSTOM_JS = '/static/admin/js/simpleui_custom.js'
 SIMPLEUI_LOGIN_TITLE = '文物管理系统 - 请登录'
 # 配置自定义首页 URL 路径 - 显示统计仪表板
 SIMPLEUI_HOME_PAGE = '/admin/home/'
-
-try:
-    from local_settings import *
-except ImportError:
-    pass
