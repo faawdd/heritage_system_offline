@@ -213,7 +213,7 @@ SIMPLEUI_CONFIG = {
                     'name': '用户组管理',
                     'icon': 'fas fa-users',
                     'url': 'auth/group/'
-                }
+                },
                 {'name': '用户管理', 'url': 'auth/user/', 'icon': 'fas fa-user-tie'},
             ]
         },
