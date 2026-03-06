@@ -18,6 +18,7 @@ import re
 from django.conf import settings
 from django.utils import timezone
 from docxtpl import DocxTemplate
+from .permission_decorators import is_admin, is_inspector
 
 
 
@@ -129,14 +130,12 @@ class HeritageAdmin(ImportExportModelAdmin):
     
     def has_add_permission(self, request):
         """权限检查：仅管理员及以上可以添加"""
-        from core.permission_decorators import is_admin
         if not is_admin(request.user):
             return False
         return super().has_add_permission(request)
     
     def has_change_permission(self, request, obj=None):
         """权限检查：仅管理员及以上可以编辑"""
-        from core.permission_decorators import is_admin
         if not is_admin(request.user):
             return False
         return super().has_change_permission(request, obj)
@@ -228,27 +227,23 @@ class InspectionAdmin(admin.ModelAdmin):
     
     def has_add_permission(self, request):
         """权限检查：看护员和管理员都可以添加"""
-        from core.permission_decorators import is_inspector, is_admin
         if is_inspector(request.user) or is_admin(request.user):
             return super().has_add_permission(request)
         return False
     
     def has_change_permission(self, request, obj=None):
         """权限检查：看护员只能修改自己的记录"""
-        from core.permission_decorators import is_admin
-        
         if is_admin(request.user):
             return super().has_change_permission(request, obj)
         
-        is_inspector = request.user.groups.filter(name='文物看护员').exists()
-        if is_inspector and obj and obj.inspector != request.user:
+        is_insp = request.user.groups.filter(name='文物看护员').exists()
+        if is_insp and obj and obj.inspector != request.user:
             return False
         
-        return super().has_change_permission(request, obj) if is_inspector else False
+        return super().has_change_permission(request, obj) if is_insp else False
     
     def has_delete_permission(self, request, obj=None):
         """权限检查：仅管理员及以上可以删除"""
-        from core.permission_decorators import is_admin
         if not is_admin(request.user):
             return False
         return super().has_delete_permission(request, obj)
@@ -504,27 +499,22 @@ class ProjectAdmin(admin.ModelAdmin):
 
     def has_module_permission(self, request):
         """权限检查：看护员无权访问项目管理模块"""
-        from core.permission_decorators import is_admin
         return is_admin(request.user)
     
-    def has_view_permission(self, request):
+    def has_view_permission(self, request, obj=None):
         """权限检查：仅管理员及以上可以查看"""
-        from core.permission_decorators import is_admin
         return is_admin(request.user)
     
     def has_add_permission(self, request):
         """权限检查：仅管理员及以上可以添加"""
-        from core.permission_decorators import is_admin
         return is_admin(request.user)
     
     def has_change_permission(self, request, obj=None):
         """权限检查：仅管理员及以上可以编辑"""
-        from core.permission_decorators import is_admin
         return is_admin(request.user)
     
     def has_delete_permission(self, request, obj=None):
         """权限检查：仅管理员及以上可以删除"""
-        from core.permission_decorators import is_admin
         return is_admin(request.user)
 
     def export_standard_request_doc(self, request, queryset):
