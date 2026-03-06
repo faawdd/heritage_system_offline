@@ -127,6 +127,26 @@ class HeritageAdmin(ImportExportModelAdmin):
         qs = super().get_queryset(request)
         return qs
     
+    def has_add_permission(self, request):
+        """权限检查：仅管理员及以上可以添加"""
+        from core.permission_decorators import is_admin
+        if not is_admin(request.user):
+            return False
+        return super().has_add_permission(request)
+    
+    def has_change_permission(self, request, obj=None):
+        """权限检查：仅管理员及以上可以编辑"""
+        from core.permission_decorators import is_admin
+        if not is_admin(request.user):
+            return False
+        return super().has_change_permission(request, obj)
+    
+    def has_delete_permission(self, request, obj=None):
+        """权限检查：仅超级管理员可以删除"""
+        if not request.user.is_superuser:
+            return False
+        return super().has_delete_permission(request, obj)
+    
     def identify_kanerjing(self, request, queryset):
         """识别坎儿井数据的管理操作"""
         kanerjing_count = 0
@@ -142,6 +162,12 @@ class HeritageAdmin(ImportExportModelAdmin):
 
 @admin.register(InspectionRecord)
 class InspectionAdmin(admin.ModelAdmin):
+    """巡查记录管理 - 权限说明
+    
+    看护员：可添加/编辑自己的记录，不能删除
+    管理员：完全管理所有记录
+    超级管理员：完全访问
+    """
     list_display = ('site', 'inspector_display', 'inspect_time', 'is_normal', 'display_photo', 'issue_summary')
     list_filter = ('is_normal', 'inspect_time', 'inspector')
     raw_id_fields = ('site',)
@@ -199,6 +225,33 @@ class InspectionAdmin(admin.ModelAdmin):
         # 管理员等其他用户：inspector 字段可编辑（不需要添加到只读列表）
         
         return readonly
+    
+    def has_add_permission(self, request):
+        """权限检查：看护员和管理员都可以添加"""
+        from core.permission_decorators import is_inspector, is_admin
+        if is_inspector(request.user) or is_admin(request.user):
+            return super().has_add_permission(request)
+        return False
+    
+    def has_change_permission(self, request, obj=None):
+        """权限检查：看护员只能修改自己的记录"""
+        from core.permission_decorators import is_admin
+        
+        if is_admin(request.user):
+            return super().has_change_permission(request, obj)
+        
+        is_inspector = request.user.groups.filter(name='文物看护员').exists()
+        if is_inspector and obj and obj.inspector != request.user:
+            return False
+        
+        return super().has_change_permission(request, obj) if is_inspector else False
+    
+    def has_delete_permission(self, request, obj=None):
+        """权限检查：仅管理员及以上可以删除"""
+        from core.permission_decorators import is_admin
+        if not is_admin(request.user):
+            return False
+        return super().has_delete_permission(request, obj)
 
     def issue_summary(self, obj):
         """显示问题简述"""
@@ -351,6 +404,12 @@ class CoordinateInline(admin.TabularInline):
 
 @admin.register(ProjectAudit)
 class ProjectAdmin(admin.ModelAdmin):
+    """项目建设审批管理 - 权限说明
+    
+    看护员：无权访问
+    管理员：完全管理所有项目
+    超级管理员：完全访问
+    """
     list_display = ('project_name', 'project_unit', 'workflow_status_display', 'alert_status', 'received_date')
     list_filter = ('workflow_status', 'is_in_protection_zone', 'is_in_control_zone', 'received_date')
     search_fields = ('project_name', 'project_unit', 'archive_number')
@@ -442,6 +501,31 @@ class ProjectAdmin(admin.ModelAdmin):
         return mark_safe('<span style="color: green;">✅ 安全距离</span>')
     
     alert_status.short_description = "两线预警状态"
+
+    def has_module_permission(self, request):
+        """权限检查：看护员无权访问项目管理模块"""
+        from core.permission_decorators import is_admin
+        return is_admin(request.user)
+    
+    def has_view_permission(self, request):
+        """权限检查：仅管理员及以上可以查看"""
+        from core.permission_decorators import is_admin
+        return is_admin(request.user)
+    
+    def has_add_permission(self, request):
+        """权限检查：仅管理员及以上可以添加"""
+        from core.permission_decorators import is_admin
+        return is_admin(request.user)
+    
+    def has_change_permission(self, request, obj=None):
+        """权限检查：仅管理员及以上可以编辑"""
+        from core.permission_decorators import is_admin
+        return is_admin(request.user)
+    
+    def has_delete_permission(self, request, obj=None):
+        """权限检查：仅管理员及以上可以删除"""
+        from core.permission_decorators import is_admin
+        return is_admin(request.user)
 
     def export_standard_request_doc(self, request, queryset):
         if queryset.count() != 1:
