@@ -171,7 +171,6 @@ SIMPLEUI_CONFIG = {
             'models': [
                 {'name': '巡查记录', 'url': 'core/inspectionrecord/', 'icon': 'fas fa-camera'},
                 {'name': '项目管理', 'url': 'core/projectaudit/', 'icon': 'fas fa-project-diagram'},
-                {'name': '看护员管理', 'url': 'auth/user/', 'icon': 'fas fa-user-tie'},
             ]
         },
         {
@@ -215,6 +214,7 @@ SIMPLEUI_CONFIG = {
                     'icon': 'fas fa-users',
                     'url': 'auth/group/'
                 }
+                {'name': '用户管理', 'url': 'auth/user/', 'icon': 'fas fa-user-tie'},
             ]
         },
     ]
