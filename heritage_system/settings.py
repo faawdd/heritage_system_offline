@@ -142,7 +142,7 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 SIMPLEUI_CONFIG = {
     'system_keep': True,  # 设置为True，系统会自动保留原有的所有菜单，即使你没定义
-    'menu_display': ['文物管理', '日常办公','可视化分析', '系统设置'], 
+    'menu_display': ['文物管理', '日常办公','可视化分析', '坎儿井专项', '系统设置'], 
     'menus': [
         {
             'name': '首页',
@@ -157,6 +157,11 @@ SIMPLEUI_CONFIG = {
                     'name': '不可移动文物',
                     'icon': 'fas fa-fw fa-book',
                     'url': 'core/heritagesite/' # 注意这里必须是 core/heritagesite/
+                },
+            {
+                    'name': 'KML叠加检查',
+                    'icon': 'fas fa-layer-group',
+                    'url': '/admin/kml-overlay-check/'
                 },
             ]
         },
