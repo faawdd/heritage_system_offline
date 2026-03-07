@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+import zipfile
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 import xml.etree.ElementTree as ET
@@ -241,6 +242,60 @@ def parse_ovkml(content: bytes, input_crs: str, output_crs: str) -> List[Placema
     records: List[PlacemarkRecord] = []
     walk_kml(root, [], records, transformer)
     return records
+
+
+def extract_kml_from_kmz(content: bytes) -> bytes:
+    """
+    从KMZ/OVKMZ（ZIP文件）中提取KML内容。
+    规则：优先查找根目录的.kml文件，否则递归查找第一个.kml文件。
+    """
+    try:
+        with zipfile.ZipFile(io.BytesIO(content), 'r') as zip_file:
+            # 首先查找根目录KML文件
+            for name in zip_file.namelist():
+                if name.endswith('.kml') and '/' not in name:
+                    return zip_file.read(name)
+            
+            # 如果根目录没有，递归查找第一个KML文件
+            for name in zip_file.namelist():
+                if name.endswith('.kml'):
+                    return zip_file.read(name)
+            
+            raise ValueError('KMZ/OVKMZ文件中未找到.kml文件')
+    except zipfile.BadZipFile:
+        raise ValueError('不是有效的ZIP文件')
+
+
+def parse_kml_or_kmz(content: bytes, input_crs: str, output_crs: str) -> Tuple[List[PlacemarkRecord], str]:
+    """
+    解析KML/OVKML/KMZ/OVKMZ文件。
+    返回值: (records列表, 文件格式字符串)
+    """
+    # 尝试识别文件格式
+    file_format = 'kml'
+    
+    # 尝试作为KML/OVKML直接解析
+    try:
+        root = ET.fromstring(content)
+        transformer = CoordinateTransformer(input_crs=input_crs, output_crs=output_crs)
+        records: List[PlacemarkRecord] = []
+        walk_kml(root, [], records, transformer)
+        return records, file_format
+    except ET.ParseError:
+        pass
+    
+    # 尝试作为KMZ/OVKMZ解析
+    try:
+        kml_content = extract_kml_from_kmz(content)
+        file_format = 'kmz'
+        root = ET.fromstring(kml_content)
+        transformer = CoordinateTransformer(input_crs=input_crs, output_crs=output_crs)
+        records: List[PlacemarkRecord] = []
+        walk_kml(root, [], records, transformer)
+        return records, file_format
+    except Exception as e:
+        raise ValueError(f'无法解析文件：{str(e)}')
+
 
 
 def build_projectaudit_rows(records: Sequence[PlacemarkRecord]) -> List[Dict[str, str]]:

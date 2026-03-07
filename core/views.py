@@ -215,10 +215,11 @@ def kml_overlay_check_view(request):
 
 
 @staff_member_required
+@staff_member_required
 def ovkml_converter_view(request):
-    """OVKML 网页转换工具：提取坐标并导出可导入 ProjectAudit 的 CSV。"""
+    """OVKML/KML/KMZ/OVKMZ 网页转换工具：提取坐标并导出可导入 ProjectAudit 的 CSV。"""
     context = {
-        'title': 'OVKML转换导入',
+        'title': 'KML/KMZ转换导入',
         'input_crs': 'wgs84',
         'output_crs': 'cgcs2000',
         'deduplicate': True,
@@ -236,16 +237,19 @@ def ovkml_converter_view(request):
         context['deduplicate'] = deduplicate
 
         if not upload_file:
-            context['error'] = '请先选择 OVKML/KML 文件。'
+            context['error'] = '请先选择 KML/KMZ/OVKML/OVKMZ 文件。'
             return render(request, 'admin/ovkml_converter.html', context)
 
         filename = (upload_file.name or '').lower()
-        if not (filename.endswith('.kml') or filename.endswith('.ovkml')):
-            context['error'] = '文件格式不正确，请上传 .kml 或 .ovkml 文件。'
+        # 支持 .kml, .ovkml, .kmz, .ovkmz
+        if not (filename.endswith('.kml') or filename.endswith('.ovkml') or 
+                filename.endswith('.kmz') or filename.endswith('.ovkmz')):
+            context['error'] = '文件格式不正确，请上传 .kml .kmz .ovkml .ovkmz 文件。'
             return render(request, 'admin/ovkml_converter.html', context)
 
         try:
-            records = parse_ovkml(upload_file.read(), input_crs=input_crs, output_crs=output_crs)
+            from core.ovkml_converter import parse_kml_or_kmz
+            records, file_format = parse_kml_or_kmz(upload_file.read(), input_crs=input_crs, output_crs=output_crs)
         except Exception as exc:
             context['error'] = f'解析失败：{exc}'
             return render(request, 'admin/ovkml_converter.html', context)
@@ -290,6 +294,7 @@ def ovkml_converter_view(request):
             'project_csv_url': f"{settings.MEDIA_URL}ovkml_exports/{project_filename}",
             'detail_csv_url': f"{settings.MEDIA_URL}ovkml_exports/{detail_filename}",
             'preview_truncated': len(records) > 100,
+            'file_format': file_format,
         })
 
         if action == 'import':
@@ -324,7 +329,7 @@ def ovkml_converter_view(request):
                         project_lon=item.target_lon,
                         project_lat=item.target_lat,
                         workflow_status='received',
-                        remarks=f"来源文件夹:{item.source_folder or '-'}; 几何:{item.geometry_type}; 顶点:{item.vertex_count}; 导入来源:OVKML转换工具",
+                        remarks=f"来源文件夹:{item.source_folder or '-'}; 几何:{item.geometry_type}; 顶点:{item.vertex_count}; 导入来源:KML/KMZ转换工具",
                         received_date=timezone.now(),
                     )
                 )
