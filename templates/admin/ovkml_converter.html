@@ -74,14 +74,14 @@
 <body>
 <div class="container">
     <div class="card">
-        <h1>OVKML 转换导入</h1>
-        <div class="desc">上传奥维 OVKML/KML，递归提取所有 Placemark 名称和坐标，并按坐标系开关转换后输出可导入 ProjectAudit 的 CSV。</div>
+        <h1>KML/KMZ 转换导入</h1>
+        <div class="desc">支持上传 KML/OVKML/KMZ/OVKMZ 文件（符合国家政策要求），递归提取所有 Placemark 名称和坐标，并按坐标系开关转换后输出可导入 ProjectAudit 的 CSV。注：CGCS2000与WGS84地理坐标相差仅0.1毫米。</div>
 
         <form method="post" enctype="multipart/form-data">
             {% csrf_token %}
             <div class="row">
                 <label for="ovkml_file">文件：</label>
-                <input id="ovkml_file" name="ovkml_file" type="file" accept=".kml,.ovkml" required>
+                <input id="ovkml_file" name="ovkml_file" type="file" accept=".kml,.ovkml,.kmz,.ovkmz,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz" required>
 
                 <label for="input_crs">输入坐标系：</label>
                 <select id="input_crs" name="input_crs">
@@ -112,7 +112,7 @@
         {% endif %}
 
         {% if success %}
-            <div class="alert alert-success">转换完成：共提取 {{ total_count }} 条 Placemark。</div>
+            <div class="alert alert-success">转换完成：共提取 {{ total_count }} 条 Placemark（来自 {{ file_format|upper }} 文件）。</div>
             {% if import_done %}
                 <div class="alert alert-success" style="margin-top:8px;">写入完成：成功导入 {{ import_count }} 条，跳过 {{ import_skipped_count }} 条。</div>
             {% endif %}

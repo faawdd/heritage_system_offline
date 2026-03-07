@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/@tmcw/togeojson@6.0.1/dist/togeojson.umd.js"></script>
+    <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
     <style>
         * { box-sizing: border-box; }
         html, body { margin: 0; padding: 0; width: 100%; height: 100%; font-family: 'Microsoft YaHei', Arial, sans-serif; }
@@ -122,15 +123,15 @@
     <div id="map"></div>
 
     <div class="panel">
-        <div class="title">KML叠加检查 (增强版)</div>
-        <div class="desc">支持同时导入多个KML文件（不同颜色区分），自动检测50m范围内的文物点冲突。</div>
+        <div class="title">KML/KMZ叠加检查 (增强版)</div>
+        <div class="desc">支持KML/KMZ/OVKML/OVKMZ格式，同时导入多个文件（不同颜色区分），自动检测50m范围内的文物点冲突。</div>
         
         <div class="row">
-            <input id="kmlFiles" class="file-input" type="file" accept=".kml,application/vnd.google-earth.kml+xml" multiple>
+            <input id="kmlFiles" class="file-input" type="file" accept=".kml,.kmz,.ovkml,.ovkmz,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz" multiple>
             <button id="loadBtn" class="btn" type="button">加载</button>
         </div>
         
-        <div id="status" class="status">请选择并加载KML文件。</div>
+        <div id="status" class="status">请选择并加载 KML/KMZ/OVKML/OVKMZ 文件。</div>
 
         <div id="kmlLayers"></div>
 
@@ -316,7 +317,7 @@
         function loadKmlFiles() {
             const files = fileEl.files;
             if (!files || files.length === 0) {
-                setStatus('未选择文件，请先选择 .kml 文件。', 'warning');
+                setStatus('未选择文件，请先选择 .kml/.kmz/.ovkml/.ovkmz 文件。', 'warning');
                 return;
             }
 
@@ -341,107 +342,51 @@
                 const reader = new FileReader();
                 reader.onload = function (event) {
                     try {
-                        const xml = new DOMParser().parseFromString(event.target.result, 'text/xml');
-                        const geojson = toGeoJSON.kml(xml);
-
-                        const layerGroup = L.featureGroup();
-
-                        const layer = L.geoJSON(geojson, {
-                            style: (feature) => styleKmlFeature(feature, color),
-                            pointToLayer: function (feature, latlng) {
-                                return L.circleMarker(latlng, {
-                                    radius: 5,
-                                    color: color,
-                                    fillColor: color,
-                                    fillOpacity: 0.7,
-                                    weight: 1
-                                });
-                            },
-                            onEachFeature: function (feature, item) {
-                                const name = feature.properties && feature.properties.name ? feature.properties.name : 'KML要素';
-                                item.bindPopup(name);
-                            }
-                        });
-
-                        layer.addTo(layerGroup);
-                        layerGroup.addTo(kmlLayerGroup);
-
-                        // 保存KML信息
-                        const features = geojson.features || [];
-                        const conflicts = checkConflicts(features, file.name);
+                        let xmlContent = null;
                         
-                        kmlLayers[file.name] = {
-                            layer: layerGroup,
-                            color: color,
-                            features: features,
-                            conflicts: conflicts,
-                            name: file.name
-                        };
-
-                        // 添加冲突到总列表
-                        allConflicts.push(...conflicts);
-
-                        // 添加到UI列表
-                        const layerDiv = document.createElement('div');
-                        layerDiv.className = 'kml-layer';
-                        layerDiv.setAttribute('data-filename', file.name);
-                        layerDiv.innerHTML = `
-                            <div class="kml-header">
-                                <div>
-                                    <span class="kml-color" style="background: ${color};"></span>
-                                    <span class="kml-name">${file.name}</span>
-                                </div>
-                                <button class="kml-remove" data-filename="${file.name}">移除</button>
-                            </div>
-                            <div class="kml-info">${features.length} 个要素</div>
-                            ${conflicts.length > 0 ? 
-                                `<div style="color: #f56c6c; font-weight: 600;">🚨 ${conflicts.length} 处冲突</div>` 
-                                : 
-                                `<div style="color: #85ce61;">✓ 无冲突</div>`
-                            }
-                        `;
-                        kmlLayersEl.appendChild(layerDiv);
-
-                        // 移除按钮事件处理
-                        layerDiv.querySelector('.kml-remove').addEventListener('click', function(e) {
-                            e.preventDefault();
-                            const fname = this.getAttribute('data-filename');
-                            if (kmlLayers[fname]) {
-                                // 移除图层
-                                kmlLayerGroup.removeLayer(kmlLayers[fname].layer);
+                        // 判断是否为KMZ/OVKMZ（ZIP文件）
+                        if (file.name.toLowerCase().endsWith('.kmz') || 
+                            file.name.toLowerCase().endsWith('.ovkmz')) {
+                            // 处理ZIP文件
+                            const zip = new JSZip();
+                            zip.loadAsync(event.target.result).then(function(archive) {
+                                // 查找KML文件
+                                let kmlFile = null;
                                 
-                                // 移除冲突信息
-                                const remainingConflicts = allConflicts.filter(
-                                    c => c.kml_file !== fname
-                                );
-                                allConflicts.length = 0;
-                                allConflicts.push(...remainingConflicts);
-                                
-                                // 删除KML记录
-                                delete kmlLayers[fname];
-                                
-                                // 移除UI元素
-                                layerDiv.remove();
-                                
-                                // 更新显示
-                                showConflictAlert(allConflicts);
-                                updateStatus();
-                            }
-                        });
-
-                        completedCount++;
-
-                        // 所有文件都加载完后
-                        if (completedCount === totalFiles) {
-                            if (kmlLayerGroup.getLayers().length > 0) {
-                                try {
-                                    map.fitBounds(kmlLayerGroup.getBounds().pad(0.2));
-                                } catch (e) {
-                                    console.warn('Cannot fit bounds:', e);
+                                // 首先查找根目录的KML文件
+                                for (const [name, file] of Object.entries(archive.files)) {
+                                    if (name.endsWith('.kml') && name.indexOf('/') === -1) {
+                                        kmlFile = file;
+                                        break;
+                                    }
                                 }
-                            }
-                            showConflictAlert(allConflicts);
-                            updateStatus();
+                                
+                                // 如果根目录没有，递归查找第一个KML文件
+                                if (!kmlFile) {
+                                    for (const [name, file] of Object.entries(archive.files)) {
+                                        if (name.endsWith('.kml')) {
+                                            kmlFile = file;
+                                            break;
+                                        }
+                                    }
+                                }
+                                
+                                if (!kmlFile) {
+                                    throw new Error('KMZ/OVKMZ文件中未找到.kml文件');
+                                }
+                                
+                                kmlFile.async('text').then(function(content) {
+                                    processKmlContent(content, file.name, color);
+                                });
+                            }).catch(error => {
+                                console.error('KMZ解析失败:', error);
+                                completedCount++;
+                                setStatus(`加载失败: ${file.name} - 不是有效的压缩文件`, 'error');
+                                if (completedCount === totalFiles) updateStatus();
+                            });
+                        } else {
+                            // 直接处理KML/OVKML文本
+                            processKmlContent(event.target.result, file.name, color);
                         }
                     } catch (error) {
                         console.error('KML解析失败:', error);
@@ -457,10 +402,135 @@
                     setStatus(`加载失败: ${file.name}`, 'error');
                 };
 
-                reader.readAsText(file, 'utf-8');
+                if (file.name.toLowerCase().endsWith('.kmz') || 
+                    file.name.toLowerCase().endsWith('.ovkmz')) {
+                    reader.readAsArrayBuffer(file);
+                } else {
+                    reader.readAsText(file, 'utf-8');
+                }
             }
 
-            setStatus('正在加载 ' + totalFiles + ' 个KML文件...', 'info');
+            function processKmlContent(xmlString, fileName, color) {
+                try {
+                    const xml = new DOMParser().parseFromString(xmlString, 'text/xml');
+                    
+                    // 检查是否有解析错误
+                    if (xml.getElementsByTagName('parsererror').length > 0) {
+                        throw new Error('KML XML格式错误');
+                    }
+                    
+                    const geojson = toGeoJSON.kml(xml);
+
+                    const layerGroup = L.featureGroup();
+
+                    const layer = L.geoJSON(geojson, {
+                        style: (feature) => styleKmlFeature(feature, color),
+                        pointToLayer: function (feature, latlng) {
+                            return L.circleMarker(latlng, {
+                                radius: 5,
+                                color: color,
+                                fillColor: color,
+                                fillOpacity: 0.7,
+                                weight: 1
+                            });
+                        },
+                        onEachFeature: function (feature, item) {
+                            const name = feature.properties && feature.properties.name ? feature.properties.name : 'KML要素';
+                            item.bindPopup(name);
+                        }
+                    });
+
+                    layer.addTo(layerGroup);
+                    layerGroup.addTo(kmlLayerGroup);
+
+                    // 保存KML信息
+                    const features = geojson.features || [];
+                    const conflicts = checkConflicts(features, fileName);
+                    
+                    kmlLayers[fileName] = {
+                        layer: layerGroup,
+                        color: color,
+                        features: features,
+                        conflicts: conflicts,
+                        name: fileName
+                    };
+
+                    // 添加冲突到总列表
+                    allConflicts.push(...conflicts);
+
+                    // 添加到UI列表
+                    const layerDiv = document.createElement('div');
+                    layerDiv.className = 'kml-layer';
+                    layerDiv.setAttribute('data-filename', fileName);
+                    layerDiv.innerHTML = `
+                        <div class="kml-header">
+                            <div>
+                                <span class="kml-color" style="background: ${color};"></span>
+                                <span class="kml-name">${fileName}</span>
+                            </div>
+                            <button class="kml-remove" data-filename="${fileName}">移除</button>
+                        </div>
+                        <div class="kml-info">${features.length} 个要素</div>
+                        ${conflicts.length > 0 ? 
+                            `<div style="color: #f56c6c; font-weight: 600;">🚨 ${conflicts.length} 处冲突</div>` 
+                            : 
+                            `<div style="color: #85ce61;">✓ 无冲突</div>`
+                        }
+                    `;
+                    kmlLayersEl.appendChild(layerDiv);
+
+                    // 移除按钮事件处理
+                    layerDiv.querySelector('.kml-remove').addEventListener('click', function(e) {
+                        e.preventDefault();
+                        const fname = this.getAttribute('data-filename');
+                        if (kmlLayers[fname]) {
+                            // 移除图层
+                            kmlLayerGroup.removeLayer(kmlLayers[fname].layer);
+                            
+                            // 移除冲突信息
+                            const remainingConflicts = allConflicts.filter(
+                                c => c.kml_file !== fname
+                            );
+                            allConflicts.length = 0;
+                            allConflicts.push(...remainingConflicts);
+                            
+                            // 删除KML记录
+                            delete kmlLayers[fname];
+                            
+                            // 移除UI元素
+                            layerDiv.remove();
+                            
+                            // 更新显示
+                            showConflictAlert(allConflicts);
+                            updateStatus();
+                        }
+                    });
+
+                    completedCount++;
+
+                    // 所有文件都加载完后
+                    if (completedCount === totalFiles) {
+                        if (kmlLayerGroup.getLayers().length > 0) {
+                            try {
+                                map.fitBounds(kmlLayerGroup.getBounds().pad(0.2));
+                            } catch (e) {
+                                console.warn('Cannot fit bounds:', e);
+                            }
+                        }
+                        showConflictAlert(allConflicts);
+                        updateStatus();
+                    }
+                } catch (error) {
+                    console.error('KML解析失败:', error);
+                    completedCount++;
+                    setStatus(`KML解析失败: ${error.message}`, 'error');
+                    if (completedCount === totalFiles) {
+                        updateStatus();
+                    }
+                }
+            }
+
+            setStatus('正在加载 ' + totalFiles + ' 个文件...', 'info');
         }
 
         function updateStatus() {
