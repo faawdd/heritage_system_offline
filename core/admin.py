@@ -167,7 +167,7 @@ class InspectionAdmin(admin.ModelAdmin):
     管理员：完全管理所有记录
     超级管理员：完全访问
     """
-    list_display = ('site', 'inspector_display', 'inspect_time', 'is_normal', 'display_photo', 'issue_summary')
+    list_display = ('site', 'inspector_display', 'inspect_time', 'is_normal', 'location_display', 'display_photo', 'issue_summary')
     list_filter = ('is_normal', 'inspect_time', 'inspector')
     raw_id_fields = ('site',)
     search_fields = ('site__name', 'inspector__username', 'inspector__first_name')
@@ -184,7 +184,7 @@ class InspectionAdmin(admin.ModelAdmin):
             'description': '记录巡查发现的问题或确认文物安全'
         }),
         ('现场证据', {
-            'fields': ('photo', 'display_photo'),
+            'fields': ('photo', 'display_photo', 'latitude', 'longitude'),
             'description': '上传现场照片为必选。备注：带经纬度时间水印',
             'classes': ('collapse',),
         }),
@@ -204,6 +204,17 @@ class InspectionAdmin(admin.ModelAdmin):
             return f"{obj.inspector.first_name} ({obj.inspector.username})"
         return obj.inspector.username
     inspector_display.short_description = '巡查员'
+
+    def location_display(self, obj):
+        """显示巡查位置的经纬度"""
+        if obj.latitude and obj.longitude:
+            return format_html(
+                '📍 {:.5f}, {:.5f}',
+                obj.latitude,
+                obj.longitude
+            )
+        return "无位置"
+    location_display.short_description = '巡查位置'
 
     def get_readonly_fields(self, request, obj=None):
         """

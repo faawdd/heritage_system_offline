@@ -116,10 +116,15 @@ class InspectionRecord(models.Model):
     is_normal = models.BooleanField("是否正常", default=True)
     issue_details = models.TextField("发现问题", blank=True, null=True)
     photo = models.ImageField("现场拍照", upload_to='inspections/%Y/%m/', blank=True)
+    
+    # 巡查时的位置信息（用于水印和数据记录）
+    latitude = models.FloatField("巡查纬度", null=True, blank=True, help_text="巡查时的GPS纬度")
+    longitude = models.FloatField("巡查经度", null=True, blank=True, help_text="巡查时的GPS经度")
 
     class Meta:
         verbose_name = "巡查登记存档"
         verbose_name_plural = verbose_name
+        ordering = ['-inspect_time']  # 按时间倒序排列
 
 # 3. 项目管理表（原工程建设核查）
 class ProjectAudit(models.Model):
