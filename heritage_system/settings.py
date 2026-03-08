@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'import_export',
     'rest_framework',
+    'rest_framework_simplejwt',
     'corsheaders',
 ]
 
@@ -243,6 +244,7 @@ SIMPLEUI_HOME_PAGE = '/admin/home/'
 # DRF and CORS settings
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
         'rest_framework.authentication.SessionAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
