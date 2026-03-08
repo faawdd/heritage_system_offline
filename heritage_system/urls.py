@@ -25,6 +25,7 @@ from core.views import (heritage_map_view, heritage_dashboard_view, heritage_sta
                         inspection_mobile_list_view, export_doc_view, kml_overlay_check_view,
                         ovkml_converter_view, heritage_classification_stats_api, heritage_detail_view,
                         system_version_api)
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 urlpatterns = [
     path('admin/home/', admin_index_view, name='admin_home'),  # 自定义首页

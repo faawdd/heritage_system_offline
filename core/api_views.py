@@ -1,7 +1,8 @@
 from rest_framework import viewsets, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from django.contrib.auth import authenticate, login
+from django.contrib.auth import authenticate
+from rest_framework_simplejwt.tokens import RefreshToken
 from core.models import HeritageSite, InspectionRecord
 from django.contrib.auth.models import User
 from .serializers import HeritageSerializer, InspectionSerializer, UserSerializer
@@ -15,8 +16,11 @@ class AuthViewSet(viewsets.ViewSet):
         password = request.data.get('password')
         user = authenticate(request, username=username, password=password)
         if user is not None:
-            login(request, user)
-            return Response(UserSerializer(user).data)
+            refresh = RefreshToken.for_user(user)
+            return Response({
+                'token': str(refresh.access_token),
+                'user': UserSerializer(user).data
+            })
         return Response({'error': 'Invalid Credentials'}, status=400)
 
 class HeritageViewSet(viewsets.ReadOnlyModelViewSet):
