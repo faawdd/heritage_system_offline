@@ -15,7 +15,7 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
-from django.urls import path
+from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from core.views import (heritage_map_view, heritage_dashboard_view, heritage_stats_api, 
@@ -45,5 +45,6 @@ urlpatterns = [
     path('api/heritage-classification-stats/', heritage_classification_stats_api, name='heritage_classification_stats_api'),
     path('api/kanerjing-stats/', kanerjing_stats_api, name='kanerjing_stats_api'),  # 坎儿井统计API
     path('api/system-version/', system_version_api, name='system_version_api'),  # 系统版本号API
+    path('api/', include('core.api_urls')), # API for Flutter App
     path('admin/', admin.site.urls),
 ] + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT) + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

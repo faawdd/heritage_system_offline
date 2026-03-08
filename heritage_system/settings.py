@@ -47,9 +47,12 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'import_export',
+    'rest_framework',
+    'corsheaders',
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -236,3 +239,18 @@ SIMPLEUI_CUSTOM_JS = '/static/admin/js/simpleui_custom.js'
 SIMPLEUI_LOGIN_TITLE = '文物管理系统 - 请登录'
 # 配置自定义首页 URL 路径 - 显示统计仪表板
 SIMPLEUI_HOME_PAGE = '/admin/home/'
+
+# DRF and CORS settings
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.SessionAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ]
+}
+
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:8080", # 假设的 Flutter Web 调试地址
+]
+CORS_ALLOW_CREDENTIALS = True
