@@ -8,6 +8,8 @@ class UserSerializer(serializers.ModelSerializer):
         fields = ['id', 'username', 'first_name', 'last_name', 'email']
 
 class HeritageSerializer(serializers.ModelSerializer):
+    distance = serializers.FloatField(read_only=True, required=False, allow_null=True)
+    
     class Meta:
         model = HeritageSite
         fields = '__all__'

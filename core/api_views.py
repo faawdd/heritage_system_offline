@@ -44,16 +44,28 @@ class HeritageViewSet(viewsets.ReadOnlyModelViewSet):
         except (ValueError, TypeError):
             return Response({'error': 'Invalid latitude, longitude, or radius.'}, status=400)
 
-        nearby_sites = []
+        nearby_sites_with_distance = []
         for site in HeritageSite.objects.all():
             if site.latitude and site.longitude:
                 site_location = (site.latitude, site.longitude)
                 distance = geodesic(user_location, site_location).km
                 if distance <= radius:
-                    nearby_sites.append(site)
+                    nearby_sites_with_distance.append({
+                        'site': site,
+                        'distance': distance
+                    })
         
-        serializer = self.get_serializer(nearby_sites, many=True)
-        return Response(serializer.data)
+        # 按距离排序
+        nearby_sites_with_distance.sort(key=lambda x: x['distance'])
+        
+        # 获取序列化数据并附加距离信息
+        result = []
+        for item in nearby_sites_with_distance:
+            site_data = HeritageSerializer(item['site']).data
+            site_data['distance'] = round(item['distance'], 2)  # 约到小数点后两位
+            result.append(site_data)
+        
+        return Response(result)
 
 class InspectionViewSet(viewsets.ModelViewSet):
     queryset = InspectionRecord.objects.all()
