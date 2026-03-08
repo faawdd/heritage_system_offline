@@ -251,6 +251,7 @@ REST_FRAMEWORK = {
 }
 
 CORS_ALLOWED_ORIGINS = [
+    "https://beichenhome.top:9081",
     "http://localhost:8080", # 假设的 Flutter Web 调试地址
 ]
 CORS_ALLOW_CREDENTIALS = True
