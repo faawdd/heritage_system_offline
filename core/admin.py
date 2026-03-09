@@ -207,12 +207,15 @@ class InspectionAdmin(admin.ModelAdmin):
 
     def location_display(self, obj):
         """显示巡查位置的经纬度"""
-        if obj.latitude and obj.longitude:
-            return format_html(
-                '📍 {:.5f}, {:.5f}',
-                obj.latitude,
-                obj.longitude
-            )
+        try:
+            if obj.latitude is not None and obj.longitude is not None:
+                return format_html(
+                    '📍 {:.5f}, {:.5f}',
+                    float(obj.latitude),
+                    float(obj.longitude)
+                )
+        except (TypeError, ValueError, AttributeError):
+            pass
         return "无位置"
     location_display.short_description = '巡查位置'
 
@@ -261,14 +264,18 @@ class InspectionAdmin(admin.ModelAdmin):
 
     def issue_summary(self, obj):
         """显示问题简述"""
-        if obj.is_normal:
-            return mark_safe('<span style="color: green;">✓ 正常</span>')
-        else:
-            summary = obj.issue_details[:30] if obj.issue_details else '有问题'
-            return format_html(
-                '<span style="color: red;">⚠️ 发现问题</span><br><small>{}</small>',
-                summary
-            )
+        try:
+            if obj.is_normal:
+                return mark_safe('<span style="color: green;">✓ 正常</span>')
+            else:
+                details = obj.issue_details or ''
+                summary = str(details)[:30] if details else '有问题'
+                return format_html(
+                    '<span style="color: red;">⚠️ 发现问题</span><br><small>{}</small>',
+                    summary
+                )
+        except (AttributeError, TypeError):
+            return '<span style="color: gray;">-</span>'
     issue_summary.short_description = '巡查情况'
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
@@ -295,12 +302,17 @@ class InspectionAdmin(admin.ModelAdmin):
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
     def display_photo(self, obj):
-        if obj.photo:
-            return format_html(
-                '<img src="{}" width="200" style="border-radius: 4px;" /><br><a href="{}" target="_blank">查看原图</a>',
-                obj.photo.url,
-                obj.photo.url
-            )
+        """显示现场照片，带错误处理"""
+        try:
+            if obj.photo and hasattr(obj.photo, 'url'):
+                photo_url = obj.photo.url
+                return format_html(
+                    '<img src="{}" width="200" style="border-radius: 4px;" /><br><a href="{}" target="_blank">查看原图</a>',
+                    photo_url,
+                    photo_url
+                )
+        except (AttributeError, ValueError, FileNotFoundError):
+            pass
         return "无照片"
     display_photo.short_description = "现场照片"
 

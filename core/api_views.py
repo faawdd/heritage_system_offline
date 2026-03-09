@@ -73,7 +73,40 @@ class InspectionViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return InspectionRecord.objects.filter(inspector=self.request.user)
+        return InspectionRecord.objects.filter(inspector=self.request.user).order_by('-inspect_time')
 
     def perform_create(self, serializer):
         serializer.save(inspector=self.request.user)
+    
+    @action(detail=False, methods=['get'])
+    def my_records(self, request):
+        """获取当前用户的巡查记录，支持分页"""
+        queryset = self.get_queryset()
+        
+        # 分页处理
+        page = request.query_params.get('page', 1)
+        page_size = request.query_params.get('page_size', 20)
+        try:
+            page = int(page)
+            page_size = int(page_size)
+            if page < 1:
+                page = 1
+            if page_size < 1 or page_size > 100:
+                page_size = 20
+        except (ValueError, TypeError):
+            page = 1
+            page_size = 20
+        
+        start = (page - 1) * page_size
+        end = start + page_size
+        records = queryset[start:end]
+        
+        serializer = self.get_serializer(records, many=True)
+        
+        # 返回带分页信息的响应
+        return Response({
+            'count': queryset.count(),
+            'page': page,
+            'page_size': page_size,
+            'results': serializer.data
+        })
