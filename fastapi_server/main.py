@@ -431,6 +431,10 @@ def upload_inspection(
     if site is None:
         raise HTTPException(status_code=404, detail="Heritage site not found")
 
+    issue_details = (issue_details or "").strip()
+    if not is_normal and not issue_details:
+        raise HTTPException(status_code=400, detail="存在问题时，问题说明不能为空")
+
     now = datetime.now()
     rel_dir = Path("inspections") / now.strftime("%Y") / now.strftime("%m")
     target_dir = MEDIA_ROOT / rel_dir
