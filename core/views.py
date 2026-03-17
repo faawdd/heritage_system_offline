@@ -22,7 +22,6 @@ import uuid
 import re
 from django.shortcuts import get_object_or_404
 from heritage_system.version import VERSION, VERSION_HISTORY
-from .permission_decorators import admin_required
 
 User = get_user_model()
 
@@ -75,7 +74,8 @@ def mobile_kml_entry_view(request):
         return HttpResponseForbidden('当前账号无权使用KML叠加检查')
 
     auth_login(request, user, backend='django.contrib.auth.backends.ModelBackend')
-    return redirect(target_path)
+    separator = '&' if '?' in target_path else '?'
+    return redirect(f"{target_path}{separator}token={quote(token)}")
 
 
 @staff_member_required
@@ -253,9 +253,26 @@ def heritage_map_view(request):
     return render(request, 'admin/heritage_map.html', context)
 
 
-@admin_required
 def kml_overlay_check_view(request):
     """KML叠加检查页面"""
+    # 兼容跨站 WebView/iframe 场景：会话失效时允许 token 直达鉴权
+    if not request.user.is_authenticated:
+        token = (request.GET.get('token') or '').strip()
+        if token:
+            payload = _decode_fastapi_token(token)
+            user = User.objects.filter(id=payload.get('user_id'), is_active=True).first() if payload else None
+            if user:
+                is_admin = user.is_superuser or user.groups.filter(name='管理员').exists() or user.groups.filter(name='超级管理员').exists()
+                if is_admin:
+                    auth_login(request, user, backend='django.contrib.auth.backends.ModelBackend')
+
+    is_admin_user = (
+        request.user.is_authenticated
+        and (request.user.is_superuser or request.user.groups.filter(name='管理员').exists() or request.user.groups.filter(name='超级管理员').exists())
+    )
+    if not is_admin_user:
+        return HttpResponseForbidden('需要管理员权限')
+
     sites = HeritageSite.objects.all()
     sites_data = []
     for site in sites:

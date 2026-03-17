@@ -257,3 +257,6 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:8080", # 假设的 Flutter Web 调试地址
 ]
 CORS_ALLOW_CREDENTIALS = True
+
+# 未登录访问受保护页面时统一跳转到 Django Admin 登录页，避免默认 /accounts/login/ 404
+LOGIN_URL = '/admin/login/'
