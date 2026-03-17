@@ -35,10 +35,8 @@ from pydantic import BaseModel
 
 
 BASE_DIR = Path(__file__).resolve().parent
-DJANGO_PROJECT_DIR = BASE_DIR.parent / "heritage_system"
-DB_PATH = DJANGO_PROJECT_DIR / "db.sqlite3"
-MEDIA_ROOT = DJANGO_PROJECT_DIR / "media"
-sys.path.insert(0, str(DJANGO_PROJECT_DIR))
+PROJECT_ROOT = BASE_DIR.parent
+sys.path.insert(0, str(PROJECT_ROOT))
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "heritage_system.settings")
 django.setup()
 
@@ -47,6 +45,10 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import check_password
 from django.db import models
 from core.models import HeritageSite, InspectionRecord, ProjectAudit  # type: ignore[import]
+
+
+DB_PATH = Path(settings.DATABASES["default"]["NAME"])
+MEDIA_ROOT = Path(settings.MEDIA_ROOT)
 
 
 app = FastAPI(title="Heritage Patrol FastAPI", version="1.0.0")
