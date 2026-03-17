@@ -14,11 +14,24 @@ from typing import Any
 from urllib.parse import quote
 import uuid
 
+# 1. 获取当前 fastapi_server 的父目录（即 heritage_system 根目录）
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(current_dir)
+
+# 2. 将根目录加入系统路径
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+# 3. 设置 Django 的环境变量（确保名称与你 Django 项目一致）
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'heritage_system.settings')
+
 import django
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
+
+
 
 
 BASE_DIR = Path(__file__).resolve().parent
