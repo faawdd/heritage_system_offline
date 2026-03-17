@@ -24,6 +24,7 @@ from core.views import (heritage_map_view, heritage_dashboard_view, heritage_sta
                         CustomPasswordChangeDoneView, inspection_mobile_add_view, 
                         inspection_mobile_list_view, export_doc_view, kml_overlay_check_view,
                         ovkml_converter_view, heritage_classification_stats_api, heritage_detail_view,
+                        mobile_kml_entry_view,
                         system_version_api)
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
@@ -41,11 +42,11 @@ urlpatterns = [
     # 手机端优化页面
     path('mobile/add/', inspection_mobile_add_view, name='inspection_mobile_add'),  # 手机版添加巡查
     path('mobile/list/', inspection_mobile_list_view, name='inspection_mobile_list'),  # 手机版列表
+    path('mobile/kml-entry/', mobile_kml_entry_view, name='mobile_kml_entry'),
     path('api/heritage-stats/', heritage_stats_api, name='heritage_stats_api'),
     path('api/heritage-stats-by-category/', heritage_stats_by_category_api, name='heritage_stats_by_category_api'),
     path('api/heritage-classification-stats/', heritage_classification_stats_api, name='heritage_classification_stats_api'),
     path('api/kanerjing-stats/', kanerjing_stats_api, name='kanerjing_stats_api'),  # 坎儿井统计API
     path('api/system-version/', system_version_api, name='system_version_api'),  # 系统版本号API
-    path('api/', include('core.api_urls')), # API for Flutter App
     path('admin/', admin.site.urls),
 ] + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT) + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

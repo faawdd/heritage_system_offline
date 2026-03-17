@@ -1,12 +1,17 @@
 # core/views.py
-from django.shortcuts import render
+from django.shortcuts import render, redirect
 from django.template.loader import render_to_string
 from .models import HeritageSite, InspectionRecord, ProjectAudit, Coordinate
 from .ovkml_converter import parse_ovkml, build_csv_outputs
+import base64
+import hashlib
+import hmac
 import json
+from urllib.parse import quote
 from django.contrib.admin.views.decorators import staff_member_required
+from django.contrib.auth import get_user_model, login as auth_login
 from django.db.models import Count, Q
-from django.http import JsonResponse, HttpResponse
+from django.http import JsonResponse, HttpResponse, HttpResponseForbidden
 from django.utils import timezone
 from django.conf import settings
 from docxtpl import DocxTemplate
@@ -17,6 +22,60 @@ import uuid
 import re
 from django.shortcuts import get_object_or_404
 from heritage_system.version import VERSION, VERSION_HISTORY
+from .permission_decorators import admin_required
+
+User = get_user_model()
+
+
+def _b64url_decode(value):
+    padding = '=' * (-len(value) % 4)
+    return base64.urlsafe_b64decode((value + padding).encode('utf-8'))
+
+
+def _decode_fastapi_token(token):
+    try:
+        payload_str, signature = token.split('.', 1)
+    except ValueError:
+        return None
+
+    expected_signature = hmac.new(
+        settings.SECRET_KEY.encode('utf-8'),
+        payload_str.encode('utf-8'),
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(signature, expected_signature):
+        return None
+
+    try:
+        payload = json.loads(_b64url_decode(payload_str).decode('utf-8'))
+    except Exception:
+        return None
+
+    if payload.get('exp', 0) < timezone.now().timestamp():
+        return None
+    return payload
+
+
+def mobile_kml_entry_view(request):
+    token = (request.GET.get('token') or '').strip()
+    target_path = request.GET.get('next', '/admin/kml-overlay-check/')
+    if not token:
+        return HttpResponseForbidden('缺少登录凭证')
+
+    payload = _decode_fastapi_token(token)
+    if not payload:
+        return HttpResponseForbidden('登录凭证无效或已过期')
+
+    user = User.objects.filter(id=payload.get('user_id'), is_active=True).first()
+    if not user:
+        return HttpResponseForbidden('用户不存在或已禁用')
+
+    is_admin = user.is_superuser or user.groups.filter(name='管理员').exists() or user.groups.filter(name='超级管理员').exists()
+    if not is_admin:
+        return HttpResponseForbidden('当前账号无权使用KML叠加检查')
+
+    auth_login(request, user, backend='django.contrib.auth.backends.ModelBackend')
+    return redirect(target_path)
 
 
 @staff_member_required
@@ -194,7 +253,7 @@ def heritage_map_view(request):
     return render(request, 'admin/heritage_map.html', context)
 
 
-@staff_member_required
+@admin_required
 def kml_overlay_check_view(request):
     """KML叠加检查页面"""
     sites = HeritageSite.objects.all()
