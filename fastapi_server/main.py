@@ -485,12 +485,38 @@ def list_my_inspections(current_user: Any = Depends(get_current_user)) -> dict:
 def list_all_heritages(
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=1, le=100),
+    q: str = Query(""),
+    category: str = Query(""),
     current_user: Any = Depends(require_admin),
 ) -> dict:
-    queryset = HeritageSite.objects.all().order_by("name")
+    queryset = HeritageSite.objects.all()
+
+    keyword = (q or "").strip()
+    if keyword:
+        queryset = queryset.filter(
+            models.Q(name__icontains=keyword)
+            | models.Q(sip_code__icontains=keyword)
+            | models.Q(address__icontains=keyword)
+            | models.Q(category__icontains=keyword)
+            | models.Q(level__icontains=keyword)
+        )
+
+    category_value = (category or "").strip()
+    if category_value:
+        queryset = queryset.filter(category=category_value)
+
+    queryset = queryset.order_by("name")
     total = queryset.count()
-    offset = (page - 1) * page_size
-    sites = queryset[offset : offset + page_size]
+
+    # 搜索场景需要覆盖数据库中的全部匹配文物，不再截断到单页。
+    if keyword or category_value:
+        sites = queryset
+        page = 1
+        page_size = total if total > 0 else 1
+    else:
+        offset = (page - 1) * page_size
+        sites = queryset[offset : offset + page_size]
+
     total_pages = (total + page_size - 1) // page_size if total else 1
 
     return {
