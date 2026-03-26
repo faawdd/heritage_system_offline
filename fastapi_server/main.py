@@ -532,15 +532,8 @@ def list_all_heritages(
 
     queryset = queryset.order_by("name")
     total = queryset.count()
-
-    # 搜索场景需要覆盖数据库中的全部匹配文物，不再截断到单页。
-    if keyword or category_value:
-        sites = queryset
-        page = 1
-        page_size = total if total > 0 else 1
-    else:
-        offset = (page - 1) * page_size
-        sites = queryset[offset : offset + page_size]
+    offset = (page - 1) * page_size
+    sites = queryset[offset : offset + page_size]
 
     total_pages = (total + page_size - 1) // page_size if total else 1
 
