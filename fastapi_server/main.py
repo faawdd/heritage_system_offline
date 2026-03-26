@@ -239,6 +239,31 @@ def serialize_heritage(site: HeritageSite) -> dict:
     }
 
 
+def normalize_heritage_category(category_value: str) -> str:
+    category_value = (category_value or "").strip()
+    if not category_value:
+        return ""
+
+    category_alias_map = {
+        'GJZ': 'GJZ',
+        '古建筑': 'GJZ',
+        'GMZ': 'GMZ',
+        '古墓葬': 'GMZ',
+        'GYZ': 'GYZ',
+        '古文化遗址': 'GYZ',
+        '古遗址': 'GYZ',
+        'SKT': 'SKT',
+        '石窟寺及石刻': 'SKT',
+        '石刻': 'SKT',
+        'JDJW': 'JDJW',
+        '近现代重要史迹及代表性建筑': 'JDJW',
+        'QT': 'QT',
+        '其他': 'QT',
+    }
+
+    return category_alias_map.get(category_value, category_value)
+
+
 def serialize_inspection(record: InspectionRecord) -> dict:
     base_url = os.environ.get("DJANGO_WEB_BASE_URL", "https://beichenhome.top:9081").rstrip("/")
     photo_url = ""
@@ -501,7 +526,7 @@ def list_all_heritages(
             | models.Q(level__icontains=keyword)
         )
 
-    category_value = (category or "").strip()
+    category_value = normalize_heritage_category(category)
     if category_value:
         queryset = queryset.filter(category=category_value)
 
