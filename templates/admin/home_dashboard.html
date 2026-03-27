@@ -26,10 +26,39 @@
         .todo-name { color: #303133; font-weight: 600; }
         .todo-meta { color: #909399; font-size: 12px; margin-top: 4px; }
         .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #e6a23c; margin-right: 6px; }
+        .app-download-entry {
+            position: fixed;
+            right: 16px;
+            bottom: 16px;
+            z-index: 1200;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 10px 16px;
+            border-radius: 999px;
+            background: linear-gradient(135deg, #0c63e4, #2b7cff);
+            color: #fff;
+            text-decoration: none;
+            font-size: 13px;
+            font-weight: 700;
+            box-shadow: 0 8px 18px rgba(12, 99, 228, 0.32);
+        }
+        .app-download-entry:hover {
+            color: #fff;
+            transform: translateY(-1px);
+        }
         @media (max-width: 1100px) {
             .dashboard-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             .main-grid { grid-template-columns: 1fr; }
             .chart-grid { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 768px) {
+            .app-download-entry {
+                right: 12px;
+                bottom: 12px;
+                padding: 9px 13px;
+                font-size: 12px;
+            }
         }
     </style>
 </head>
@@ -150,5 +179,6 @@ Promise.all([
     renderCategoryChart({labels: [], data: []});
 });
 </script>
+<a class="app-download-entry" href="https://beichenhome.top:9081/app-download/" target="_blank" rel="noopener noreferrer">APP下载页</a>
 </body>
 </html>
