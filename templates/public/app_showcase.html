@@ -4,279 +4,640 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>鄯善文保 App 展示与下载</title>
+    <title>鄯善文保 App - 下载</title>
     <style>
         :root {
-            --bg: #f5f0e7;
-            --panel: #fffaf2;
-            --text: #1f2a33;
-            --muted: #5c6b77;
-            --primary: #1b6ca8;
-            --primary-2: #0f4f7d;
-            --line: #e2d7c4;
-            --shadow: 0 14px 36px rgba(27, 108, 168, 0.16);
-            --radius: 18px;
+            --primary: #2563eb;
+            --primary-dark: #1e40af;
+            --accent: #f59e0b;
+            --text-900: #0f172a;
+            --text-500: #64748b;
+            --text-300: #cbd5e1;
+            --bg-50: #f8fafc;
+            --bg-100: #f1f5f9;
+            --border-200: #e2e8f0;
+            --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
         }
 
         * {
+            margin: 0;
+            padding: 0;
             box-sizing: border-box;
         }
 
+        html {
+            scroll-behavior: smooth;
+        }
+
         body {
-            margin: 0;
-            font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
-            color: var(--text);
-            background:
-                radial-gradient(circle at 10% 0%, #ffffff 0%, rgba(255, 255, 255, 0) 36%),
-                radial-gradient(circle at 90% 100%, #d9ead7 0%, rgba(217, 234, 215, 0) 38%),
-                var(--bg);
-            line-height: 1.65;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+            color: var(--text-900);
+            background: linear-gradient(135deg, var(--bg-50) 0%, #ffffff 100%);
+            line-height: 1.6;
         }
 
         .container {
-            width: min(1180px, 92vw);
+            max-width: 1200px;
             margin: 0 auto;
-            padding: 32px 0 60px;
+            padding: 0 20px;
         }
 
+        /* Header & Hero */
         .hero {
-            display: grid;
-            grid-template-columns: 1.2fr 1fr;
-            gap: 26px;
-            align-items: stretch;
-        }
-
-        .hero-card,
-        .download-card,
-        .features,
-        .screens {
-            background: var(--panel);
-            border: 1px solid var(--line);
-            border-radius: var(--radius);
-            box-shadow: var(--shadow);
-        }
-
-        .hero-card {
-            padding: 30px;
+            padding: 60px 20px;
+            text-align: center;
         }
 
         .badge {
             display: inline-block;
-            margin-bottom: 12px;
+            padding: 6px 14px;
+            border-radius: 9999px;
+            background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+            color: var(--primary-dark);
             font-size: 12px;
-            letter-spacing: 1px;
-            color: #7a5c2f;
-            background: #fbe8c6;
-            border: 1px solid #f2d19c;
-            border-radius: 999px;
-            padding: 4px 12px;
-        }
-
-        h1 {
-            margin: 0 0 14px;
-            font-size: clamp(28px, 3.4vw, 42px);
-            line-height: 1.25;
-        }
-
-        .lead {
-            margin: 0;
-            color: var(--muted);
-            font-size: 16px;
-        }
-
-        .download-card {
-            padding: 22px;
-            display: grid;
-            grid-template-columns: 1fr;
-            justify-items: center;
-            text-align: center;
-        }
-
-        .download-card img {
-            width: min(240px, 70vw);
-            height: auto;
-            border-radius: 12px;
-            border: 1px solid var(--line);
-            background: #fff;
-        }
-
-        .download-actions {
-            margin-top: 14px;
-            width: 100%;
-        }
-
-        .btn {
-            display: inline-block;
-            padding: 10px 18px;
-            border-radius: 10px;
-            text-decoration: none;
             font-weight: 600;
-            border: 1px solid transparent;
-            transition: all 0.2s ease;
+            letter-spacing: 0.5px;
+            margin-bottom: 16px;
         }
 
-        .btn-primary {
-            color: #fff;
-            background: linear-gradient(120deg, var(--primary), var(--primary-2));
-            box-shadow: 0 8px 20px rgba(27, 108, 168, 0.28);
+        .hero h1 {
+            font-size: clamp(32px, 6vw, 48px);
+            font-weight: 800;
+            line-height: 1.2;
+            margin-bottom: 16px;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
 
-        .btn-primary:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 12px 24px rgba(27, 108, 168, 0.33);
+        .hero-subtitle {
+            font-size: 16px;
+            color: var(--text-500);
+            margin-bottom: 40px;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
         }
 
-        .url {
-            margin-top: 10px;
-            word-break: break-all;
-            font-size: 13px;
-            color: var(--muted);
+        /* Download Section */
+        .download-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 48px;
+            align-items: center;
+            padding: 60px 20px;
+            background: linear-gradient(135deg, var(--bg-50) 0%, #ffffff 100%);
+            border-radius: 20px;
+            margin-bottom: 60px;
         }
 
-        .features,
-        .screens {
-            margin-top: 24px;
-            padding: 24px;
+        .download-info h2 {
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 16px;
+            color: var(--text-900);
         }
 
-        h2 {
-            margin: 0 0 14px;
-            font-size: 24px;
+        .download-info p {
+            color: var(--text-500);
+            margin-bottom: 24px;
+            font-size: 15px;
+            line-height: 1.8;
         }
 
-        .feature-list {
-            margin: 0;
-            padding-left: 20px;
-            color: #24313a;
+        .qr-box {
+            background: white;
+            border: 2px solid var(--border-200);
+            border-radius: 16px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            box-shadow: var(--shadow-md);
         }
 
-        .feature-list li + li {
+        .qr-box img {
+            width: 200px;
+            height: 200px;
+            border-radius: 12px;
+            margin-bottom: 16px;
+        }
+
+        .qr-label {
+            font-size: 12px;
+            color: var(--text-500);
             margin-top: 8px;
         }
 
-        .screen-grid {
-            margin-top: 16px;
-            display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-            gap: 16px;
+        .btn-group {
+            display: flex;
+            gap: 12px;
+            flex-direction: column;
         }
 
-        .shot {
-            margin: 0;
-            background: #fff;
-            border: 1px solid var(--line);
-            border-radius: 14px;
-            overflow: hidden;
-        }
-
-        .shot img {
-            display: block;
-            width: 100%;
-            height: 420px;
-            object-fit: cover;
-            background: #f2f2f2;
-        }
-
-        .shot figcaption {
-            padding: 10px 12px;
-            font-size: 14px;
-            color: #314250;
-        }
-
-        .footer {
-            margin-top: 26px;
+        .btn {
+            padding: 14px 28px;
+            border-radius: 12px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 15px;
+            border: 2px solid transparent;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: inline-block;
             text-align: center;
-            color: var(--muted);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: white;
+            box-shadow: 0 10px 25px rgba(37, 99, 235, 0.3);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 14px 32px rgba(37, 99, 235, 0.4);
+        }
+
+        .btn-secondary {
+            background: var(--bg-100);
+            color: var(--primary);
+            border: 2px solid var(--primary);
+        }
+
+        .btn-secondary:hover {
+            background: var(--primary);
+            color: white;
+        }
+
+        .download-url {
+            margin-top: 12px;
+            font-size: 12px;
+            color: var(--text-500);
+            word-break: break-all;
+        }
+
+        /* Features Section */
+        .features-section {
+            padding: 60px 20px;
+            margin-bottom: 60px;
+        }
+
+        .section-title {
+            font-size: 32px;
+            font-weight: 700;
+            margin-bottom: 40px;
+            text-align: center;
+            color: var(--text-900);
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 24px;
+        }
+
+        .feature-card {
+            background: white;
+            border: 1px solid var(--border-200);
+            border-radius: 16px;
+            padding: 24px;
+            transition: all 0.3s ease;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .feature-card:hover {
+            border-color: var(--primary);
+            box-shadow: var(--shadow-lg);
+            transform: translateY(-4px);
+        }
+
+        .feature-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            margin-bottom: 16px;
+        }
+
+        .feature-card h3 {
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 8px;
+            color: var(--text-900);
+        }
+
+        .feature-card p {
+            font-size: 14px;
+            color: var(--text-500);
+            line-height: 1.6;
+        }
+
+        /* Screenshot Carousel */
+        .screenshots-section {
+            padding: 60px 20px;
+            margin-bottom: 60px;
+        }
+
+        .carousel-container {
+            position: relative;
+            max-width: 100%;
+            overflow: hidden;
+            border-radius: 20px;
+            background: white;
+            box-shadow: var(--shadow-lg);
+        }
+
+        .carousel-inner {
+            display: flex;
+            transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+        }
+
+        .carousel-slide {
+            min-width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg-100);
+            aspect-ratio: 1.2 / 1;
+            padding: 20px;
+        }
+
+        .carousel-slide img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            border-radius: 8px;
+            box-shadow: var(--shadow-md);
+        }
+
+        .carousel-controls {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+            padding: 20px;
+            background: white;
+            border-top: 1px solid var(--border-200);
+        }
+
+        .carousel-btn {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            border: 2px solid var(--primary);
+            background: white;
+            color: var(--primary);
+            font-size: 18px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+
+        .carousel-btn:hover {
+            background: var(--primary);
+            color: white;
+            transform: scale(1.05);
+        }
+
+        .carousel-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .carousel-counter {
+            font-size: 14px;
+            color: var(--text-500);
+            font-weight: 600;
+            min-width: 60px;
+            text-align: center;
+        }
+
+        .carousel-caption {
+            text-align: center;
+            font-size: 14px;
+            color: var(--text-500);
+            padding: 12px;
+            background: var(--bg-100);
+            border-radius: 8px;
+        }
+
+        .carousel-dots {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            margin-top: 12px;
+            flex-wrap: wrap;
+        }
+
+        .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--border-200);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .dot.active {
+            background: var(--primary);
+            width: 24px;
+            border-radius: 4px;
+        }
+
+        /* Footer */
+        .footer {
+            padding: 40px 20px;
+            text-align: center;
+            color: var(--text-500);
             font-size: 13px;
+            border-top: 1px solid var(--border-200);
+            margin-top: 60px;
         }
 
-        @media (max-width: 980px) {
+        /* Mobile Responsive */
+        @media (max-width: 768px) {
             .hero {
+                padding: 40px 20px;
+            }
+
+            .hero h1 {
+                font-size: 28px;
+            }
+
+            .download-section {
+                grid-template-columns: 1fr;
+                gap: 32px;
+                padding: 40px 20px;
+                margin-bottom: 40px;
+            }
+
+            .download-info h2 {
+                font-size: 24px;
+            }
+
+            .features-grid {
                 grid-template-columns: 1fr;
             }
 
-            .screen-grid {
-                grid-template-columns: repeat(2, minmax(0, 1fr));
+            .carousel-slide {
+                aspect-ratio: auto;
+                min-height: 400px;
             }
 
-            .shot img {
-                height: 360px;
+            .carousel-controls {
+                flex-wrap: wrap;
+            }
+
+            .screenshots-section {
+                padding: 40px 20px;
+                margin-bottom: 40px;
+            }
+
+            .section-title {
+                font-size: 24px;
+                margin-bottom: 32px;
             }
         }
 
-        @media (max-width: 640px) {
-            .container {
-                padding-top: 18px;
+        @media (max-width: 480px) {
+            .hero {
+                padding: 30px 16px;
             }
 
-            .hero-card,
-            .download-card,
-            .features,
-            .screens {
-                padding: 18px;
-                border-radius: 14px;
+            .hero h1 {
+                font-size: 24px;
             }
 
-            h1 {
-                font-size: 27px;
+            .hero-subtitle {
+                font-size: 14px;
+                margin-bottom: 32px;
             }
 
-            .screen-grid {
-                grid-template-columns: 1fr;
+            .download-section {
+                padding: 24px 16px;
+                gap: 24px;
+                margin-bottom: 32px;
             }
 
-            .shot img {
-                height: auto;
-                max-height: 520px;
-                object-fit: contain;
+            .download-info h2 {
+                font-size: 20px;
+            }
+
+            .qr-box img {
+                width: 150px;
+                height: 150px;
+            }
+
+            .btn {
+                padding: 12px 20px;
+                font-size: 14px;
+            }
+
+            .feature-card {
+                padding: 16px;
+            }
+
+            .carousel-slide {
+                padding: 12px;
+                min-height: 340px;
+            }
+
+            .carousel-btn {
+                width: 36px;
+                height: 36px;
+                font-size: 16px;
+            }
+
+            .carousel-counter {
+                font-size: 13px;
+                min-width: 50px;
+            }
+
+            .section-title {
+                font-size: 20px;
+                margin-bottom: 24px;
+            }
+
+            .features-grid {
+                gap: 16px;
             }
         }
     </style>
 </head>
 <body>
-    <main class="container">
+    <div class="container">
+        <!-- Hero Section -->
         <section class="hero">
-            <article class="hero-card">
-                <span class="badge">鄯善文保 · 官方发布</span>
-                <h1>鄯善文保 App<br>软件展示与下载</h1>
-                <p class="lead">
-                    本页面用于对外展示“鄯善文保”App 的核心功能与界面效果。
-                    无需登录即可查看，可直接扫码或点击链接下载最新安装包。
-                </p>
-            </article>
+            <span class="badge">官方发布</span>
+            <h1>鄯善文保 App</h1>
+            <p class="hero-subtitle">文物巡查、记录管理、信息协同的一体化解决方案</p>
+        </section>
 
-            <aside class="download-card">
-                <h2>扫码下载</h2>
-                <img src="{{ qr_code_url }}" alt="鄯善文保下载二维码">
-                <div class="download-actions">
-                    <a class="btn btn-primary" href="{{ download_url }}" target="_blank" rel="noopener noreferrer">点击下载 App</a>
-                    <div class="url">下载链接：{{ download_url }}</div>
+        <!-- Download Section -->
+        <section class="download-section">
+            <div class="download-info">
+                <h2>立即下载</h2>
+                <p>扫描右侧二维码或点击按钮下载最新版本，即可开始使用鄯善文保 App。无需注册，看护员首次登录可快速验证。</p>
+                <div class="btn-group">
+                    <a href="{{ download_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-primary">
+                        ⬇️ 点击立即下载
+                    </a>
+                    <a href="{{ download_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary">
+                        📱 复制下载链接
+                    </a>
                 </div>
-            </aside>
-        </section>
-
-        <section class="features">
-            <h2>主要功能</h2>
-            <ul class="feature-list">
-                {% for item in features %}
-                    <li>{{ item }}</li>
-                {% endfor %}
-            </ul>
-        </section>
-
-        <section class="screens">
-            <h2>软件截图</h2>
-            <div class="screen-grid">
-                {% for shot in screenshots %}
-                    <figure class="shot">
-                        <img src="{% static shot.file %}" alt="{{ shot.name }}截图" loading="lazy">
-                        <figcaption>{{ shot.name }}</figcaption>
-                    </figure>
-                {% endfor %}
+                <div class="download-url">{{ download_url }}</div>
+            </div>
+            <div class="qr-box">
+                <img src="{{ qr_code_url }}" alt="鄯善文保 App 下载二维码">
+                <span class="qr-label">用手机扫描下载</span>
             </div>
         </section>
 
-        <div class="footer">鄯善县文物数字化管理平台 · 对外展示页</div>
-    </main>
+        <!-- Features Section -->
+        <section class="features-section">
+            <h2 class="section-title">核心功能</h2>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">📍</div>
+                    <h3>实地巡查上报</h3>
+                    <p>现场拍照、位置记录、问题描述一键上报，实时同步至管理平台。</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">📋</div>
+                    <h3>巡查记录查询</h3>
+                    <p>随时查看历史巡查内容，按时间快速追溯，记录一览无遗。</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🔗</div>
+                    <h3>关联中心协同</h3>
+                    <p>重点任务与相关文物信息关联展示，便于统一处理和协调。</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">👤</div>
+                    <h3>个人账户管理</h3>
+                    <p>管理个人信息与使用入口，界面清晰直观，操作简洁高效。</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Screenshots Section -->
+        <section class="screenshots-section">
+            <h2 class="section-title">应用截图</h2>
+            <div class="carousel-container">
+                <div class="carousel-inner" id="carousel">
+                    {% for shot in screenshots %}
+                        <div class="carousel-slide" data-name="{{ shot.name }}">
+                            <img src="{% static shot.file %}" alt="{{ shot.name }}">
+                        </div>
+                    {% endfor %}
+                </div>
+                <div class="carousel-controls">
+                    <button class="carousel-btn" id="prev">‹</button>
+                    <span class="carousel-counter">
+                        <span id="current">1</span> / <span id="total">{{ screenshots|length }}</span>
+                    </span>
+                    <button class="carousel-btn" id="next">›</button>
+                </div>
+                <div class="carousel-caption" id="caption">{{ screenshots.0.name }}</div>
+                <div class="carousel-dots" id="dots"></div>
+            </div>
+        </section>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <p>鄯善县文物数字化管理平台 · 对外展示页 · © 2026</p>
+    </footer>
+
+    <script>
+        const carousel = document.getElementById('carousel');
+        const slides = document.querySelectorAll('.carousel-slide');
+        const prevBtn = document.getElementById('prev');
+        const nextBtn = document.getElementById('next');
+        const currentSpan = document.getElementById('current');
+        const caption = document.getElementById('caption');
+        const dotsContainer = document.getElementById('dots');
+        
+        let currentSlide = 0;
+        const totalSlides = slides.length;
+
+        // Create dots
+        for (let i = 0; i < totalSlides; i++) {
+            const dot = document.createElement('div');
+            dot.className = 'dot' + (i === 0 ? ' active' : '');
+            dot.addEventListener('click', () => goToSlide(i));
+            dotsContainer.appendChild(dot);
+        }
+
+        const dots = document.querySelectorAll('.dot');
+
+        function updateCarousel() {
+            carousel.style.transform = `translateX(-${currentSlide * 100}%)`;
+            currentSpan.textContent = currentSlide + 1;
+            
+            // Update dots
+            dots.forEach((dot, idx) => {
+                dot.classList.toggle('active', idx === currentSlide);
+            });
+
+            // Update caption
+            const currentSlideEl = slides[currentSlide];
+            if (currentSlideEl) {
+                caption.textContent = currentSlideEl.getAttribute('data-name') || '';
+            }
+        }
+
+        function goToSlide(n) {
+            currentSlide = n % totalSlides;
+            updateCarousel();
+        }
+
+        function nextSlide() {
+            currentSlide = (currentSlide + 1) % totalSlides;
+            updateCarousel();
+        }
+
+        function prevSlide() {
+            currentSlide = (currentSlide - 1 + totalSlides) % totalSlides;
+            updateCarousel();
+        }
+
+        nextBtn.addEventListener('click', nextSlide);
+        prevBtn.addEventListener('click', prevSlide);
+
+        // Keyboard navigation
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowRight') nextSlide();
+            if (e.key === 'ArrowLeft') prevSlide();
+        });
+
+        // Touch swipe support for mobile
+        let touchStartX = 0;
+        let touchEndX = 0;
+
+        carousel.addEventListener('touchstart', (e) => {
+            touchStartX = e.changedTouches[0].screenX;
+        });
+
+        carousel.addEventListener('touchend', (e) => {
+            touchEndX = e.changedTouches[0].screenX;
+            if (touchStartX - touchEndX > 50) nextSlide();
+            if (touchEndX - touchStartX > 50) prevSlide();
+        });
+    </script>
 </body>
 </html>
