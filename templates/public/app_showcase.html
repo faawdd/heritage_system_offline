@@ -1,0 +1,282 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>鄯善文保 App 展示与下载</title>
+    <style>
+        :root {
+            --bg: #f5f0e7;
+            --panel: #fffaf2;
+            --text: #1f2a33;
+            --muted: #5c6b77;
+            --primary: #1b6ca8;
+            --primary-2: #0f4f7d;
+            --line: #e2d7c4;
+            --shadow: 0 14px 36px rgba(27, 108, 168, 0.16);
+            --radius: 18px;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+            color: var(--text);
+            background:
+                radial-gradient(circle at 10% 0%, #ffffff 0%, rgba(255, 255, 255, 0) 36%),
+                radial-gradient(circle at 90% 100%, #d9ead7 0%, rgba(217, 234, 215, 0) 38%),
+                var(--bg);
+            line-height: 1.65;
+        }
+
+        .container {
+            width: min(1180px, 92vw);
+            margin: 0 auto;
+            padding: 32px 0 60px;
+        }
+
+        .hero {
+            display: grid;
+            grid-template-columns: 1.2fr 1fr;
+            gap: 26px;
+            align-items: stretch;
+        }
+
+        .hero-card,
+        .download-card,
+        .features,
+        .screens {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+        }
+
+        .hero-card {
+            padding: 30px;
+        }
+
+        .badge {
+            display: inline-block;
+            margin-bottom: 12px;
+            font-size: 12px;
+            letter-spacing: 1px;
+            color: #7a5c2f;
+            background: #fbe8c6;
+            border: 1px solid #f2d19c;
+            border-radius: 999px;
+            padding: 4px 12px;
+        }
+
+        h1 {
+            margin: 0 0 14px;
+            font-size: clamp(28px, 3.4vw, 42px);
+            line-height: 1.25;
+        }
+
+        .lead {
+            margin: 0;
+            color: var(--muted);
+            font-size: 16px;
+        }
+
+        .download-card {
+            padding: 22px;
+            display: grid;
+            grid-template-columns: 1fr;
+            justify-items: center;
+            text-align: center;
+        }
+
+        .download-card img {
+            width: min(240px, 70vw);
+            height: auto;
+            border-radius: 12px;
+            border: 1px solid var(--line);
+            background: #fff;
+        }
+
+        .download-actions {
+            margin-top: 14px;
+            width: 100%;
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 10px 18px;
+            border-radius: 10px;
+            text-decoration: none;
+            font-weight: 600;
+            border: 1px solid transparent;
+            transition: all 0.2s ease;
+        }
+
+        .btn-primary {
+            color: #fff;
+            background: linear-gradient(120deg, var(--primary), var(--primary-2));
+            box-shadow: 0 8px 20px rgba(27, 108, 168, 0.28);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 12px 24px rgba(27, 108, 168, 0.33);
+        }
+
+        .url {
+            margin-top: 10px;
+            word-break: break-all;
+            font-size: 13px;
+            color: var(--muted);
+        }
+
+        .features,
+        .screens {
+            margin-top: 24px;
+            padding: 24px;
+        }
+
+        h2 {
+            margin: 0 0 14px;
+            font-size: 24px;
+        }
+
+        .feature-list {
+            margin: 0;
+            padding-left: 20px;
+            color: #24313a;
+        }
+
+        .feature-list li + li {
+            margin-top: 8px;
+        }
+
+        .screen-grid {
+            margin-top: 16px;
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 16px;
+        }
+
+        .shot {
+            margin: 0;
+            background: #fff;
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            overflow: hidden;
+        }
+
+        .shot img {
+            display: block;
+            width: 100%;
+            height: 420px;
+            object-fit: cover;
+            background: #f2f2f2;
+        }
+
+        .shot figcaption {
+            padding: 10px 12px;
+            font-size: 14px;
+            color: #314250;
+        }
+
+        .footer {
+            margin-top: 26px;
+            text-align: center;
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        @media (max-width: 980px) {
+            .hero {
+                grid-template-columns: 1fr;
+            }
+
+            .screen-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            .shot img {
+                height: 360px;
+            }
+        }
+
+        @media (max-width: 640px) {
+            .container {
+                padding-top: 18px;
+            }
+
+            .hero-card,
+            .download-card,
+            .features,
+            .screens {
+                padding: 18px;
+                border-radius: 14px;
+            }
+
+            h1 {
+                font-size: 27px;
+            }
+
+            .screen-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .shot img {
+                height: auto;
+                max-height: 520px;
+                object-fit: contain;
+            }
+        }
+    </style>
+</head>
+<body>
+    <main class="container">
+        <section class="hero">
+            <article class="hero-card">
+                <span class="badge">鄯善文保 · 官方发布</span>
+                <h1>鄯善文保 App<br>软件展示与下载</h1>
+                <p class="lead">
+                    本页面用于对外展示“鄯善文保”App 的核心功能与界面效果。
+                    无需登录即可查看，可直接扫码或点击链接下载最新安装包。
+                </p>
+            </article>
+
+            <aside class="download-card">
+                <h2>扫码下载</h2>
+                <img src="{{ qr_code_url }}" alt="鄯善文保下载二维码">
+                <div class="download-actions">
+                    <a class="btn btn-primary" href="{{ download_url }}" target="_blank" rel="noopener noreferrer">点击下载 App</a>
+                    <div class="url">下载链接：{{ download_url }}</div>
+                </div>
+            </aside>
+        </section>
+
+        <section class="features">
+            <h2>主要功能</h2>
+            <ul class="feature-list">
+                {% for item in features %}
+                    <li>{{ item }}</li>
+                {% endfor %}
+            </ul>
+        </section>
+
+        <section class="screens">
+            <h2>软件截图</h2>
+            <div class="screen-grid">
+                {% for shot in screenshots %}
+                    <figure class="shot">
+                        <img src="{% static shot.file %}" alt="{{ shot.name }}截图" loading="lazy">
+                        <figcaption>{{ shot.name }}</figcaption>
+                    </figure>
+                {% endfor %}
+            </div>
+        </section>
+
+        <div class="footer">鄯善县文物数字化管理平台 · 对外展示页</div>
+    </main>
+</body>
+</html>

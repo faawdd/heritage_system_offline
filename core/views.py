@@ -797,3 +797,26 @@ def inspection_mobile_list_view(request):
     }
     return render(request, 'admin/inspection_mobile_list.html', context)
 
+
+def app_showcase_view(request):
+    """鄯善文保 App 展示与下载页（公开访问）"""
+    context = {
+        'download_url': 'https://share.fnnas.net/s/49a5a7b485784cf4a1',
+        'qr_code_url': 'https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=https%3A%2F%2Fshare.fnnas.net%2Fs%2F49a5a7b485784cf4a1',
+        'features': [
+            '文物点巡查上报：支持现场拍照、位置记录与问题描述，提升巡查效率。',
+            '巡查记录管理：随时查看历史巡查内容，支持按时间快速追溯。',
+            '关联中心协同：重点任务与相关文物信息关联展示，便于统一处置。',
+            '个人账户中心：看护员可管理个人信息与使用入口，操作清晰。',
+        ],
+        'screenshots': [
+            {'name': '登录页面', 'file': 'app_showcase/登录页面.jpg'},
+            {'name': '工作台', 'file': 'app_showcase/工作台.jpg'},
+            {'name': '巡查上报', 'file': 'app_showcase/巡查上报.jpg'},
+            {'name': '巡查记录', 'file': 'app_showcase/巡查记录.jpg'},
+            {'name': '关联中心', 'file': 'app_showcase/关联中心.jpg'},
+            {'name': '我的账户', 'file': 'app_showcase/我的账户.jpg'},
+        ],
+    }
+    return render(request, 'public/app_showcase.html', context)
+
