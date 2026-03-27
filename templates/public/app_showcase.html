@@ -486,6 +486,29 @@
             <p class="hero-subtitle">文物巡查、记录管理、信息协同的一体化解决方案</p>
         </section>
 
+        <!-- Screenshots Section -->
+        <section class="screenshots-section">
+            <h2 class="section-title">应用截图</h2>
+            <div class="carousel-container">
+                <div class="carousel-inner" id="carousel">
+                    {% for shot in screenshots %}
+                        <div class="carousel-slide" data-name="{{ shot.name }}">
+                            <img src="{% static shot.file %}" alt="{{ shot.name }}">
+                        </div>
+                    {% endfor %}
+                </div>
+                <div class="carousel-controls">
+                    <button class="carousel-btn" id="prev">‹</button>
+                    <span class="carousel-counter">
+                        <span id="current">1</span> / <span id="total">{{ screenshots|length }}</span>
+                    </span>
+                    <button class="carousel-btn" id="next">›</button>
+                </div>
+                <div class="carousel-caption" id="caption">{{ screenshots.0.name }}</div>
+                <div class="carousel-dots" id="dots"></div>
+            </div>
+        </section>
+
         <!-- Download Section -->
         <section class="download-section">
             <div class="download-info">
@@ -531,29 +554,6 @@
                     <h3>个人账户管理</h3>
                     <p>管理个人信息与使用入口，界面清晰直观，操作简洁高效。</p>
                 </div>
-            </div>
-        </section>
-
-        <!-- Screenshots Section -->
-        <section class="screenshots-section">
-            <h2 class="section-title">应用截图</h2>
-            <div class="carousel-container">
-                <div class="carousel-inner" id="carousel">
-                    {% for shot in screenshots %}
-                        <div class="carousel-slide" data-name="{{ shot.name }}">
-                            <img src="{% static shot.file %}" alt="{{ shot.name }}">
-                        </div>
-                    {% endfor %}
-                </div>
-                <div class="carousel-controls">
-                    <button class="carousel-btn" id="prev">‹</button>
-                    <span class="carousel-counter">
-                        <span id="current">1</span> / <span id="total">{{ screenshots|length }}</span>
-                    </span>
-                    <button class="carousel-btn" id="next">›</button>
-                </div>
-                <div class="carousel-caption" id="caption">{{ screenshots.0.name }}</div>
-                <div class="carousel-dots" id="dots"></div>
             </div>
         </section>
     </div>
