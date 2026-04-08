@@ -18,14 +18,19 @@ import environ
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 env = environ.Env()
-environ.Env.read_env(BASE_DIR / '.env')
+env_file = BASE_DIR / '.env'
+if env_file.exists():
+    environ.Env.read_env(env_file)
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = env('DJANGO_SECRET_KEY')
+SECRET_KEY = env(
+    'DJANGO_SECRET_KEY',
+    default='django-insecure-^me3znqxm6l8%m-cxs7k$=m7=eg0h_8d&kx+p88dzsz+sg#wh*'
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = False
