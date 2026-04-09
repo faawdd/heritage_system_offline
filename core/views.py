@@ -611,6 +611,69 @@ def _build_conflict_report_csv(conflicts, threshold_m, records=None):
     return response
 
 
+def _build_conflict_sites_kml(conflicts, threshold_m, records=None):
+    """将冲突文物点导出为奥维互动地图兼容的 KML 格式（按 site_id 去重，仅导出唯一文物点）。"""
+    seen_ids = set()
+    unique_sites = []
+    for row in conflicts:
+        sid = row.get('site_id')
+        if sid and sid not in seen_ids:
+            seen_ids.add(sid)
+            unique_sites.append(row)
+
+    date_str = timezone.now().strftime('%Y%m%d')
+    if records and len(records) == 1:
+        kml_name = f'{date_str}{records[0].title}冲突文物点'
+    elif records and len(records) > 1:
+        kml_name = f'{date_str}{records[0].title}等冲突文物点'
+    else:
+        kml_name = f'冲突文物点_{timezone.now().strftime("%Y%m%d_%H%M%S")}'
+
+    ET.register_namespace('', 'http://www.opengis.net/kml/2.2')
+    ET.register_namespace('gx', 'http://www.google.com/kml/ext/2.2')
+    ns = 'http://www.opengis.net/kml/2.2'
+
+    kml_root = ET.Element(f'{{{ns}}}kml')
+    doc = ET.SubElement(kml_root, f'{{{ns}}}Document')
+    ET.SubElement(doc, f'{{{ns}}}name').text = kml_name
+
+    # 奥维红色图标样式
+    style = ET.SubElement(doc, f'{{{ns}}}Style')
+    style.set('id', 'heritageConflict')
+    icon_style = ET.SubElement(style, f'{{{ns}}}IconStyle')
+    ET.SubElement(icon_style, f'{{{ns}}}color').text = 'ff0000ff'  # ABGR 红色
+    ET.SubElement(icon_style, f'{{{ns}}}scale').text = '1.2'
+    icon_el = ET.SubElement(icon_style, f'{{{ns}}}Icon')
+    ET.SubElement(icon_el, f'{{{ns}}}href').text = 'http://maps.google.com/mapfiles/kml/paddle/red-circle.png'
+    label_style = ET.SubElement(style, f'{{{ns}}}LabelStyle')
+    ET.SubElement(label_style, f'{{{ns}}}color').text = 'ff0000ff'
+    ET.SubElement(label_style, f'{{{ns}}}scale').text = '0.9'
+
+    for site in unique_sites:
+        lon = site.get('site_longitude')
+        lat = site.get('site_latitude')
+        if lon is None or lat is None:
+            continue
+        pm = ET.SubElement(doc, f'{{{ns}}}Placemark')
+        ET.SubElement(pm, f'{{{ns}}}name').text = str(site.get('site_name', '未命名文物'))
+        ET.SubElement(pm, f'{{{ns}}}description').text = (
+            f'文物级别: {site.get("site_level", "")}\n'
+            f'文物ID: {site.get("site_id", "")}\n'
+            f'阈值: {threshold_m}米'
+        )
+        ET.SubElement(pm, f'{{{ns}}}styleUrl').text = '#heritageConflict'
+        point_el = ET.SubElement(pm, f'{{{ns}}}Point')
+        ET.SubElement(point_el, f'{{{ns}}}coordinates').text = f'{lon},{lat},0'
+
+    kml_bytes = ET.tostring(kml_root, encoding='unicode', xml_declaration=False)
+    kml_content = '<?xml version="1.0" encoding="UTF-8"?>\n' + kml_bytes
+
+    response = HttpResponse(kml_content, content_type='application/vnd.google-earth.kml+xml; charset=utf-8')
+    encoded_name = quote(kml_name + '.kml', safe='')
+    response['Content-Disposition'] = f"attachment; filename*=UTF-8''{encoded_name}"
+    return response
+
+
 def _reanalyze_kml_records(records, threshold):
     combined_conflicts = []
     updated_count = 0
@@ -751,7 +814,7 @@ def kml_management_view(request):
                     messages.success(request, f'已快速上传 {created_count} 个文件。若需冲突报告，请勾选后点击“批量查询冲突并导出报告”。')
             return redirect('kml_overlay_check')
 
-        if action in {'analyze_selected', 'analyze_export_selected'}:
+        if action in {'analyze_selected', 'analyze_export_selected', 'export_conflict_kml'}:
             selected_ids = request.POST.getlist('selected_ids')
             if not selected_ids:
                 messages.error(request, '请先选择要批量查询的文件。')
@@ -770,6 +833,9 @@ def kml_management_view(request):
             if action == 'analyze_selected':
                 messages.success(request, f'已分析并更新 {updated_count} 条记录，当前共识别 {len(combined_conflicts)} 处冲突。')
                 return redirect('kml_overlay_check')
+
+            if action == 'export_conflict_kml':
+                return _build_conflict_sites_kml(combined_conflicts, threshold, selected_records)
 
             return _build_conflict_report_csv(combined_conflicts, threshold, selected_records)
 
