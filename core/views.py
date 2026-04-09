@@ -570,7 +570,7 @@ def _analyze_conflicts(features, threshold_m):
     return conflicts
 
 
-def _build_conflict_report_csv(conflicts, threshold_m):
+def _build_conflict_report_csv(conflicts, threshold_m, records=None):
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(['阈值(米)', threshold_m])
@@ -595,7 +595,19 @@ def _build_conflict_report_csv(conflicts, threshold_m):
         writer.writerow(['-', '-', '-', '-', '无冲突', '-', '-', '-', '-', '-'])
 
     response = HttpResponse(output.getvalue(), content_type='text/csv; charset=utf-8-sig')
-    response['Content-Disposition'] = f'attachment; filename="kml_conflict_report_{timezone.now().strftime("%Y%m%d_%H%M%S")}.csv"'
+    date_str = timezone.now().strftime('%Y%m%d')
+    if records and len(records) == 1:
+        first_title = records[0].title
+        report_name = f'{date_str}{first_title}查询报告'
+    elif records and len(records) > 1:
+        first_title = records[0].title
+        report_name = f'{date_str}{first_title}等查询报告'
+    else:
+        report_name = f'kml_conflict_report_{timezone.now().strftime("%Y%m%d_%H%M%S")}'
+    # RFC 5987 UTF-8 编码处理中文文件名
+    from urllib.parse import quote
+    encoded_name = quote(report_name + '.csv', safe='')
+    response['Content-Disposition'] = f"attachment; filename*=UTF-8''{encoded_name}"
     return response
 
 
@@ -759,7 +771,7 @@ def kml_management_view(request):
                 messages.success(request, f'已分析并更新 {updated_count} 条记录，当前共识别 {len(combined_conflicts)} 处冲突。')
                 return redirect('kml_overlay_check')
 
-            return _build_conflict_report_csv(combined_conflicts, threshold)
+            return _build_conflict_report_csv(combined_conflicts, threshold, selected_records)
 
     records = KmlUploadRecord.objects.select_related('uploaded_by').order_by('-created_at')[:200]
     sites_data = list(
