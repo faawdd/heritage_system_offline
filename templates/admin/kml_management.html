@@ -4,18 +4,18 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ title }}</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/@tmcw/togeojson@6.0.1/dist/togeojson.umd.js"></script>
+    <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
     <style>
         * { box-sizing: border-box; }
         body {
             margin: 0;
-            padding: 24px;
+            padding: 16px;
             font-family: 'Microsoft YaHei', Arial, sans-serif;
             background: #f5f7fa;
             color: #303133;
-        }
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
         }
         .header {
             margin-bottom: 16px;
@@ -28,6 +28,20 @@
             margin: 8px 0 0;
             color: #606266;
             font-size: 14px;
+        }
+        .layout {
+            display: flex;
+            gap: 16px;
+            align-items: flex-start;
+        }
+        .left-pane {
+            flex: 0 0 460px;
+            max-width: 460px;
+            min-width: 360px;
+        }
+        .right-pane {
+            flex: 1;
+            min-width: 0;
         }
         .card {
             background: #fff;
@@ -54,6 +68,7 @@
             padding: 8px 10px;
             font-size: 13px;
             background: #fff;
+            max-width: 100%;
         }
         .btn {
             border: none;
@@ -93,11 +108,14 @@
         .msg-error { background: #fef0f0; color: #f56c6c; }
         .table-wrap {
             overflow-x: auto;
+            max-height: 420px;
+            border: 1px solid #ebeef5;
+            border-radius: 8px;
         }
         table {
             width: 100%;
             border-collapse: collapse;
-            min-width: 980px;
+            min-width: 760px;
         }
         th, td {
             border-bottom: 1px solid #ebeef5;
@@ -126,117 +144,382 @@
             background: #f0f9eb;
             color: #67c23a;
         }
+        .map-card {
+            padding: 0;
+            overflow: hidden;
+        }
+        #map {
+            width: 100%;
+            height: calc(100vh - 120px);
+            min-height: 560px;
+        }
+        .map-toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 14px;
+            border-bottom: 1px solid #ebeef5;
+            background: #fff;
+        }
+        .map-status {
+            font-size: 12px;
+            color: #606266;
+        }
+        .legend {
+            position: absolute;
+            right: 18px;
+            bottom: 18px;
+            z-index: 500;
+            background: rgba(255, 255, 255, 0.96);
+            border-radius: 8px;
+            box-shadow: 0 1px 10px rgba(0, 0, 0, 0.12);
+            padding: 10px;
+            min-width: 160px;
+            font-size: 12px;
+            color: #303133;
+        }
+        .legend-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+        .legend-row:last-child {
+            margin-bottom: 0;
+        }
+        .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        .line {
+            width: 12px;
+            height: 2px;
+            margin-right: 8px;
+            background: #ff5a36;
+        }
+        .poly {
+            width: 12px;
+            height: 10px;
+            margin-right: 8px;
+            border: 1px solid #ff5a36;
+            background: rgba(255, 90, 54, 0.2);
+        }
+
+        @media (max-width: 1100px) {
+            .layout {
+                flex-direction: column;
+            }
+            .left-pane {
+                max-width: none;
+                width: 100%;
+                min-width: 0;
+            }
+            #map {
+                height: 62vh;
+                min-height: 420px;
+            }
+        }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>{{ title }}</h1>
-            <p>支持持久化存储 KML/KMZ 文件，支持批量重新查询冲突并导出 CSV 报告。</p>
-        </div>
+    <div class="header">
+        <h1>{{ title }}</h1>
+        <p>左侧管理文件与批量报告，右侧使用天地图展示文物点与已选 KML 叠加效果。</p>
+    </div>
 
-        {% if messages %}
-            <ul class="msg-list">
-                {% for message in messages %}
-                    <li class="msg-item {% if message.tags == 'success' %}msg-success{% elif message.tags == 'warning' %}msg-warning{% else %}msg-error{% endif %}">{{ message }}</li>
-                {% endfor %}
-            </ul>
-        {% endif %}
+    <div class="layout">
+        <div class="left-pane">
+            {% if messages %}
+                <ul class="msg-list">
+                    {% for message in messages %}
+                        <li class="msg-item {% if message.tags == 'success' %}msg-success{% elif message.tags == 'warning' %}msg-warning{% else %}msg-error{% endif %}">{{ message }}</li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
 
-        <div class="card">
-            <form method="post" enctype="multipart/form-data">
-                {% csrf_token %}
-                <input type="hidden" name="action" value="upload">
-                <div class="row">
-                    <label for="kmlFiles">上传文件</label>
-                    <input id="kmlFiles" type="file" name="kml_files" accept=".kml,.kmz,.ovkml,.ovkmz" multiple required>
-                </div>
-                <div class="row">
-                    <label for="thresholdUpload">冲突阈值(米)</label>
-                    <input id="thresholdUpload" type="number" name="threshold_m" min="1" max="5000" value="{{ default_threshold }}" required>
-                    <span class="hint">点/线按阈值判定，面要素按面内包含判定。</span>
-                </div>
-                <div class="row" style="margin-bottom:0;">
-                    <button class="btn btn-primary" type="submit">上传并分析</button>
-                    <a class="btn btn-secondary" href="/admin/heritage-map/">返回文物一张图</a>
-                </div>
-            </form>
-        </div>
+            <div class="card">
+                <form method="post" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="upload">
+                    <div class="row">
+                        <label for="kmlFiles">上传文件</label>
+                        <input id="kmlFiles" type="file" name="kml_files" accept=".kml,.kmz,.ovkml,.ovkmz" multiple required>
+                    </div>
+                    <div class="row">
+                        <label for="thresholdUpload">冲突阈值(米)</label>
+                        <input id="thresholdUpload" type="number" name="threshold_m" min="1" max="5000" value="{{ default_threshold }}" required>
+                        <span class="hint">点/线按阈值判定，面要素按面内包含判定。</span>
+                    </div>
+                    <div class="row" style="margin-bottom:0;">
+                        <button class="btn btn-primary" type="submit">上传并分析</button>
+                        <a class="btn btn-secondary" href="/admin/heritage-map/">返回文物一张图</a>
+                    </div>
+                </form>
+            </div>
 
-        <div class="card">
-            <form method="post">
-                {% csrf_token %}
-                <input type="hidden" name="action" value="analyze_selected">
-                <div class="row">
-                    <label for="thresholdBatch">批量阈值(米)</label>
-                    <input id="thresholdBatch" type="number" name="threshold_m" min="1" max="5000" value="{{ default_threshold }}" required>
-                    <button class="btn btn-success" type="submit">批量查询冲突并导出报告</button>
-                    <span class="hint">将对选中记录重新计算冲突，并自动下载 CSV 报告。</span>
-                </div>
+            <div class="card">
+                <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="analyze_selected">
+                    <div class="row">
+                        <label for="thresholdBatch">批量阈值(米)</label>
+                        <input id="thresholdBatch" type="number" name="threshold_m" min="1" max="5000" value="{{ default_threshold }}" required>
+                        <button class="btn btn-success" type="submit">批量查询冲突并导出报告</button>
+                    </div>
+                    <div class="row" style="margin-top:-2px;">
+                        <span class="hint">勾选下方文件后，可同时在右侧地图查看叠加效果。</span>
+                    </div>
 
-                <div class="table-wrap">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th><input type="checkbox" id="checkAll"></th>
-                                <th>ID</th>
-                                <th>文件标题</th>
-                                <th>上传人</th>
-                                <th>阈值(米)</th>
-                                <th>要素数</th>
-                                <th>冲突数</th>
-                                <th>创建时间</th>
-                                <th>文件</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for record in records %}
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
                                 <tr>
-                                    <td><input type="checkbox" name="selected_ids" value="{{ record.id }}" class="record-check"></td>
-                                    <td>{{ record.id }}</td>
-                                    <td>{{ record.title }}</td>
-                                    <td>{% if record.uploaded_by %}{{ record.uploaded_by.username }}{% else %}-{% endif %}</td>
-                                    <td>{{ record.threshold_m }}</td>
-                                    <td>{{ record.feature_count }}</td>
-                                    <td>
-                                        {% if record.conflict_count > 0 %}
-                                            <span class="tag tag-danger">{{ record.conflict_count }} 处冲突</span>
-                                        {% else %}
-                                            <span class="tag tag-safe">无冲突</span>
-                                        {% endif %}
-                                    </td>
-                                    <td>{{ record.created_at|date:'Y-m-d H:i:s' }}</td>
-                                    <td>
-                                        {% if record.source_file %}
-                                            <a href="{{ record.source_file.url }}" target="_blank">下载</a>
-                                        {% else %}
-                                            -
-                                        {% endif %}
-                                    </td>
+                                    <th><input type="checkbox" id="checkAll"></th>
+                                    <th>ID</th>
+                                    <th>文件标题</th>
+                                    <th>冲突数</th>
+                                    <th>创建时间</th>
+                                    <th>文件</th>
                                 </tr>
-                            {% empty %}
-                                <tr>
-                                    <td colspan="9" style="text-align:center; color:#909399;">暂无已上传 KML 记录</td>
-                                </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </form>
+                            </thead>
+                            <tbody>
+                                {% for record in records %}
+                                    <tr>
+                                        <td>
+                                            <input
+                                                type="checkbox"
+                                                name="selected_ids"
+                                                value="{{ record.id }}"
+                                                class="record-check"
+                                                data-file-url="{% if record.source_file %}{{ record.source_file.url }}{% endif %}"
+                                                data-file-name="{{ record.title }}"
+                                            >
+                                        </td>
+                                        <td>{{ record.id }}</td>
+                                        <td>{{ record.title }}</td>
+                                        <td>
+                                            {% if record.conflict_count > 0 %}
+                                                <span class="tag tag-danger">{{ record.conflict_count }} 处</span>
+                                            {% else %}
+                                                <span class="tag tag-safe">无</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>{{ record.created_at|date:'Y-m-d H:i:s' }}</td>
+                                        <td>
+                                            {% if record.source_file %}
+                                                <a href="{{ record.source_file.url }}" target="_blank">下载</a>
+                                            {% else %}
+                                                -
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                {% empty %}
+                                    <tr>
+                                        <td colspan="6" style="text-align:center; color:#909399;">暂无已上传 KML 记录</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </form>
+            </div>
         </div>
+
+        <div class="right-pane">
+            <div class="card map-card">
+                <div class="map-toolbar">
+                    <div class="map-status" id="mapStatus">地图已就绪，默认显示全部文物点。</div>
+                    <div class="hint">勾选左侧文件后，自动叠加显示</div>
+                </div>
+                <div id="map"></div>
+            </div>
+        </div>
+    </div>
+
+    <script id="sites-data" type="application/json">{{ sites_json|safe }}</script>
+    <div class="legend">
+        <div class="legend-row"><span class="dot" style="background:#2a9d8f;"></span>文物点</div>
+        <div class="legend-row"><span class="dot" style="background:#ff5a36;"></span>KML点</div>
+        <div class="legend-row"><span class="line"></span>KML线</div>
+        <div class="legend-row"><span class="poly"></span>KML面</div>
     </div>
 
     <script>
         const checkAll = document.getElementById('checkAll');
         const rowChecks = Array.from(document.querySelectorAll('.record-check'));
+        const mapStatusEl = document.getElementById('mapStatus');
+        const tk = '424ac2af85564078477428c1a2b72018';
+        const COLORS = ['#ff5a36', '#e6a23c', '#409eff', '#85ce61', '#f78989', '#b37feb', '#41d7d7'];
+
+        function getTdtLayer(type, label) {
+            const base = L.tileLayer(
+                'https://t{s}.tianditu.gov.cn/' + type + '_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=' + type + '&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILECOL={x}&TILEROW={y}&TILEMATRIX={z}&tk=' + tk,
+                { subdomains: ['0', '1', '2', '3', '4', '5', '6', '7'] }
+            );
+            const anno = L.tileLayer(
+                'https://t{s}.tianditu.gov.cn/' + label + '_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=' + label + '&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILECOL={x}&TILEROW={y}&TILEMATRIX={z}&tk=' + tk,
+                { subdomains: ['0', '1', '2', '3', '4', '5', '6', '7'] }
+            );
+            return L.layerGroup([base, anno]);
+        }
+
+        const imgLayer = getTdtLayer('img', 'cia');
+        const vecLayer = getTdtLayer('vec', 'cva');
+        const map = L.map('map', {
+            center: [42.84, 90.21],
+            zoom: 10,
+            layers: [imgLayer]
+        });
+
+        L.control.layers({
+            '卫星影像': imgLayer,
+            '电子地图': vecLayer,
+        }).addTo(map);
+
+        const heritageLayer = L.layerGroup().addTo(map);
+        const overlayLayer = L.featureGroup().addTo(map);
+        const siteData = JSON.parse(document.getElementById('sites-data').textContent || '[]');
+
+        siteData.forEach((site) => {
+            const lat = Number(site.latitude);
+            const lon = Number(site.longitude);
+            if (!isFinite(lat) || !isFinite(lon)) {
+                return;
+            }
+            L.circleMarker([lat, lon], {
+                radius: 4,
+                color: '#2a9d8f',
+                weight: 1,
+                fillColor: '#2a9d8f',
+                fillOpacity: 0.85,
+            })
+                .bindPopup('<strong>' + (site.name || '文物点') + '</strong><br>级别: ' + (site.level || '-'))
+                .addTo(heritageLayer);
+        });
+
+        function featureStyle(feature, color) {
+            const geomType = feature.geometry && feature.geometry.type ? feature.geometry.type : '';
+            if (geomType.includes('Polygon')) {
+                return { color: color, weight: 2, fillColor: color, fillOpacity: 0.2 };
+            }
+            if (geomType.includes('LineString')) {
+                return { color: color, weight: 3 };
+            }
+            return { color: color, weight: 2 };
+        }
+
+        async function parseKmlFromBuffer(fileName, arrayBuffer) {
+            const lowerName = (fileName || '').toLowerCase();
+            if (lowerName.endsWith('.kmz') || lowerName.endsWith('.ovkmz')) {
+                const archive = await JSZip.loadAsync(arrayBuffer);
+                for (const [entryName, fileObj] of Object.entries(archive.files)) {
+                    if (!entryName.toLowerCase().endsWith('.kml')) {
+                        continue;
+                    }
+                    const text = await fileObj.async('text');
+                    const xml = new DOMParser().parseFromString(text, 'text/xml');
+                    if (xml.getElementsByTagName('parsererror').length > 0) {
+                        continue;
+                    }
+                    return toGeoJSON.kml(xml);
+                }
+                throw new Error('压缩包中未找到可解析的 KML 文件');
+            }
+
+            const text = new TextDecoder('utf-8').decode(arrayBuffer);
+            const xml = new DOMParser().parseFromString(text, 'text/xml');
+            if (xml.getElementsByTagName('parsererror').length > 0) {
+                throw new Error('KML 内容格式错误');
+            }
+            return toGeoJSON.kml(xml);
+        }
+
+        async function renderSelectedKmlLayers() {
+            overlayLayer.clearLayers();
+            const selected = rowChecks.filter(item => item.checked && item.dataset.fileUrl);
+
+            if (!selected.length) {
+                mapStatusEl.textContent = '地图已就绪，默认显示全部文物点。';
+                return;
+            }
+
+            mapStatusEl.textContent = '正在加载 ' + selected.length + ' 个 KML 文件...';
+            let renderedCount = 0;
+            for (let i = 0; i < selected.length; i++) {
+                const checkbox = selected[i];
+                const fileUrl = checkbox.dataset.fileUrl;
+                const fileName = checkbox.dataset.fileName || ('文件' + (i + 1));
+                const color = COLORS[i % COLORS.length];
+
+                try {
+                    const resp = await fetch(fileUrl, { credentials: 'same-origin' });
+                    if (!resp.ok) {
+                        throw new Error('文件访问失败');
+                    }
+                    const buffer = await resp.arrayBuffer();
+                    const geojson = await parseKmlFromBuffer(fileName, buffer);
+                    const layer = L.geoJSON(geojson, {
+                        style: (feature) => featureStyle(feature, color),
+                        pointToLayer: function(feature, latlng) {
+                            return L.circleMarker(latlng, {
+                                radius: 5,
+                                color: color,
+                                fillColor: color,
+                                fillOpacity: 0.8,
+                                weight: 1,
+                            });
+                        },
+                        onEachFeature: function(feature, item) {
+                            const name = feature.properties && feature.properties.name ? feature.properties.name : fileName;
+                            item.bindPopup('<strong>' + name + '</strong><br>来源: ' + fileName);
+                        },
+                    });
+                    overlayLayer.addLayer(layer);
+                    renderedCount += 1;
+                } catch (err) {
+                    mapStatusEl.textContent = '部分文件加载失败，请检查文件格式或权限。';
+                }
+            }
+
+            if (overlayLayer.getLayers().length > 0) {
+                try {
+                    map.fitBounds(overlayLayer.getBounds().pad(0.18));
+                } catch (e) {
+                    // ignore invalid bounds
+                }
+            }
+            mapStatusEl.textContent = '已叠加 ' + renderedCount + ' 个 KML 文件，文物点 ' + siteData.length + ' 个。';
+        }
 
         if (checkAll) {
             checkAll.addEventListener('change', function () {
                 rowChecks.forEach(item => {
                     item.checked = checkAll.checked;
                 });
+                renderSelectedKmlLayers();
             });
         }
+
+        rowChecks.forEach(item => {
+            item.addEventListener('change', function() {
+                if (!this.checked && checkAll && checkAll.checked) {
+                    checkAll.checked = false;
+                }
+                renderSelectedKmlLayers();
+            });
+        });
+
+        window.addEventListener('load', function() {
+            if (heritageLayer.getLayers().length > 0) {
+                try {
+                    map.fitBounds(heritageLayer.getBounds().pad(0.2));
+                } catch (e) {
+                    // ignore invalid bounds
+                }
+            }
+        });
     </script>
 </body>
 </html>
