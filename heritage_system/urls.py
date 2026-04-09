@@ -18,6 +18,7 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
+from django.views.generic import RedirectView
 from core.views import (heritage_map_view, heritage_dashboard_view, heritage_stats_api, 
                         heritage_stats_by_category_api, admin_index_view,
                         kanerjing_list_view, kanerjing_stats_api, kanerjing_import_check_view,
@@ -37,6 +38,7 @@ urlpatterns = [
     path('admin/ovkml-converter/', ovkml_converter_view, name='ovkml_converter'),
     path('admin/heritage-map/', heritage_map_view, name='heritage_map'),
     path('admin/kml-overlay-check/', kml_overlay_check_view, name='kml_overlay_check'),
+    path('admin/kml-management/', RedirectView.as_view(pattern_name='kml_overlay_check', permanent=True, query_string=True), name='kml_management_alias'),
     path('admin/heritage-dashboard/', heritage_dashboard_view, name='heritage_dashboard'),
     path('admin/kanerjing/', kanerjing_list_view, name='kanerjing_list'),  # 坎儿井专项管理
     path('admin/kanerjing-import-check/', kanerjing_import_check_view, name='kanerjing_import_check'),  # 导入检查

@@ -301,3 +301,31 @@ class UserManagementAudit(models.Model):
             models.Index(fields=['operator']),
             models.Index(fields=['action']),
         ]
+
+
+class KmlUploadRecord(models.Model):
+    """KML/KMZ 文件管理与冲突分析记录"""
+    title = models.CharField('文件标题', max_length=255)
+    source_file = models.FileField('KML文件', upload_to='kml_uploads/%Y/%m/')
+    uploaded_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='kml_upload_records',
+        verbose_name='上传人'
+    )
+    threshold_m = models.PositiveIntegerField('冲突阈值(米)', default=50)
+    feature_count = models.PositiveIntegerField('要素数量', default=0)
+    conflict_count = models.PositiveIntegerField('冲突数量', default=0)
+    report_json = models.TextField('冲突报告JSON', blank=True, default='')
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+    updated_at = models.DateTimeField('更新时间', auto_now=True)
+
+    def __str__(self):
+        return f"{self.title} ({self.conflict_count}处冲突)"
+
+    class Meta:
+        verbose_name = 'KML文件管理'
+        verbose_name_plural = verbose_name
+        ordering = ['-created_at']

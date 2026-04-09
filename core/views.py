@@ -1,12 +1,13 @@
 # core/views.py
 from django.shortcuts import render, redirect
 from django.template.loader import render_to_string
-from .models import HeritageSite, InspectionRecord, ProjectAudit, Coordinate
+from .models import HeritageSite, InspectionRecord, ProjectAudit, Coordinate, KmlUploadRecord
 from .ovkml_converter import parse_ovkml, build_csv_outputs
 import base64
 import hashlib
 import hmac
 import json
+import csv
 from urllib.parse import quote
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth import get_user_model, login as auth_login
@@ -20,7 +21,10 @@ import io
 import zipfile
 import uuid
 import re
+import math
+import xml.etree.ElementTree as ET
 from django.shortcuts import get_object_or_404
+from django.contrib import messages
 from heritage_system.version import VERSION, VERSION_HISTORY
 
 User = get_user_model()
@@ -254,7 +258,7 @@ def heritage_map_view(request):
 
 
 def kml_overlay_check_view(request):
-    """KML叠加检查页面"""
+    """兼容旧入口：升级后直接复用 KML 文件管理页面"""
     # 兼容跨站 WebView/iframe 场景：会话失效时允许 token 直达鉴权
     if not request.user.is_authenticated:
         token = (request.GET.get('token') or '').strip()
@@ -265,29 +269,442 @@ def kml_overlay_check_view(request):
                 is_admin = user.is_superuser or user.groups.filter(name='管理员').exists() or user.groups.filter(name='超级管理员').exists()
                 if is_admin:
                     auth_login(request, user, backend='django.contrib.auth.backends.ModelBackend')
+    return kml_management_view(request)
 
-    is_admin_user = (
-        request.user.is_authenticated
-        and (request.user.is_superuser or request.user.groups.filter(name='管理员').exists() or request.user.groups.filter(name='超级管理员').exists())
+
+def _normalize_threshold(raw_value, default=50, min_value=1, max_value=5000):
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError):
+        return default
+    return max(min_value, min(max_value, value))
+
+
+def _parse_coordinate_text(coord_text):
+    points = []
+    if not coord_text:
+        return points
+
+    for token in str(coord_text).replace('\n', ' ').replace('\t', ' ').split():
+        parts = token.split(',')
+        if len(parts) < 2:
+            continue
+        try:
+            lon = float(parts[0])
+            lat = float(parts[1])
+        except (TypeError, ValueError):
+            continue
+        points.append((lon, lat))
+    return points
+
+
+def _local_tag_name(tag):
+    return tag.split('}', 1)[-1] if '}' in tag else tag
+
+
+def _find_first_coordinates_text(node):
+    for child in node.iter():
+        if _local_tag_name(child.tag) == 'coordinates' and child.text:
+            return child.text
+    return ''
+
+
+def _extract_features_from_kml_xml(xml_text, source_name):
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError:
+        return []
+
+    features = []
+    for placemark in root.iter():
+        if _local_tag_name(placemark.tag) != 'Placemark':
+            continue
+
+        feature_name = 'KML要素'
+        for child in placemark:
+            if _local_tag_name(child.tag) == 'name' and child.text and child.text.strip():
+                feature_name = child.text.strip()
+                break
+
+        for geom in placemark.iter():
+            geom_type = _local_tag_name(geom.tag)
+            if geom_type not in {'Point', 'LineString', 'Polygon', 'MultiGeometry'}:
+                continue
+
+            if geom_type == 'Point':
+                points = _parse_coordinate_text(_find_first_coordinates_text(geom))
+                if points:
+                    features.append({
+                        'name': feature_name,
+                        'geometry_type': 'Point',
+                        'coordinates': points[0],
+                        'source': source_name,
+                    })
+
+            elif geom_type == 'LineString':
+                points = _parse_coordinate_text(_find_first_coordinates_text(geom))
+                if points:
+                    features.append({
+                        'name': feature_name,
+                        'geometry_type': 'LineString',
+                        'coordinates': points,
+                        'source': source_name,
+                    })
+
+            elif geom_type == 'Polygon':
+                rings = []
+                for ring in geom.iter():
+                    if _local_tag_name(ring.tag) != 'LinearRing':
+                        continue
+                    ring_points = _parse_coordinate_text(_find_first_coordinates_text(ring))
+                    if ring_points:
+                        rings.append(ring_points)
+                if rings:
+                    features.append({
+                        'name': feature_name,
+                        'geometry_type': 'Polygon',
+                        'coordinates': rings,
+                        'source': source_name,
+                    })
+
+            elif geom_type == 'MultiGeometry':
+                line_geometries = []
+                polygon_geometries = []
+                for child_geom in geom:
+                    child_type = _local_tag_name(child_geom.tag)
+                    if child_type == 'Point':
+                        points = _parse_coordinate_text(_find_first_coordinates_text(child_geom))
+                        if points:
+                            features.append({
+                                'name': feature_name,
+                                'geometry_type': 'Point',
+                                'coordinates': points[0],
+                                'source': source_name,
+                            })
+                    elif child_type == 'LineString':
+                        points = _parse_coordinate_text(_find_first_coordinates_text(child_geom))
+                        if points:
+                            line_geometries.append(points)
+                    elif child_type == 'Polygon':
+                        rings = []
+                        for ring in child_geom.iter():
+                            if _local_tag_name(ring.tag) != 'LinearRing':
+                                continue
+                            ring_points = _parse_coordinate_text(_find_first_coordinates_text(ring))
+                            if ring_points:
+                                rings.append(ring_points)
+                        if rings:
+                            polygon_geometries.append(rings)
+
+                if line_geometries:
+                    features.append({
+                        'name': feature_name,
+                        'geometry_type': 'MultiLineString',
+                        'coordinates': line_geometries,
+                        'source': source_name,
+                    })
+                if polygon_geometries:
+                    features.append({
+                        'name': feature_name,
+                        'geometry_type': 'MultiPolygon',
+                        'coordinates': polygon_geometries,
+                        'source': source_name,
+                    })
+
+    return features
+
+
+def _extract_features_from_upload(filename, content_bytes):
+    lower_name = (filename or '').lower()
+    features = []
+
+    if lower_name.endswith('.kmz') or lower_name.endswith('.ovkmz'):
+        with zipfile.ZipFile(io.BytesIO(content_bytes), 'r') as zf:
+            for member in zf.namelist():
+                if not member.lower().endswith('.kml'):
+                    continue
+                text = zf.read(member).decode('utf-8', errors='ignore')
+                features.extend(_extract_features_from_kml_xml(text, f"{filename}:{member}"))
+    else:
+        text = content_bytes.decode('utf-8', errors='ignore')
+        features.extend(_extract_features_from_kml_xml(text, filename))
+
+    return features
+
+
+def _haversine_m(lat1, lon1, lat2, lon2):
+    radius = 6371000
+    lat1_rad = math.radians(lat1)
+    lat2_rad = math.radians(lat2)
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = math.sin(dlat / 2) ** 2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon / 2) ** 2
+    return 2 * radius * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+def _distance_point_to_segment_m(lat, lon, lat1, lon1, lat2, lon2):
+    meters_per_deg_lat = 111320
+    meters_per_deg_lon = 111320 * math.cos(math.radians((lat1 + lat2) / 2))
+
+    px = lon * meters_per_deg_lon
+    py = lat * meters_per_deg_lat
+    x1 = lon1 * meters_per_deg_lon
+    y1 = lat1 * meters_per_deg_lat
+    x2 = lon2 * meters_per_deg_lon
+    y2 = lat2 * meters_per_deg_lat
+
+    dx = x2 - x1
+    dy = y2 - y1
+    if dx == 0 and dy == 0:
+        return math.hypot(px - x1, py - y1)
+
+    t = ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)
+    t = max(0.0, min(1.0, t))
+    proj_x = x1 + t * dx
+    proj_y = y1 + t * dy
+    return math.hypot(px - proj_x, py - proj_y)
+
+
+def _distance_to_linestring_m(site_lon, site_lat, line_coords):
+    if not line_coords:
+        return float('inf')
+    if len(line_coords) == 1:
+        lon, lat = line_coords[0]
+        return _haversine_m(site_lat, site_lon, lat, lon)
+
+    min_distance = float('inf')
+    for idx in range(len(line_coords) - 1):
+        lon1, lat1 = line_coords[idx]
+        lon2, lat2 = line_coords[idx + 1]
+        distance = _distance_point_to_segment_m(site_lat, site_lon, lat1, lon1, lat2, lon2)
+        min_distance = min(min_distance, distance)
+    return min_distance
+
+
+def _is_point_in_ring(lon, lat, ring):
+    if not ring or len(ring) < 3:
+        return False
+
+    inside = False
+    j = len(ring) - 1
+    for i in range(len(ring)):
+        xi, yi = ring[i]
+        xj, yj = ring[j]
+        if ((yi > lat) != (yj > lat)) and (lon < (xj - xi) * (lat - yi) / ((yj - yi) or 1e-12) + xi):
+            inside = not inside
+        j = i
+    return inside
+
+
+def _is_point_in_polygon(lon, lat, polygon_rings):
+    if not polygon_rings:
+        return False
+    if not _is_point_in_ring(lon, lat, polygon_rings[0]):
+        return False
+    for hole_ring in polygon_rings[1:]:
+        if _is_point_in_ring(lon, lat, hole_ring):
+            return False
+    return True
+
+
+def _analyze_conflicts(features, threshold_m):
+    site_points = list(
+        HeritageSite.objects.exclude(longitude__isnull=True).exclude(latitude__isnull=True).values(
+            'id', 'name', 'level', 'longitude', 'latitude'
+        )
     )
-    if not is_admin_user:
+    threshold = float(threshold_m)
+    conflicts = []
+
+    for feature in features:
+        feature_type = feature.get('geometry_type')
+        feature_name = feature.get('name') or 'KML要素'
+        feature_source = feature.get('source') or ''
+        coords = feature.get('coordinates')
+
+        for site in site_points:
+            site_lon = float(site['longitude'])
+            site_lat = float(site['latitude'])
+
+            matched = False
+            relation = ''
+            distance_m = None
+
+            if feature_type == 'Point' and isinstance(coords, (list, tuple)) and len(coords) >= 2:
+                lon, lat = float(coords[0]), float(coords[1])
+                distance_m = _haversine_m(site_lat, site_lon, lat, lon)
+                matched = distance_m <= threshold
+                relation = '点距离'
+            elif feature_type == 'LineString':
+                distance_m = _distance_to_linestring_m(site_lon, site_lat, coords or [])
+                matched = distance_m <= threshold
+                relation = '线最短距离'
+            elif feature_type == 'MultiLineString':
+                min_distance = float('inf')
+                for line_coords in (coords or []):
+                    min_distance = min(min_distance, _distance_to_linestring_m(site_lon, site_lat, line_coords))
+                distance_m = min_distance
+                matched = distance_m <= threshold
+                relation = '线最短距离'
+            elif feature_type == 'Polygon':
+                matched = _is_point_in_polygon(site_lon, site_lat, coords or [])
+                relation = '面内包含'
+            elif feature_type == 'MultiPolygon':
+                matched = any(_is_point_in_polygon(site_lon, site_lat, polygon) for polygon in (coords or []))
+                relation = '面内包含'
+
+            if matched:
+                conflicts.append({
+                    'feature_name': feature_name,
+                    'feature_type': feature_type,
+                    'feature_source': feature_source,
+                    'site_id': site['id'],
+                    'site_name': site['name'],
+                    'site_level': site['level'],
+                    'relation': relation,
+                    'distance_m': None if distance_m is None or not math.isfinite(distance_m) else round(distance_m, 2),
+                })
+
+    return conflicts
+
+
+def _build_conflict_report_csv(conflicts, threshold_m):
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['阈值(米)', threshold_m])
+    writer.writerow([])
+    writer.writerow(['文件来源', '要素名称', '要素类型', '文物ID', '文物名称', '文物级别', '冲突关系', '距离(米)'])
+
+    if conflicts:
+        for row in conflicts:
+            writer.writerow([
+                row.get('feature_source', ''),
+                row.get('feature_name', ''),
+                row.get('feature_type', ''),
+                row.get('site_id', ''),
+                row.get('site_name', ''),
+                row.get('site_level', ''),
+                row.get('relation', ''),
+                '' if row.get('distance_m') is None else row.get('distance_m'),
+            ])
+    else:
+        writer.writerow(['-', '-', '-', '-', '无冲突', '-', '-', '-'])
+
+    response = HttpResponse(output.getvalue(), content_type='text/csv; charset=utf-8-sig')
+    response['Content-Disposition'] = f'attachment; filename="kml_conflict_report_{timezone.now().strftime("%Y%m%d_%H%M%S")}.csv"'
+    return response
+
+
+def _is_admin_user(user):
+    return user.is_authenticated and (
+        user.is_superuser
+        or user.groups.filter(name='管理员').exists()
+        or user.groups.filter(name='超级管理员').exists()
+    )
+
+
+@staff_member_required
+def kml_management_view(request):
+    if not _is_admin_user(request.user):
         return HttpResponseForbidden('需要管理员权限')
 
-    sites = HeritageSite.objects.all()
-    sites_data = []
-    for site in sites:
-        sites_data.append({
-            "name": site.name,
-            "lng": float(site.longitude),
-            "lat": float(site.latitude),
-            "level": site.level
-        })
+    if request.method == 'POST':
+        action = request.POST.get('action', 'upload')
+        threshold = _normalize_threshold(request.POST.get('threshold_m', 50))
 
+        if action == 'upload':
+            upload_files = request.FILES.getlist('kml_files')
+            if not upload_files:
+                messages.error(request, '请至少选择一个KML/KMZ/OVKML/OVKMZ文件。')
+                return redirect('kml_overlay_check')
+
+            created_count = 0
+            total_conflicts = 0
+            for upload in upload_files:
+                name = upload.name or '未命名文件'
+                lower_name = name.lower()
+                if not (lower_name.endswith('.kml') or lower_name.endswith('.ovkml') or lower_name.endswith('.kmz') or lower_name.endswith('.ovkmz')):
+                    messages.warning(request, f'已跳过不支持的文件：{name}')
+                    continue
+
+                content = upload.read()
+                upload.seek(0)
+                try:
+                    features = _extract_features_from_upload(name, content)
+                except Exception as exc:
+                    messages.error(request, f'{name} 解析失败：{exc}')
+                    continue
+
+                conflicts = _analyze_conflicts(features, threshold)
+                total_conflicts += len(conflicts)
+
+                report_payload = {
+                    'threshold_m': threshold,
+                    'feature_count': len(features),
+                    'conflict_count': len(conflicts),
+                    'generated_at': timezone.now().isoformat(),
+                    'conflicts': conflicts,
+                }
+                KmlUploadRecord.objects.create(
+                    title=name,
+                    source_file=upload,
+                    uploaded_by=request.user,
+                    threshold_m=threshold,
+                    feature_count=len(features),
+                    conflict_count=len(conflicts),
+                    report_json=json.dumps(report_payload, ensure_ascii=False),
+                )
+                created_count += 1
+
+            if created_count:
+                messages.success(request, f'已上传并分析 {created_count} 个文件，共发现 {total_conflicts} 处冲突。')
+            return redirect('kml_overlay_check')
+
+        if action == 'analyze_selected':
+            selected_ids = request.POST.getlist('selected_ids')
+            if not selected_ids:
+                messages.error(request, '请先选择要批量查询的文件。')
+                return redirect('kml_overlay_check')
+
+            selected_records = list(KmlUploadRecord.objects.filter(id__in=selected_ids))
+            if not selected_records:
+                messages.error(request, '未找到选中的文件记录。')
+                return redirect('kml_overlay_check')
+
+            combined_conflicts = []
+            for record in selected_records:
+                try:
+                    with record.source_file.open('rb') as source:
+                        content = source.read()
+                    features = _extract_features_from_upload(record.title, content)
+                    conflicts = _analyze_conflicts(features, threshold)
+                except Exception as exc:
+                    messages.warning(request, f'{record.title} 重新分析失败：{exc}')
+                    continue
+
+                record.threshold_m = threshold
+                record.feature_count = len(features)
+                record.conflict_count = len(conflicts)
+                record.report_json = json.dumps({
+                    'threshold_m': threshold,
+                    'feature_count': len(features),
+                    'conflict_count': len(conflicts),
+                    'generated_at': timezone.now().isoformat(),
+                    'conflicts': conflicts,
+                }, ensure_ascii=False)
+                record.save(update_fields=['threshold_m', 'feature_count', 'conflict_count', 'report_json', 'updated_at'])
+
+                combined_conflicts.extend(conflicts)
+
+            return _build_conflict_report_csv(combined_conflicts, threshold)
+
+    records = KmlUploadRecord.objects.select_related('uploaded_by').order_by('-created_at')[:200]
     context = {
-        'sites_json': json.dumps(sites_data),
-        'title': 'KML叠加检查'
+        'title': 'KML文件管理与批量冲突检查',
+        'records': records,
+        'default_threshold': 50,
     }
-    return render(request, 'admin/kml_overlay_check.html', context)
+    return render(request, 'admin/kml_management.html', context)
 
 
 @staff_member_required
