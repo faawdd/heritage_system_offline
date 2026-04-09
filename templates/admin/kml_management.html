@@ -95,17 +95,32 @@
             padding: 5px 10px;
             border-radius: 5px;
         }
+        .btn-icon {
+            width: 30px;
+            min-width: 30px;
+            padding: 5px 0;
+            text-align: center;
+            line-height: 1;
+            font-size: 14px;
+        }
         .hint {
             font-size: 12px;
             color: #909399;
         }
         .rename-input {
-            width: 170px;
+            width: 150px;
             max-width: 100%;
             border: 1px solid #dcdfe6;
             border-radius: 4px;
             padding: 5px 8px;
             font-size: 12px;
+        }
+        .manage-actions {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: nowrap;
+            white-space: nowrap;
         }
         .msg-list {
             margin: 0 0 12px;
@@ -278,13 +293,12 @@
                     <div class="row" style="margin-top:-2px;">
                         <label for="immediateAnalyze">上传策略</label>
                         <label style="min-width:0; display:flex; align-items:center; gap:6px;">
-                            <input id="immediateAnalyze" type="checkbox" name="immediate_analyze" value="1">
+                            <input id="immediateAnalyze" type="checkbox" name="immediate_analyze" value="1" checked>
                             立即分析（大文件可能较慢）
                         </label>
                     </div>
                     <div class="row" style="margin-bottom:0;">
-                        <button class="btn btn-primary" id="uploadSubmitBtn" type="submit">快速上传</button>
-                        <a class="btn btn-secondary" href="/admin/heritage-map/">返回文物一张图</a>
+                        <button class="btn btn-primary" id="uploadSubmitBtn" type="submit">上传并立即分析</button>
                     </div>
                 </form>
             </div>
@@ -295,7 +309,8 @@
                     <div class="row">
                         <label for="thresholdBatch">批量阈值(米)</label>
                         <input id="thresholdBatch" type="number" name="threshold_m" min="1" max="5000" value="{{ default_threshold }}" required>
-                        <button class="btn btn-success" type="submit" name="action" value="analyze_selected">批量查询冲突并导出报告</button>
+                        <button class="btn btn-success" type="submit" name="action" value="analyze_selected">分析并更新冲突数</button>
+                        <button class="btn btn-primary" type="submit" name="action" value="analyze_export_selected">分析并导出报告</button>
                     </div>
                     <div class="row" style="margin-top:-2px;">
                         <span class="hint">勾选下方文件后，可同时在右侧地图查看叠加效果和冲突点位。</span>
@@ -345,12 +360,10 @@
                                             {% endif %}
                                         </td>
                                         <td>
-                                            <div style="display:flex; flex-direction:column; gap:6px;">
-                                                <div style="display:flex; gap:6px; align-items:center;">
-                                                    <input class="rename-input" type="text" name="rename_title_{{ record.id }}" value="{{ record.title }}" maxlength="255">
-                                                    <button class="btn btn-secondary btn-mini" type="submit" name="row_rename_id" value="{{ record.id }}">重命名</button>
-                                                </div>
-                                                <button class="btn btn-danger btn-mini" type="submit" name="row_delete_id" value="{{ record.id }}" onclick="return confirm('确认删除该KML记录及文件吗？');">删除</button>
+                                            <div class="manage-actions">
+                                                <input class="rename-input" type="text" name="rename_title_{{ record.id }}" value="{{ record.title }}" maxlength="255">
+                                                <button class="btn btn-secondary btn-mini" type="submit" name="row_rename_id" value="{{ record.id }}">重命名</button>
+                                                <button class="btn btn-danger btn-mini btn-icon" type="submit" name="row_delete_id" value="{{ record.id }}" title="删除" aria-label="删除" onclick="return confirm('确认删除该KML记录及文件吗？');">🗑</button>
                                             </div>
                                         </td>
                                     </tr>

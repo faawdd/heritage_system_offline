@@ -599,6 +599,39 @@ def _build_conflict_report_csv(conflicts, threshold_m):
     return response
 
 
+def _reanalyze_kml_records(records, threshold):
+    combined_conflicts = []
+    updated_count = 0
+    failed_count = 0
+
+    for record in records:
+        try:
+            with record.source_file.open('rb') as source:
+                content = source.read()
+            features = _extract_features_from_upload(record.title, content)
+            conflicts = _analyze_conflicts(features, threshold)
+        except Exception:
+            failed_count += 1
+            continue
+
+        record.threshold_m = threshold
+        record.feature_count = len(features)
+        record.conflict_count = len(conflicts)
+        record.report_json = json.dumps({
+            'threshold_m': threshold,
+            'feature_count': len(features),
+            'conflict_count': len(conflicts),
+            'generated_at': timezone.now().isoformat(),
+            'conflicts': conflicts,
+        }, ensure_ascii=False)
+        record.save(update_fields=['threshold_m', 'feature_count', 'conflict_count', 'report_json', 'updated_at'])
+
+        updated_count += 1
+        combined_conflicts.extend(conflicts)
+
+    return combined_conflicts, updated_count, failed_count
+
+
 def _is_admin_user(user):
     return user.is_authenticated and (
         user.is_superuser
@@ -706,7 +739,7 @@ def kml_management_view(request):
                     messages.success(request, f'已快速上传 {created_count} 个文件。若需冲突报告，请勾选后点击“批量查询冲突并导出报告”。')
             return redirect('kml_overlay_check')
 
-        if action == 'analyze_selected':
+        if action in {'analyze_selected', 'analyze_export_selected'}:
             selected_ids = request.POST.getlist('selected_ids')
             if not selected_ids:
                 messages.error(request, '请先选择要批量查询的文件。')
@@ -717,30 +750,14 @@ def kml_management_view(request):
                 messages.error(request, '未找到选中的文件记录。')
                 return redirect('kml_overlay_check')
 
-            combined_conflicts = []
-            for record in selected_records:
-                try:
-                    with record.source_file.open('rb') as source:
-                        content = source.read()
-                    features = _extract_features_from_upload(record.title, content)
-                    conflicts = _analyze_conflicts(features, threshold)
-                except Exception as exc:
-                    messages.warning(request, f'{record.title} 重新分析失败：{exc}')
-                    continue
+            combined_conflicts, updated_count, failed_count = _reanalyze_kml_records(selected_records, threshold)
 
-                record.threshold_m = threshold
-                record.feature_count = len(features)
-                record.conflict_count = len(conflicts)
-                record.report_json = json.dumps({
-                    'threshold_m': threshold,
-                    'feature_count': len(features),
-                    'conflict_count': len(conflicts),
-                    'generated_at': timezone.now().isoformat(),
-                    'conflicts': conflicts,
-                }, ensure_ascii=False)
-                record.save(update_fields=['threshold_m', 'feature_count', 'conflict_count', 'report_json', 'updated_at'])
+            if failed_count:
+                messages.warning(request, f'有 {failed_count} 个文件分析失败，请检查文件格式。')
 
-                combined_conflicts.extend(conflicts)
+            if action == 'analyze_selected':
+                messages.success(request, f'已分析并更新 {updated_count} 条记录，当前共识别 {len(combined_conflicts)} 处冲突。')
+                return redirect('kml_overlay_check')
 
             return _build_conflict_report_csv(combined_conflicts, threshold)
 
