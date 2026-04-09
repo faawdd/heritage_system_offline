@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import HeritageSite, InspectionRecord, ProjectAudit, Coordinate, UserProfile, UserManagementAudit
+from .models import HeritageSite, InspectionRecord, ProjectAudit, Coordinate, UserProfile, UserManagementAudit, KmlUploadRecord
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin, GroupAdmin as BaseGroupAdmin
 from django.utils.html import format_html, mark_safe
@@ -127,7 +127,7 @@ class HeritageAdmin(ImportExportModelAdmin):
         """获取查询集"""
         qs = super().get_queryset(request)
         return qs
-    
+
     def has_add_permission(self, request):
         """权限检查：仅管理员及以上可以添加"""
         if not is_admin(request.user):
@@ -157,6 +157,14 @@ class HeritageAdmin(ImportExportModelAdmin):
     identify_kanerjing.short_description = '检查并识别坎儿井（名称包含"坎儿井"）'
     
     actions = ['identify_kanerjing']
+
+
+@admin.register(KmlUploadRecord)
+class KmlUploadRecordAdmin(admin.ModelAdmin):
+    list_display = ('title', 'uploaded_by', 'threshold_m', 'feature_count', 'conflict_count', 'created_at')
+    list_filter = ('created_at', 'threshold_m')
+    search_fields = ('title', 'uploaded_by__username')
+    readonly_fields = ('feature_count', 'conflict_count', 'report_json', 'created_at', 'updated_at')
 
 
 @admin.register(InspectionRecord)
