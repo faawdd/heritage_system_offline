@@ -82,15 +82,30 @@
         .btn-primary:hover { background: #66b1ff; }
         .btn-success { background: #67c23a; }
         .btn-success:hover { background: #85ce61; }
+        .btn-danger { background: #f56c6c; }
+        .btn-danger:hover { background: #f78989; }
         .btn-secondary {
             background: #909399;
             text-decoration: none;
             display: inline-block;
         }
         .btn-secondary:hover { background: #a6a9ad; }
+        .btn-mini {
+            font-size: 12px;
+            padding: 5px 10px;
+            border-radius: 5px;
+        }
         .hint {
             font-size: 12px;
             color: #909399;
+        }
+        .rename-input {
+            width: 170px;
+            max-width: 100%;
+            border: 1px solid #dcdfe6;
+            border-radius: 4px;
+            padding: 5px 8px;
+            font-size: 12px;
         }
         .msg-list {
             margin: 0 0 12px;
@@ -206,6 +221,14 @@
             border: 1px solid #ff5a36;
             background: rgba(255, 90, 54, 0.2);
         }
+        .dot-conflict {
+            width: 12px;
+            height: 12px;
+            margin-right: 8px;
+            border-radius: 50%;
+            border: 2px solid #d93025;
+            background: #fff;
+        }
 
         @media (max-width: 1100px) {
             .layout {
@@ -262,14 +285,13 @@
             <div class="card">
                 <form method="post">
                     {% csrf_token %}
-                    <input type="hidden" name="action" value="analyze_selected">
                     <div class="row">
                         <label for="thresholdBatch">批量阈值(米)</label>
                         <input id="thresholdBatch" type="number" name="threshold_m" min="1" max="5000" value="{{ default_threshold }}" required>
-                        <button class="btn btn-success" type="submit">批量查询冲突并导出报告</button>
+                        <button class="btn btn-success" type="submit" name="action" value="analyze_selected">批量查询冲突并导出报告</button>
                     </div>
                     <div class="row" style="margin-top:-2px;">
-                        <span class="hint">勾选下方文件后，可同时在右侧地图查看叠加效果。</span>
+                        <span class="hint">勾选下方文件后，可同时在右侧地图查看叠加效果和冲突点位。</span>
                     </div>
 
                     <div class="table-wrap">
@@ -282,6 +304,7 @@
                                     <th>冲突数</th>
                                     <th>创建时间</th>
                                     <th>文件</th>
+                                    <th>管理</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -314,10 +337,19 @@
                                                 -
                                             {% endif %}
                                         </td>
+                                        <td>
+                                            <div style="display:flex; flex-direction:column; gap:6px;">
+                                                <div style="display:flex; gap:6px; align-items:center;">
+                                                    <input class="rename-input" type="text" name="rename_title_{{ record.id }}" value="{{ record.title }}" maxlength="255">
+                                                    <button class="btn btn-secondary btn-mini" type="submit" name="row_rename_id" value="{{ record.id }}">重命名</button>
+                                                </div>
+                                                <button class="btn btn-danger btn-mini" type="submit" name="row_delete_id" value="{{ record.id }}" onclick="return confirm('确认删除该KML记录及文件吗？');">删除</button>
+                                            </div>
+                                        </td>
                                     </tr>
                                 {% empty %}
                                     <tr>
-                                        <td colspan="6" style="text-align:center; color:#909399;">暂无已上传 KML 记录</td>
+                                        <td colspan="7" style="text-align:center; color:#909399;">暂无已上传 KML 记录</td>
                                     </tr>
                                 {% endfor %}
                             </tbody>
@@ -344,12 +376,14 @@
         <div class="legend-row"><span class="dot" style="background:#ff5a36;"></span>KML点</div>
         <div class="legend-row"><span class="line"></span>KML线</div>
         <div class="legend-row"><span class="poly"></span>KML面</div>
+        <div class="legend-row"><span class="dot-conflict"></span>冲突点位</div>
     </div>
 
     <script>
         const checkAll = document.getElementById('checkAll');
         const rowChecks = Array.from(document.querySelectorAll('.record-check'));
         const mapStatusEl = document.getElementById('mapStatus');
+        const thresholdBatchEl = document.getElementById('thresholdBatch');
         const tk = '424ac2af85564078477428c1a2b72018';
         const COLORS = ['#ff5a36', '#e6a23c', '#409eff', '#85ce61', '#f78989', '#b37feb', '#41d7d7'];
 
@@ -380,7 +414,196 @@
 
         const heritageLayer = L.layerGroup().addTo(map);
         const overlayLayer = L.featureGroup().addTo(map);
+        const conflictLayer = L.layerGroup().addTo(map);
         const siteData = JSON.parse(document.getElementById('sites-data').textContent || '[]');
+
+        function getThresholdValue() {
+            const raw = Number(thresholdBatchEl.value);
+            if (!isFinite(raw) || raw < 1) {
+                thresholdBatchEl.value = '50';
+                return 50;
+            }
+            const normalized = Math.max(1, Math.min(5000, Math.round(raw)));
+            thresholdBatchEl.value = String(normalized);
+            return normalized;
+        }
+
+        function getDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371000;
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        }
+
+        function getDistanceToSegmentMeters(lat, lon, lat1, lon1, lat2, lon2) {
+            const metersPerDegLat = 111320;
+            const metersPerDegLon = 111320 * Math.cos(((lat1 + lat2) / 2) * Math.PI / 180);
+            const px = lon * metersPerDegLon;
+            const py = lat * metersPerDegLat;
+            const x1 = lon1 * metersPerDegLon;
+            const y1 = lat1 * metersPerDegLat;
+            const x2 = lon2 * metersPerDegLon;
+            const y2 = lat2 * metersPerDegLat;
+            const dx = x2 - x1;
+            const dy = y2 - y1;
+            if (dx === 0 && dy === 0) {
+                return Math.hypot(px - x1, py - y1);
+            }
+            const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)));
+            const projX = x1 + t * dx;
+            const projY = y1 + t * dy;
+            return Math.hypot(px - projX, py - projY);
+        }
+
+        function isPointInLinearRing(lon, lat, ring) {
+            if (!Array.isArray(ring) || ring.length < 3) {
+                return false;
+            }
+            let inside = false;
+            for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+                const xi = ring[i][0], yi = ring[i][1];
+                const xj = ring[j][0], yj = ring[j][1];
+                const intersect = ((yi > lat) !== (yj > lat)) && (lon < (xj - xi) * (lat - yi) / ((yj - yi) || 1e-12) + xi);
+                if (intersect) {
+                    inside = !inside;
+                }
+            }
+            return inside;
+        }
+
+        function isPointInPolygon(lon, lat, polygonCoords) {
+            if (!Array.isArray(polygonCoords) || polygonCoords.length === 0) {
+                return false;
+            }
+            if (!isPointInLinearRing(lon, lat, polygonCoords[0])) {
+                return false;
+            }
+            for (let i = 1; i < polygonCoords.length; i++) {
+                if (isPointInLinearRing(lon, lat, polygonCoords[i])) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        function getMinDistanceToLineStringMeters(lon, lat, lineCoords) {
+            if (!Array.isArray(lineCoords) || lineCoords.length === 0) {
+                return Infinity;
+            }
+            if (lineCoords.length === 1) {
+                const p = lineCoords[0];
+                return getDistance(lat, lon, p[1], p[0]);
+            }
+            let min = Infinity;
+            for (let i = 0; i < lineCoords.length - 1; i++) {
+                const p1 = lineCoords[i];
+                const p2 = lineCoords[i + 1];
+                const d = getDistanceToSegmentMeters(lat, lon, p1[1], p1[0], p2[1], p2[0]);
+                if (d < min) {
+                    min = d;
+                }
+            }
+            return min;
+        }
+
+        function isSiteConflictWithFeature(site, feature, threshold) {
+            if (!feature || !feature.geometry) {
+                return null;
+            }
+            const geom = feature.geometry;
+            const t = geom.type;
+
+            if (t === 'Point') {
+                const coords = geom.coordinates || [];
+                if (coords.length < 2) {
+                    return null;
+                }
+                const d = getDistance(site.latitude, site.longitude, coords[1], coords[0]);
+                return d <= threshold ? { relation: '点距离', distance: Math.round(d) } : null;
+            }
+
+            if (t === 'LineString') {
+                const d = getMinDistanceToLineStringMeters(site.longitude, site.latitude, geom.coordinates || []);
+                return d <= threshold ? { relation: '线最短距离', distance: Math.round(d) } : null;
+            }
+
+            if (t === 'MultiLineString') {
+                const lines = geom.coordinates || [];
+                let min = Infinity;
+                lines.forEach(line => {
+                    const d = getMinDistanceToLineStringMeters(site.longitude, site.latitude, line);
+                    if (d < min) {
+                        min = d;
+                    }
+                });
+                return min <= threshold ? { relation: '线最短距离', distance: Math.round(min) } : null;
+            }
+
+            if (t === 'Polygon') {
+                return isPointInPolygon(site.longitude, site.latitude, geom.coordinates || []) ? { relation: '面内包含', distance: null } : null;
+            }
+
+            if (t === 'MultiPolygon') {
+                const polygons = geom.coordinates || [];
+                return polygons.some(poly => isPointInPolygon(site.longitude, site.latitude, poly)) ? { relation: '面内包含', distance: null } : null;
+            }
+
+            return null;
+        }
+
+        function renderConflictPoints(features, threshold) {
+            conflictLayer.clearLayers();
+            const conflictMap = new Map();
+
+            features.forEach(feature => {
+                const featureName = feature.properties && feature.properties.name ? feature.properties.name : 'KML要素';
+                siteData.forEach(site => {
+                    const result = isSiteConflictWithFeature(site, feature, threshold);
+                    if (!result) {
+                        return;
+                    }
+                    const key = String(site.id || site.name);
+                    if (!conflictMap.has(key)) {
+                        conflictMap.set(key, {
+                            site: site,
+                            matches: [],
+                        });
+                    }
+                    conflictMap.get(key).matches.push({
+                        featureName: featureName,
+                        relation: result.relation,
+                        distance: result.distance,
+                    });
+                });
+            });
+
+            conflictMap.forEach(item => {
+                const site = item.site;
+                const lat = Number(site.latitude);
+                const lon = Number(site.longitude);
+                if (!isFinite(lat) || !isFinite(lon)) {
+                    return;
+                }
+                const detailRows = item.matches.slice(0, 5).map(m => {
+                    if (m.relation === '面内包含') {
+                        return '面内包含 - ' + m.featureName;
+                    }
+                    return m.relation + ': ' + m.distance + 'm - ' + m.featureName;
+                });
+                L.circleMarker([lat, lon], {
+                    radius: 9,
+                    color: '#d93025',
+                    weight: 2,
+                    fillColor: '#ffffff',
+                    fillOpacity: 0.85,
+                })
+                .bindPopup('<strong>冲突文物点: ' + (site.name || '-') + '</strong><br/>冲突数量: ' + item.matches.length + '<br/>' + detailRows.join('<br/>'))
+                .addTo(conflictLayer);
+            });
+
+            return conflictMap.size;
+        }
 
         siteData.forEach((site) => {
             const lat = Number(site.latitude);
@@ -438,7 +661,9 @@
 
         async function renderSelectedKmlLayers() {
             overlayLayer.clearLayers();
+            conflictLayer.clearLayers();
             const selected = rowChecks.filter(item => item.checked && item.dataset.fileUrl);
+            const threshold = getThresholdValue();
 
             if (!selected.length) {
                 mapStatusEl.textContent = '地图已就绪，默认显示全部文物点。';
@@ -447,6 +672,7 @@
 
             mapStatusEl.textContent = '正在加载 ' + selected.length + ' 个 KML 文件...';
             let renderedCount = 0;
+            const allFeatures = [];
             for (let i = 0; i < selected.length; i++) {
                 const checkbox = selected[i];
                 const fileUrl = checkbox.dataset.fileUrl;
@@ -460,6 +686,9 @@
                     }
                     const buffer = await resp.arrayBuffer();
                     const geojson = await parseKmlFromBuffer(fileName, buffer);
+                    if (Array.isArray(geojson.features)) {
+                        allFeatures.push(...geojson.features);
+                    }
                     const layer = L.geoJSON(geojson, {
                         style: (feature) => featureStyle(feature, color),
                         pointToLayer: function(feature, latlng) {
@@ -490,7 +719,8 @@
                     // ignore invalid bounds
                 }
             }
-            mapStatusEl.textContent = '已叠加 ' + renderedCount + ' 个 KML 文件，文物点 ' + siteData.length + ' 个。';
+            const conflictCount = renderConflictPoints(allFeatures, threshold);
+            mapStatusEl.textContent = '已叠加 ' + renderedCount + ' 个 KML 文件，冲突点位 ' + conflictCount + ' 个，阈值 ' + threshold + 'm。';
         }
 
         if (checkAll) {
@@ -510,6 +740,12 @@
                 renderSelectedKmlLayers();
             });
         });
+
+        if (thresholdBatchEl) {
+            thresholdBatchEl.addEventListener('change', function() {
+                renderSelectedKmlLayers();
+            });
+        }
 
         window.addEventListener('load', function() {
             if (heritageLayer.getLayers().length > 0) {
