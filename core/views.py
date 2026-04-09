@@ -561,6 +561,8 @@ def _analyze_conflicts(features, threshold_m):
                     'site_id': site['id'],
                     'site_name': site['name'],
                     'site_level': site['level'],
+                    'site_longitude': round(site_lon, 8),
+                    'site_latitude': round(site_lat, 8),
                     'relation': relation,
                     'distance_m': None if distance_m is None or not math.isfinite(distance_m) else round(distance_m, 2),
                 })
@@ -573,7 +575,7 @@ def _build_conflict_report_csv(conflicts, threshold_m):
     writer = csv.writer(output)
     writer.writerow(['阈值(米)', threshold_m])
     writer.writerow([])
-    writer.writerow(['文件来源', '要素名称', '要素类型', '文物ID', '文物名称', '文物级别', '冲突关系', '距离(米)'])
+    writer.writerow(['文件来源', '要素名称', '要素类型', '文物ID', '文物名称', '文物级别', '文物经度', '文物纬度', '冲突关系', '距离(米)'])
 
     if conflicts:
         for row in conflicts:
@@ -584,11 +586,13 @@ def _build_conflict_report_csv(conflicts, threshold_m):
                 row.get('site_id', ''),
                 row.get('site_name', ''),
                 row.get('site_level', ''),
+                row.get('site_longitude', ''),
+                row.get('site_latitude', ''),
                 row.get('relation', ''),
                 '' if row.get('distance_m') is None else row.get('distance_m'),
             ])
     else:
-        writer.writerow(['-', '-', '-', '-', '无冲突', '-', '-', '-'])
+        writer.writerow(['-', '-', '-', '-', '无冲突', '-', '-', '-', '-', '-'])
 
     response = HttpResponse(output.getvalue(), content_type='text/csv; charset=utf-8-sig')
     response['Content-Disposition'] = f'attachment; filename="kml_conflict_report_{timezone.now().strftime("%Y%m%d_%H%M%S")}.csv"'
@@ -646,6 +650,7 @@ def kml_management_view(request):
         threshold = _normalize_threshold(request.POST.get('threshold_m', 50))
 
         if action == 'upload':
+            immediate_analyze = request.POST.get('immediate_analyze') == '1'
             upload_files = request.FILES.getlist('kml_files')
             if not upload_files:
                 messages.error(request, '请至少选择一个KML/KMZ/OVKML/OVKMZ文件。')
@@ -660,37 +665,45 @@ def kml_management_view(request):
                     messages.warning(request, f'已跳过不支持的文件：{name}')
                     continue
 
-                content = upload.read()
-                upload.seek(0)
-                try:
-                    features = _extract_features_from_upload(name, content)
-                except Exception as exc:
-                    messages.error(request, f'{name} 解析失败：{exc}')
-                    continue
-
-                conflicts = _analyze_conflicts(features, threshold)
-                total_conflicts += len(conflicts)
-
-                report_payload = {
-                    'threshold_m': threshold,
-                    'feature_count': len(features),
-                    'conflict_count': len(conflicts),
-                    'generated_at': timezone.now().isoformat(),
-                    'conflicts': conflicts,
-                }
-                KmlUploadRecord.objects.create(
+                record = KmlUploadRecord.objects.create(
                     title=name,
                     source_file=upload,
                     uploaded_by=request.user,
                     threshold_m=threshold,
-                    feature_count=len(features),
-                    conflict_count=len(conflicts),
-                    report_json=json.dumps(report_payload, ensure_ascii=False),
+                    feature_count=0,
+                    conflict_count=0,
+                    report_json='',
                 )
+
+                if immediate_analyze:
+                    try:
+                        with record.source_file.open('rb') as source:
+                            content = source.read()
+                        features = _extract_features_from_upload(name, content)
+                        conflicts = _analyze_conflicts(features, threshold)
+                    except Exception as exc:
+                        messages.warning(request, f'{name} 已上传，但即时分析失败：{exc}')
+                    else:
+                        total_conflicts += len(conflicts)
+                        report_payload = {
+                            'threshold_m': threshold,
+                            'feature_count': len(features),
+                            'conflict_count': len(conflicts),
+                            'generated_at': timezone.now().isoformat(),
+                            'conflicts': conflicts,
+                        }
+                        record.feature_count = len(features)
+                        record.conflict_count = len(conflicts)
+                        record.report_json = json.dumps(report_payload, ensure_ascii=False)
+                        record.save(update_fields=['feature_count', 'conflict_count', 'report_json', 'updated_at'])
+
                 created_count += 1
 
             if created_count:
-                messages.success(request, f'已上传并分析 {created_count} 个文件，共发现 {total_conflicts} 处冲突。')
+                if immediate_analyze:
+                    messages.success(request, f'已上传并分析 {created_count} 个文件，共发现 {total_conflicts} 处冲突。')
+                else:
+                    messages.success(request, f'已快速上传 {created_count} 个文件。若需冲突报告，请勾选后点击“批量查询冲突并导出报告”。')
             return redirect('kml_overlay_check')
 
         if action == 'analyze_selected':
