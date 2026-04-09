@@ -609,6 +609,39 @@ def kml_management_view(request):
         return HttpResponseForbidden('需要管理员权限')
 
     if request.method == 'POST':
+        row_delete_id = request.POST.get('row_delete_id')
+        if row_delete_id:
+            record = KmlUploadRecord.objects.filter(id=row_delete_id).first()
+            if not record:
+                messages.error(request, '要删除的记录不存在。')
+            else:
+                if record.source_file:
+                    record.source_file.delete(save=False)
+                record.delete()
+                messages.success(request, 'KML 文件记录已删除。')
+            return redirect('kml_overlay_check')
+
+        row_rename_id = request.POST.get('row_rename_id')
+        if row_rename_id:
+            record = KmlUploadRecord.objects.filter(id=row_rename_id).first()
+            if not record:
+                messages.error(request, '要重命名的记录不存在。')
+                return redirect('kml_overlay_check')
+
+            new_title = (request.POST.get(f'rename_title_{row_rename_id}') or '').strip()
+            if not new_title:
+                messages.error(request, '新名称不能为空。')
+                return redirect('kml_overlay_check')
+
+            if len(new_title) > 255:
+                messages.error(request, '新名称长度不能超过255个字符。')
+                return redirect('kml_overlay_check')
+
+            record.title = new_title
+            record.save(update_fields=['title', 'updated_at'])
+            messages.success(request, f'已重命名为：{new_title}')
+            return redirect('kml_overlay_check')
+
         action = request.POST.get('action', 'upload')
         threshold = _normalize_threshold(request.POST.get('threshold_m', 50))
 
