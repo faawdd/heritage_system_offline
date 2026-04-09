@@ -275,8 +275,15 @@
                         <input id="thresholdUpload" type="number" name="threshold_m" min="1" max="5000" value="{{ default_threshold }}" required>
                         <span class="hint">点/线按阈值判定，面要素按面内包含判定。</span>
                     </div>
+                    <div class="row" style="margin-top:-2px;">
+                        <label for="immediateAnalyze">上传策略</label>
+                        <label style="min-width:0; display:flex; align-items:center; gap:6px;">
+                            <input id="immediateAnalyze" type="checkbox" name="immediate_analyze" value="1">
+                            立即分析（大文件可能较慢）
+                        </label>
+                    </div>
                     <div class="row" style="margin-bottom:0;">
-                        <button class="btn btn-primary" type="submit">上传并分析</button>
+                        <button class="btn btn-primary" id="uploadSubmitBtn" type="submit">快速上传</button>
                         <a class="btn btn-secondary" href="/admin/heritage-map/">返回文物一张图</a>
                     </div>
                 </form>
@@ -384,8 +391,26 @@
         const rowChecks = Array.from(document.querySelectorAll('.record-check'));
         const mapStatusEl = document.getElementById('mapStatus');
         const thresholdBatchEl = document.getElementById('thresholdBatch');
+        const uploadSubmitBtn = document.getElementById('uploadSubmitBtn');
+        const immediateAnalyzeEl = document.getElementById('immediateAnalyze');
         const tk = '424ac2af85564078477428c1a2b72018';
         const COLORS = ['#ff5a36', '#e6a23c', '#409eff', '#85ce61', '#f78989', '#b37feb', '#41d7d7'];
+
+        if (immediateAnalyzeEl && uploadSubmitBtn) {
+            immediateAnalyzeEl.addEventListener('change', function() {
+                uploadSubmitBtn.textContent = this.checked ? '上传并立即分析' : '快速上传';
+            });
+        }
+
+        if (uploadSubmitBtn) {
+            const uploadForm = uploadSubmitBtn.closest('form');
+            if (uploadForm) {
+                uploadForm.addEventListener('submit', function() {
+                    uploadSubmitBtn.disabled = true;
+                    uploadSubmitBtn.textContent = immediateAnalyzeEl && immediateAnalyzeEl.checked ? '分析中...' : '上传中...';
+                });
+            }
+        }
 
         function getTdtLayer(type, label) {
             const base = L.tileLayer(
