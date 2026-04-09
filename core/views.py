@@ -699,10 +699,16 @@ def kml_management_view(request):
             return _build_conflict_report_csv(combined_conflicts, threshold)
 
     records = KmlUploadRecord.objects.select_related('uploaded_by').order_by('-created_at')[:200]
+    sites_data = list(
+        HeritageSite.objects.exclude(longitude__isnull=True).exclude(latitude__isnull=True).values(
+            'id', 'name', 'level', 'longitude', 'latitude'
+        )
+    )
     context = {
         'title': 'KML文件管理与批量冲突检查',
         'records': records,
         'default_threshold': 50,
+        'sites_json': json.dumps(sites_data, ensure_ascii=False),
     }
     return render(request, 'admin/kml_management.html', context)
 
