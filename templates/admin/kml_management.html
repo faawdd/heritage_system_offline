@@ -352,7 +352,7 @@
                                                 <span class="tag tag-safe">无</span>
                                             {% endif %}
                                         </td>
-                                        <td>{{ record.created_at|date:'Y-m-d H:i:s' }}</td>
+                                        <td>{{ record.created_at|date:'Y年m月d日 H:i' }}</td>
                                         <td>
                                             {% if record.source_file %}
                                                 <a href="{{ record.source_file.url }}" target="_blank">下载</a>

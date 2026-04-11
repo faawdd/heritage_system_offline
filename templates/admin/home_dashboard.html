@@ -107,7 +107,7 @@
             {% for project in pending_projects %}
                 <li>
                     <div class="todo-name">{{ project.project_name }}</div>
-                    <div class="todo-meta"><span class="status-dot"></span>{{ project.project_unit|default:"--" }} ｜ {{ project.received_date|date:"Y-m-d" }}</div>
+                    <div class="todo-meta"><span class="status-dot"></span>{{ project.project_unit|default:"--" }} ｜ {{ project.received_date|date:"Y年m月d日" }}</div>
                 </li>
             {% empty %}
                 <li>当前没有待核查工程。</li>
