@@ -2,6 +2,8 @@ from django.contrib import admin
 from .models import HeritageSite, InspectionRecord, ProjectAudit, Coordinate, UserProfile, UserManagementAudit, KmlUploadRecord
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin, GroupAdmin as BaseGroupAdmin
+from django.contrib.auth.forms import UserChangeForm, UserCreationForm
+from django import forms
 from django.utils.html import format_html, mark_safe
 from django.contrib import messages
 import csv
@@ -658,18 +660,38 @@ admin.site.index_title = '欢迎使用文物安全巡查与项目管理系统'
 
 # ============ 用户和组权限管理 ============
 
+_CONTACT_HELP = '可填写手机号（如：139xxxx1234）或电子邮箱（如：xxx@example.com）'
+_CONTACT_WIDGET = forms.TextInput(attrs={'placeholder': '手机号或电子邮箱', 'style': 'width: 260px;'})
+
+
+class ContactInfoUserChangeForm(UserChangeForm):
+    contact_info = forms.CharField(
+        label='联系方式', max_length=100, required=False,
+        help_text=_CONTACT_HELP, widget=_CONTACT_WIDGET,
+    )
+
+
+class ContactInfoUserCreationForm(UserCreationForm):
+    contact_info = forms.CharField(
+        label='联系方式', max_length=100, required=False,
+        help_text=_CONTACT_HELP, widget=_CONTACT_WIDGET,
+    )
+
+
 class CustomUserAdmin(BaseUserAdmin):
     """优化的用户管理界面 - 支持实时权限调整"""
-    list_display = ('username', 'get_full_name', 'email', 'is_staff', 'is_active', 'get_groups', 'last_login')
+    form = ContactInfoUserChangeForm
+    add_form = ContactInfoUserCreationForm
+    list_display = ('username', 'get_full_name', 'get_contact_info', 'is_staff', 'is_active', 'get_groups', 'last_login')
     list_filter = ('is_staff', 'is_active', 'groups', 'date_joined')
-    search_fields = ('username', 'first_name', 'last_name', 'email')
+    search_fields = ('username', 'first_name', 'last_name', 'profile__contact_info')
     ordering = ('username',)
     readonly_fields = ('last_login', 'date_joined')
     
     fieldsets = (
         (None, {'fields': ('username', 'password')}),
         ('个人信息', {
-            'fields': ('first_name', 'last_name', 'email'),
+            'fields': ('first_name', 'last_name', 'contact_info'),
             'classes': ('wide',)
         }),
         ('权限与用户组', {
@@ -689,7 +711,7 @@ class CustomUserAdmin(BaseUserAdmin):
         }),
         ('个人信息（可选）', {
             'classes': ('collapse',),
-            'fields': ('first_name', 'last_name', 'email'),
+            'fields': ('first_name', 'last_name', 'contact_info'),
         }),
         ('权限设置', {
             'fields': ('is_active', 'groups'),
@@ -701,6 +723,33 @@ class CustomUserAdmin(BaseUserAdmin):
         """显示全名或用户名"""
         return obj.get_full_name() or '---'
     get_full_name.short_description = '姓名'
+
+    def get_contact_info(self, obj):
+        """显示联系方式（来自 UserProfile）"""
+        try:
+            val = obj.profile.contact_info
+            return val if val else '---'
+        except Exception:
+            return '---'
+    get_contact_info.short_description = '联系方式'
+
+    def get_form(self, request, obj=None, **kwargs):
+        """编辑已有用户时，将 profile.contact_info 填入表单初始值"""
+        FormClass = super().get_form(request, obj, **kwargs)
+        if obj is not None:
+            try:
+                initial_contact = obj.profile.contact_info
+            except Exception:
+                initial_contact = ''
+
+            class FormWithContactInitial(FormClass):
+                def __init__(self, *args, **inner_kwargs):
+                    inner_kwargs.setdefault('initial', {})
+                    inner_kwargs['initial'].setdefault('contact_info', initial_contact)
+                    super().__init__(*args, **inner_kwargs)
+
+            return FormWithContactInitial
+        return FormClass
 
     def get_groups(self, obj):
         """显示用户所属组，超级管理员用特殊标记"""
@@ -745,7 +794,12 @@ class CustomUserAdmin(BaseUserAdmin):
         super().save_model(request, obj, form, change)
         # 确保每个用户都有profile记录
         from core.models import UserProfile
-        UserProfile.objects.get_or_create(user=obj)
+        profile, _ = UserProfile.objects.get_or_create(user=obj)
+        # 同步保存联系方式
+        contact_info = form.cleaned_data.get('contact_info', '')
+        if profile.contact_info != contact_info:
+            profile.contact_info = contact_info
+            profile.save(update_fields=['contact_info'])
         
         # 记录操作日志
         action = "修改用户" if change else "新建用户"
