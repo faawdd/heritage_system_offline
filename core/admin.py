@@ -709,7 +709,11 @@ class CustomUserAdmin(BaseUserAdmin):
             return mark_safe('<span style="color: #f57c00; font-weight: bold;">👑 超级管理员</span>')
         if not groups:
             return '---'
-        return ', '.join([f'<span style="background: #e3f2fd; padding: 2px 6px; border-radius: 3px; margin-right: 4px;">{g.name}</span>' for g in groups])
+        group_html = ''.join([
+            f'<span style="background: #e3f2fd; padding: 2px 6px; border-radius: 3px; margin-right: 4px; display: inline-block;">{g.name}</span>'
+            for g in groups
+        ])
+        return mark_safe(group_html)
     get_groups.short_description = '用户组'
 
     def has_add_permission(self, request):
