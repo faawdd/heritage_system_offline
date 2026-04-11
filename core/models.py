@@ -257,6 +257,7 @@ class UserProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
     has_changed_password = models.BooleanField("是否已修改密码", default=False)
     first_login_at = models.DateTimeField("首次登录时间", null=True, blank=True)
+    contact_info = models.CharField("联系方式", max_length=100, blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
     
     def __str__(self):
