@@ -55,6 +55,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.humanize',  # 启用 humanize 支持千位分隔符、友好时间显示
     'import_export',
     'rest_framework',
     'rest_framework_simplejwt',
