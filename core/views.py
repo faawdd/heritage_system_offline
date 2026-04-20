@@ -152,7 +152,7 @@ def admin_index_view(request):
     """自定义管理后台首页 - 显示统计仪表板"""
     current_year = timezone.now().year
     total_sites = HeritageSite.objects.count()
-    kanerjing_count = HeritageSite.objects.filter(name__contains='坎儿井').count()
+    kanerjing_count = HeritageSite.filter_kanerjing().count()
     reviewed_project_count = ProjectAudit.objects.filter(received_date__year=current_year).count()
     checked_coordinate_count = Coordinate.objects.filter(check_status='checked').count()
 
@@ -1036,6 +1036,14 @@ def _to_township_full_name(township_name):
     return f'鄯善县{township_name}'
 
 
+def _apply_kanerjing_filter(queryset, kanerjing_scope):
+    if kanerjing_scope == 'only':
+        return HeritageSite.filter_kanerjing(queryset)
+    if kanerjing_scope == 'exclude':
+        return HeritageSite.exclude_kanerjing(queryset)
+    return queryset
+
+
 @staff_member_required
 def heritage_classification_stats_api(request):
     """文物分类统计面板实时数据 API（支持高级筛选）"""
@@ -1043,6 +1051,7 @@ def heritage_classification_stats_api(request):
     level = request.GET.get('level', '').strip()
     township = request.GET.get('township', '').strip()
     address_keyword = request.GET.get('address_keyword', '').strip()
+    kanerjing_scope = request.GET.get('kanerjing_scope', 'all').strip()
     group_by = request.GET.get('group_by', 'category').strip()
 
     queryset = HeritageSite.objects.all()
@@ -1058,6 +1067,7 @@ def heritage_classification_stats_api(request):
         queryset = queryset.filter(township_query)
     if address_keyword:
         queryset = queryset.filter(address__icontains=address_keyword)
+    queryset = _apply_kanerjing_filter(queryset, kanerjing_scope)
 
     labels = []
     data = []
@@ -1089,6 +1099,7 @@ def heritage_classification_stats_api(request):
         'labels': labels,
         'data': data,
         'total': queryset.count(),
+        'kanerjing_scope': kanerjing_scope if kanerjing_scope in {'all', 'only', 'exclude'} else 'all',
     })
 
 
@@ -1130,7 +1141,7 @@ def heritage_stats_by_category_api(request):
 @staff_member_required
 def kanerjing_list_view(request):
     """坎儿井专项管理页面 - 基于名称包含'坎儿井'进行筛选"""
-    kanerjing_sites = HeritageSite.objects.filter(name__contains='坎儿井')
+    kanerjing_sites = HeritageSite.filter_kanerjing()
     total_kanerjing = kanerjing_sites.count()
     
     # 按等级统计
@@ -1151,7 +1162,7 @@ def kanerjing_list_view(request):
 @staff_member_required
 def kanerjing_stats_api(request):
     """坎儿井统计 API - 基于名称包含'坎儿井'进行筛选"""
-    kanerjing_sites = HeritageSite.objects.filter(name__contains='坎儿井')
+    kanerjing_sites = HeritageSite.filter_kanerjing()
     total = kanerjing_sites.count()
     
     # 按等级统计
@@ -1172,7 +1183,7 @@ def kanerjing_stats_api(request):
 @staff_member_required
 def kanerjing_import_check_view(request):
     """导入后检查坎儿井数据"""
-    kanerjing_count = HeritageSite.objects.filter(name__contains='坎儿井').count()
+    kanerjing_count = HeritageSite.filter_kanerjing().count()
     total_count = HeritageSite.objects.count()
     
     context = {

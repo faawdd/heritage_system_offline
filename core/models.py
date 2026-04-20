@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models import Q
 from django.contrib.auth.models import User
 import json
 
@@ -6,9 +7,11 @@ import json
 class HeritageSite(models.Model):
     CATEGORY_CHOICES = [
         ('GYZ', '古文化遗址'), ('GMZ', '古墓葬'), ('GJZ', '古建筑'),
-        ('SKT', '石窟寺及石刻'), ('JDJW', '近现代重要史迹及代表性建筑'), ('QT', '其他')
+        ('SKT', '石窟寺及石刻'), ('JDJW', '近现代重要史迹及代表性建筑'),
+        ('KRJ', '坎儿井'), ('QT', '其他')
     ]
     LEVEL_CHOICES = [('GB', '全国重点文物保护单位'), ('SB', '自治区级文物保护单位'), ('XB', '县级文物保护单位'), ('DS', '尚未定级的不可移动文物')]
+    KANERJING_CATEGORY_CODE = 'KRJ'
 
     name = models.CharField("文物名称", max_length=200)
     sip_code = models.CharField("四普编号", max_length=50, unique=True)
@@ -27,6 +30,20 @@ class HeritageSite(models.Model):
 
     def __str__(self):
         return f"[{self.get_level_display()}] {self.name}"
+
+    @classmethod
+    def kanerjing_query(cls):
+        return Q(name__icontains='坎儿井') | Q(category=cls.KANERJING_CATEGORY_CODE)
+
+    @classmethod
+    def filter_kanerjing(cls, queryset=None):
+        base_queryset = queryset if queryset is not None else cls.objects.all()
+        return base_queryset.filter(cls.kanerjing_query())
+
+    @classmethod
+    def exclude_kanerjing(cls, queryset=None):
+        base_queryset = queryset if queryset is not None else cls.objects.all()
+        return base_queryset.exclude(cls.kanerjing_query())
 
     class Meta:
         verbose_name = "不可移动文物档案"

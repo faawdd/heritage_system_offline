@@ -103,9 +103,10 @@ class KanerjingFilter(admin.SimpleListFilter):
     
     def queryset(self, request, queryset):
         if self.value() == 'yes':
-            return queryset.filter(name__contains='坎儿井')
+            return HeritageSite.filter_kanerjing(queryset)
         if self.value() == 'no':
-            return queryset.exclude(name__contains='坎儿井')
+            return HeritageSite.exclude_kanerjing(queryset)
+        return queryset
 
 @admin.register(HeritageSite)
 class HeritageAdmin(ImportExportModelAdmin):
