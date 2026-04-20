@@ -152,6 +152,14 @@
                     </select>
                 </div>
                 <div class="field">
+                    <label>坎儿井范围</label>
+                    <select id="kanerjingScope">
+                        <option value="all">包含坎儿井</option>
+                        <option value="only">只显示坎儿井</option>
+                        <option value="exclude">不包含坎儿井</option>
+                    </select>
+                </div>
+                <div class="field">
                     <label>文物类别</label>
                     <select id="categorySelect">
                         <option value="">全部类别</option>
@@ -214,6 +222,7 @@
         const townshipOptions = {{ township_options_json|safe }};
 
         const groupByEl = document.getElementById('groupBy');
+        const kanerjingScopeEl = document.getElementById('kanerjingScope');
         const categoryEl = document.getElementById('categorySelect');
         const levelEl = document.getElementById('levelSelect');
         const townshipEl = document.getElementById('townshipSelect');
@@ -300,6 +309,7 @@
         function buildQuery() {
             const params = new URLSearchParams({
                 group_by: groupByEl.value,
+                kanerjing_scope: kanerjingScopeEl.value,
                 category: categoryEl.value,
                 level: levelEl.value,
                 township: townshipEl.value,
@@ -330,7 +340,7 @@
         }
 
         function bindChangeEvents() {
-            [groupByEl, categoryEl, levelEl, townshipEl].forEach(el => {
+            [groupByEl, kanerjingScopeEl, categoryEl, levelEl, townshipEl].forEach(el => {
                 el.addEventListener('change', loadStats);
             });
             addressKeywordEl.addEventListener('input', function () {
