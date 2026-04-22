@@ -715,6 +715,231 @@ def _is_admin_user(user):
     )
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# 四普系统边界坐标导出辅助函数
+# ──────────────────────────────────────────────────────────────────────────────
+
+_SIPU_HOST = '202.41.243.152:9046'
+_SIPU_BASE = f'http://{_SIPU_HOST}'
+
+
+def _sipu_search_culrid(site_name: str, cookie: str, user_county: str = '') -> list:
+    """通过四普系统搜索接口，根据文物名称获取候选记录列表（含 id/culRid）。"""
+    import urllib.request
+    import urllib.parse
+
+    url = f'{_SIPU_BASE}/immovableListController.do?queryRelicList'
+    form_data = {
+        'page': '1',
+        'pageSize': '5',
+        'searchInputValue': site_name,
+        'sortField': 'update_date',
+        'sortType': 'desc',
+        'backStatus': '0',
+    }
+    if user_county:
+        form_data['userCounty'] = user_county
+
+    body = urllib.parse.urlencode(form_data).encode('utf-8')
+    req = urllib.request.Request(
+        url,
+        data=body,
+        method='POST',
+        headers={
+            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            'X-Requested-With': 'XMLHttpRequest',
+            'Accept': 'application/json, text/javascript, */*; q=0.01',
+            'Cookie': cookie,
+            'Host': _SIPU_HOST,
+            'Origin': _SIPU_BASE,
+            'Referer': f'{_SIPU_BASE}/immovableListController.do?immovableList',
+            'User-Agent': 'Mozilla/5.0 (compatible; HeritageSystem/1.0)',
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            raw = resp.read()
+        data = json.loads(raw.decode('utf-8', errors='replace'))
+        return data.get('data') or []
+    except Exception:
+        return []
+
+
+def _sipu_fetch_boundary_points(cul_rid: str, cookie: str) -> list:
+    """通过四普系统坐标列表接口，获取指定文物的边界点（measurePointType=1）。
+    由于接口不支持按 measurePointType 过滤，在客户端过滤。
+    """
+    import urllib.request
+    import urllib.parse
+
+    all_rows = []
+    page = 1
+    page_count = 50  # 一次多取，减少请求次数
+
+    while True:
+        url = (
+            f'{_SIPU_BASE}/tBBdataPointsController.do'
+            f'?getData&currpage={page}&pagecount={page_count}'
+        )
+        body = urllib.parse.urlencode({'culRid': cul_rid}).encode('utf-8')
+        req = urllib.request.Request(
+            url,
+            data=body,
+            method='POST',
+            headers={
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                'X-Requested-With': 'XMLHttpRequest',
+                'Accept': 'application/json, text/javascript, */*; q=0.01',
+                'Cookie': cookie,
+                'Host': _SIPU_HOST,
+                'Origin': _SIPU_BASE,
+                'Referer': (
+                    f'{_SIPU_BASE}/tBBdataBasicController.do'
+                    f'?tBBdataPointsView&type=&culRid={urllib.parse.quote(cul_rid)}'
+                ),
+                'User-Agent': 'Mozilla/5.0 (compatible; HeritageSystem/1.0)',
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                raw = resp.read()
+            data = json.loads(raw.decode('utf-8', errors='replace'))
+        except Exception:
+            break
+
+        rows = data.get('rows') or []
+        total = int(data.get('total') or 0)
+        all_rows.extend(rows)
+
+        if len(all_rows) >= total or not rows:
+            break
+        page += 1
+
+    # 过滤：仅保留 measurePointType == "1"（边界点）
+    boundary = [r for r in all_rows if str(r.get('measurePointType', '')) == '1']
+    return boundary
+
+
+def _build_boundary_points_csv(combined_conflicts, selected_records, cookie: str, user_county: str = '') -> HttpResponse:
+    """
+    对冲突文物点按文件分组，逐个调用四普系统接口获取边界坐标，
+    导出为一张 CSV 表格（含文件分组列）。
+    """
+    # 按来源 KML 文件聚合冲突文物（site_id 去重）
+    from collections import OrderedDict
+
+    # 建立 {feature_source: [site_id, ...]} 映射（保序、去重）
+    source_sites: dict = OrderedDict()
+    site_meta: dict = {}  # site_id -> {name, level, longitude, latitude}
+
+    for row in combined_conflicts:
+        src = row.get('feature_source') or '未知来源'
+        sid = row.get('site_id')
+        if not sid:
+            continue
+        source_sites.setdefault(src, [])
+        if sid not in source_sites[src]:
+            source_sites[src].append(sid)
+        if sid not in site_meta:
+            site_meta[sid] = {
+                'name': row.get('site_name', ''),
+                'level': row.get('site_level', ''),
+                'longitude': row.get('site_longitude', ''),
+                'latitude': row.get('site_latitude', ''),
+            }
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        '来源KML文件', '文物名称', '文物级别', '文物ID(本地)',
+        '四普culRid', '四普文物名称',
+        '序号', '点描述', '备注',
+        '纬度(十进制)', '经度(十进制)', '海拔',
+        '纬度度', '纬度分', '纬度秒',
+        '经度度', '经度分', '经度秒',
+        '出界标记', '距出界距离(m)',
+    ])
+
+    # 用于缓存 site_id -> culRid 映射，避免重复搜索
+    cul_rid_cache: dict = {}
+
+    for src, site_ids in source_sites.items():
+        for sid in site_ids:
+            meta = site_meta[sid]
+            site_name = meta['name']
+
+            # 查找 culRid
+            if sid in cul_rid_cache:
+                cul_rid, sipu_name = cul_rid_cache[sid]
+            else:
+                candidates = _sipu_search_culrid(site_name, cookie, user_county)
+                # 精确匹配文物名称；若无精确匹配则取第一条
+                matched = next((c for c in candidates if c.get('name') == site_name), None)
+                if matched is None and candidates:
+                    matched = candidates[0]
+                if matched:
+                    cul_rid = matched.get('id') or ''
+                    sipu_name = matched.get('name') or ''
+                else:
+                    cul_rid = ''
+                    sipu_name = ''
+                cul_rid_cache[sid] = (cul_rid, sipu_name)
+
+            if not cul_rid:
+                writer.writerow([
+                    src, site_name, meta['level'], sid,
+                    '', '（四普系统未找到该文物）',
+                    '', '', '', '', '', '', '', '', '', '', '', '', '', '',
+                ])
+                continue
+
+            points = _sipu_fetch_boundary_points(cul_rid, cookie)
+            if not points:
+                writer.writerow([
+                    src, site_name, meta['level'], sid,
+                    cul_rid, sipu_name,
+                    '', '', '', '', '', '', '', '', '', '', '', '', '（无边界点数据）', '',
+                ])
+                continue
+
+            for pt in points:
+                writer.writerow([
+                    src,
+                    site_name,
+                    meta['level'],
+                    sid,
+                    cul_rid,
+                    sipu_name,
+                    pt.get('counter', ''),
+                    pt.get('pointDesc', ''),
+                    pt.get('remark', ''),
+                    pt.get('lat', ''),
+                    pt.get('lng', ''),
+                    pt.get('altitude', ''),
+                    pt.get('latitude1', ''),
+                    pt.get('latitude2', ''),
+                    pt.get('latitude3', ''),
+                    pt.get('longitude1', ''),
+                    pt.get('longitude2', ''),
+                    pt.get('longitude3', ''),
+                    pt.get('outBody', ''),
+                    pt.get('distanceOut', ''),
+                ])
+
+    date_str = timezone.now().strftime('%Y%m%d')
+    if selected_records and len(selected_records) == 1:
+        report_name = f'{date_str}{selected_records[0].title}冲突文物边界坐标'
+    elif selected_records:
+        report_name = f'{date_str}{selected_records[0].title}等冲突文物边界坐标'
+    else:
+        report_name = f'冲突文物边界坐标_{timezone.now().strftime("%Y%m%d_%H%M%S")}'
+
+    response = HttpResponse(output.getvalue(), content_type='text/csv; charset=utf-8-sig')
+    encoded_name = quote(report_name + '.csv', safe='')
+    response['Content-Disposition'] = f"attachment; filename*=UTF-8''{encoded_name}"
+    return response
+
+
 @staff_member_required
 def kml_management_view(request):
     if not _is_admin_user(request.user):
@@ -814,7 +1039,7 @@ def kml_management_view(request):
                     messages.success(request, f'已快速上传 {created_count} 个文件。若需冲突报告，请勾选后点击“批量查询冲突并导出报告”。')
             return redirect('kml_overlay_check')
 
-        if action in {'analyze_selected', 'analyze_export_selected', 'export_conflict_kml'}:
+        if action in {'analyze_selected', 'analyze_export_selected', 'export_conflict_kml', 'export_boundary_points'}:
             selected_ids = request.POST.getlist('selected_ids')
             if not selected_ids:
                 messages.error(request, '请先选择要批量查询的文件。')
@@ -836,6 +1061,17 @@ def kml_management_view(request):
 
             if action == 'export_conflict_kml':
                 return _build_conflict_sites_kml(combined_conflicts, threshold, selected_records)
+
+            if action == 'export_boundary_points':
+                cookie = (request.POST.get('sipu_cookie') or '').strip()
+                if not cookie:
+                    messages.error(request, '请先填写四普系统的 Cookie 再导出边界坐标。')
+                    return redirect('kml_overlay_check')
+                if not combined_conflicts:
+                    messages.warning(request, '所选 KML 文件中未发现冲突文物点，无需导出边界坐标。')
+                    return redirect('kml_overlay_check')
+                user_county = (request.POST.get('sipu_county') or '').strip()
+                return _build_boundary_points_csv(combined_conflicts, selected_records, cookie, user_county)
 
             return _build_conflict_report_csv(combined_conflicts, threshold, selected_records)
 
