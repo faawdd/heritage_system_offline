@@ -481,6 +481,37 @@ def _distance_to_linestring_m(site_lon, site_lat, line_coords):
     return min_distance
 
 
+def _distance_to_polygon_boundary_m(site_lon, site_lat, polygon_rings):
+    """计算点到多边形边界（外环+内环）的最短距离（米）。"""
+    if not polygon_rings:
+        return float('inf')
+
+    min_distance = float('inf')
+    for ring in polygon_rings:
+        if not ring:
+            continue
+
+        ring_points = list(ring)
+        # KML 线环可能未闭合，统一补齐闭合段
+        if len(ring_points) >= 2 and ring_points[0] != ring_points[-1]:
+            ring_points.append(ring_points[0])
+
+        ring_distance = _distance_to_linestring_m(site_lon, site_lat, ring_points)
+        min_distance = min(min_distance, ring_distance)
+
+    return min_distance
+
+
+def _distance_to_multipolygon_boundary_m(site_lon, site_lat, multi_polygon_coords):
+    if not multi_polygon_coords:
+        return float('inf')
+
+    min_distance = float('inf')
+    for polygon_rings in multi_polygon_coords:
+        min_distance = min(min_distance, _distance_to_polygon_boundary_m(site_lon, site_lat, polygon_rings))
+    return min_distance
+
+
 def _is_point_in_ring(lon, lat, ring):
     if not ring or len(ring) < 3:
         return False
@@ -547,11 +578,17 @@ def _analyze_conflicts(features, threshold_m):
                 matched = distance_m <= threshold
                 relation = '线最短距离'
             elif feature_type == 'Polygon':
-                matched = _is_point_in_polygon(site_lon, site_lat, coords or [])
-                relation = '面内包含'
+                inside = _is_point_in_polygon(site_lon, site_lat, coords or [])
+                boundary_distance = _distance_to_polygon_boundary_m(site_lon, site_lat, coords or [])
+                distance_m = boundary_distance
+                matched = inside or (math.isfinite(boundary_distance) and boundary_distance <= threshold)
+                relation = '面内包含' if inside else '面边界最短距离'
             elif feature_type == 'MultiPolygon':
-                matched = any(_is_point_in_polygon(site_lon, site_lat, polygon) for polygon in (coords or []))
-                relation = '面内包含'
+                inside = any(_is_point_in_polygon(site_lon, site_lat, polygon) for polygon in (coords or []))
+                boundary_distance = _distance_to_multipolygon_boundary_m(site_lon, site_lat, coords or [])
+                distance_m = boundary_distance
+                matched = inside or (math.isfinite(boundary_distance) and boundary_distance <= threshold)
+                relation = '面内包含' if inside else '面边界最短距离'
 
             if matched:
                 conflicts.append({
