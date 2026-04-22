@@ -852,8 +852,10 @@ def _sipu_fetch_boundary_points(cul_rid: str, cookie: str) -> list:
             break
         page += 1
 
-    # 过滤：仅保留 measurePointType == "1"（边界点）
+    # 过滤边界点：优先 measurePointType == "1"；若无则兼容部分数据使用的 "9"
     boundary = [r for r in all_rows if str(r.get('measurePointType', '')) == '1']
+    if not boundary:
+        boundary = [r for r in all_rows if str(r.get('measurePointType', '')) == '9']
     return boundary
 
 
@@ -1043,28 +1045,44 @@ def _build_boundary_points_kmz(combined_conflicts, selected_records, cookie: str
             if not points:
                 continue
 
-            ordered = sorted(points, key=_point_order_key)
-            ring = []
-            for item in ordered:
-                lonlat = _to_lonlat(item)
-                if lonlat is None:
+            # 按 groupLink 分区，避免多块墓地被错误串接成一个面
+            grouped_points = {}
+            for item in points:
+                group_key = str(item.get('groupLink') or '1')
+                grouped_points.setdefault(group_key, []).append(item)
+
+            rings = []
+            for group_key, group_items in grouped_points.items():
+                ordered = sorted(group_items, key=_point_order_key)
+                ring = []
+                for item in ordered:
+                    lonlat = _to_lonlat(item)
+                    if lonlat is None:
+                        continue
+                    ring.append(lonlat)
+
+                # 多边形至少需要3个点
+                if len(ring) < 3:
                     continue
-                ring.append(lonlat)
 
-            # 多边形至少需要3个点
-            if len(ring) < 3:
+                # 闭合线环
+                if ring[0] != ring[-1]:
+                    ring.append(ring[0])
+
+                rings.append({
+                    'group_key': group_key,
+                    'coords': ring,
+                })
+
+            if not rings:
                 continue
-
-            # 闭合线环
-            if ring[0] != ring[-1]:
-                ring.append(ring[0])
 
             polygons.append({
                 'name': sipu_name or site_name,
                 'source': src,
                 'site_level': meta.get('level', ''),
                 'cul_rid': cul_rid,
-                'ring': ring,
+                'rings': rings,
             })
 
     if not polygons:
@@ -1098,18 +1116,31 @@ def _build_boundary_points_kmz(combined_conflicts, selected_records, cookie: str
         pm = ET.SubElement(doc, f'{{{ns}}}Placemark')
         ET.SubElement(pm, f'{{{ns}}}name').text = item['name']
         ET.SubElement(pm, f'{{{ns}}}styleUrl').text = '#conflictBoundaryPolygon'
+        total_points = sum(max(len(r['coords']) - 1, 0) for r in item['rings'])
         ET.SubElement(pm, f'{{{ns}}}description').text = (
             f"来源KML: {item['source']}\n"
             f"文物级别: {item['site_level']}\n"
-            f"边界点数: {max(len(item['ring']) - 1, 0)}"
+            f"区块数: {len(item['rings'])}\n"
+            f"边界点数: {total_points}"
         )
 
-        polygon = ET.SubElement(pm, f'{{{ns}}}Polygon')
-        ET.SubElement(polygon, f'{{{ns}}}tessellate').text = '1'
-        outer = ET.SubElement(polygon, f'{{{ns}}}outerBoundaryIs')
-        ring = ET.SubElement(outer, f'{{{ns}}}LinearRing')
-        coord_text = ' '.join(f'{lon:.10f},{lat:.10f},0' for lon, lat in item['ring'])
-        ET.SubElement(ring, f'{{{ns}}}coordinates').text = coord_text
+        if len(item['rings']) == 1:
+            ring_coords = item['rings'][0]['coords']
+            polygon = ET.SubElement(pm, f'{{{ns}}}Polygon')
+            ET.SubElement(polygon, f'{{{ns}}}tessellate').text = '1'
+            outer = ET.SubElement(polygon, f'{{{ns}}}outerBoundaryIs')
+            ring = ET.SubElement(outer, f'{{{ns}}}LinearRing')
+            coord_text = ' '.join(f'{lon:.10f},{lat:.10f},0' for lon, lat in ring_coords)
+            ET.SubElement(ring, f'{{{ns}}}coordinates').text = coord_text
+        else:
+            multi_geometry = ET.SubElement(pm, f'{{{ns}}}MultiGeometry')
+            for ring_item in item['rings']:
+                polygon = ET.SubElement(multi_geometry, f'{{{ns}}}Polygon')
+                ET.SubElement(polygon, f'{{{ns}}}tessellate').text = '1'
+                outer = ET.SubElement(polygon, f'{{{ns}}}outerBoundaryIs')
+                ring = ET.SubElement(outer, f'{{{ns}}}LinearRing')
+                coord_text = ' '.join(f'{lon:.10f},{lat:.10f},0' for lon, lat in ring_item['coords'])
+                ET.SubElement(ring, f'{{{ns}}}coordinates').text = coord_text
 
     kml_bytes = ET.tostring(kml_root, encoding='utf-8', xml_declaration=True)
 
