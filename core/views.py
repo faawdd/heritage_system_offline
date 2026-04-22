@@ -851,8 +851,7 @@ def _build_boundary_points_csv(combined_conflicts, selected_records, cookie: str
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow([
-        '来源KML文件', '文物名称', '文物级别', '文物ID(本地)',
-        '四普culRid', '四普文物名称',
+        '来源KML文件', '文物名称', '文物级别', '四普文物名称',
         '序号', '点描述', '备注',
         '纬度(十进制)', '经度(十进制)', '海拔',
         '纬度度', '纬度分', '纬度秒',
@@ -887,8 +886,7 @@ def _build_boundary_points_csv(combined_conflicts, selected_records, cookie: str
 
             if not cul_rid:
                 writer.writerow([
-                    src, site_name, meta['level'], sid,
-                    '', '（四普系统未找到该文物）',
+                    src, site_name, meta['level'], '（四普系统未找到该文物）',
                     '', '', '', '', '', '', '', '', '', '', '', '', '', '',
                 ])
                 continue
@@ -896,8 +894,7 @@ def _build_boundary_points_csv(combined_conflicts, selected_records, cookie: str
             points = _sipu_fetch_boundary_points(cul_rid, cookie)
             if not points:
                 writer.writerow([
-                    src, site_name, meta['level'], sid,
-                    cul_rid, sipu_name,
+                    src, site_name, meta['level'], sipu_name,
                     '', '', '', '', '', '', '', '', '', '', '', '', '（无边界点数据）', '',
                 ])
                 continue
@@ -907,8 +904,6 @@ def _build_boundary_points_csv(combined_conflicts, selected_records, cookie: str
                     src,
                     site_name,
                     meta['level'],
-                    sid,
-                    cul_rid,
                     sipu_name,
                     pt.get('counter', ''),
                     pt.get('pointDesc', ''),
