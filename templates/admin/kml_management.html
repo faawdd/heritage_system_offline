@@ -50,12 +50,52 @@
             padding: 16px;
             margin-bottom: 16px;
         }
+        .left-pane .card {
+            padding: 18px 16px;
+        }
+        .left-title {
+            margin: 0 0 12px;
+            font-size: 16px;
+            color: #303133;
+            font-weight: 600;
+        }
         .row {
             display: flex;
             flex-wrap: wrap;
             gap: 12px;
             align-items: center;
             margin-bottom: 12px;
+        }
+        .field {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-bottom: 12px;
+        }
+        .field label {
+            font-size: 13px;
+            color: #606266;
+            min-width: 0;
+            font-weight: 600;
+        }
+        .field-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            align-items: stretch;
+            margin-bottom: 10px;
+        }
+        .field-actions .btn {
+            width: 100%;
+            text-align: center;
+        }
+        .inline-check {
+            min-width: 0;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            color: #303133;
         }
         .row label {
             font-size: 13px;
@@ -120,7 +160,19 @@
             padding: 7px 10px;
             font-size: 13px;
             background: #fff;
-            width: 180px;
+            width: 100%;
+            max-width: 280px;
+        }
+        .sipu-actions {
+            display: flex;
+            flex-direction: column;
+            align-items: stretch;
+            gap: 8px;
+            width: 100%;
+        }
+        .sipu-actions .btn {
+            width: 100%;
+            max-width: 320px;
         }
         .btn-mini {
             font-size: 12px;
@@ -313,23 +365,24 @@
                 <form method="post" enctype="multipart/form-data">
                     {% csrf_token %}
                     <input type="hidden" name="action" value="upload">
-                    <div class="row">
+                    <h2 class="left-title">上传与即时分析</h2>
+                    <div class="field">
                         <label for="kmlFiles">上传文件</label>
                         <input id="kmlFiles" type="file" name="kml_files" accept=".kml,.kmz,.ovkml,.ovkmz" multiple required>
                     </div>
-                    <div class="row">
+                    <div class="field">
                         <label for="thresholdUpload">冲突阈值(米)</label>
                         <input id="thresholdUpload" type="number" name="threshold_m" min="1" max="5000" value="{{ default_threshold }}" required>
                         <span class="hint">点/线按阈值判定，面要素按面内包含判定。</span>
                     </div>
-                    <div class="row" style="margin-top:-2px;">
+                    <div class="field" style="margin-top:-2px;">
                         <label for="immediateAnalyze">上传策略</label>
-                        <label style="min-width:0; display:flex; align-items:center; gap:6px;">
+                        <label class="inline-check">
                             <input id="immediateAnalyze" type="checkbox" name="immediate_analyze" value="1" checked>
                             立即分析（大文件可能较慢）
                         </label>
                     </div>
-                    <div class="row" style="margin-bottom:0;">
+                    <div class="field-actions" style="margin-bottom:0;">
                         <button class="btn btn-primary" id="uploadSubmitBtn" type="submit">上传并立即分析</button>
                     </div>
                 </form>
@@ -338,9 +391,12 @@
             <div class="card">
                 <form method="post">
                     {% csrf_token %}
-                    <div class="row">
+                    <h2 class="left-title">批量查询与导出</h2>
+                    <div class="field">
                         <label for="thresholdBatch">批量阈值(米)</label>
                         <input id="thresholdBatch" type="number" name="threshold_m" min="1" max="5000" value="{{ default_threshold }}" required>
+                    </div>
+                    <div class="field-actions">
                         <button class="btn btn-success" type="submit" name="action" value="analyze_selected">分析并更新冲突数</button>
                         <button class="btn btn-primary" type="submit" name="action" value="analyze_export_selected">分析并导出报告</button>
                         <button class="btn btn-warning" type="submit" name="action" value="export_conflict_kml">导出冲突文物KML</button>
@@ -354,7 +410,7 @@
                                 <div style="margin-top:4px; font-size:12px; color:#909399;">在四普系统浏览器中按 F12 → Network → 任意请求 → 复制 Cookie 请求头</div>
                                 <textarea id="sipuCookie" name="sipu_cookie" placeholder="JSESSIONID=XXXX..."></textarea>
                             </div>
-                            <div style="display:flex; gap:12px; align-items:center;">
+                            <div class="sipu-actions">
                                 <label for="sipuCounty">行政区划代码（可选）</label>
                                 <input type="text" id="sipuCounty" name="sipu_county" placeholder="如 650421（留空则不过滤）">
                                 <button class="btn btn-sipu" type="submit" name="action" value="export_boundary_points">确认导出边界坐标 CSV</button>
