@@ -84,12 +84,44 @@
         .btn-success:hover { background: #85ce61; }
         .btn-danger { background: #f56c6c; }
         .btn-danger:hover { background: #f78989; }
+        .btn-warning { background: #e6a23c; }
+        .btn-warning:hover { background: #ebb563; }
         .btn-secondary {
             background: #909399;
             text-decoration: none;
             display: inline-block;
         }
         .btn-secondary:hover { background: #a6a9ad; }
+        .btn-sipu { background: #7c4dff; }
+        .btn-sipu:hover { background: #9c6fff; }
+        .sipu-panel {
+            display: none;
+            background: #f0f4ff;
+            border: 1px solid #c7d4f8;
+            border-radius: 8px;
+            padding: 12px 14px;
+            margin-top: 10px;
+        }
+        .sipu-panel label { font-size: 13px; color: #4a5568; }
+        .sipu-panel textarea {
+            width: 100%;
+            min-height: 60px;
+            border: 1px solid #c7d4f8;
+            border-radius: 6px;
+            padding: 7px 10px;
+            font-size: 12px;
+            font-family: monospace;
+            resize: vertical;
+            background: #fff;
+        }
+        .sipu-panel input[type="text"] {
+            border: 1px solid #c7d4f8;
+            border-radius: 6px;
+            padding: 7px 10px;
+            font-size: 13px;
+            background: #fff;
+            width: 180px;
+        }
         .btn-mini {
             font-size: 12px;
             padding: 5px 10px;
@@ -312,7 +344,25 @@
                         <button class="btn btn-success" type="submit" name="action" value="analyze_selected">分析并更新冲突数</button>
                         <button class="btn btn-primary" type="submit" name="action" value="analyze_export_selected">分析并导出报告</button>
                         <button class="btn btn-warning" type="submit" name="action" value="export_conflict_kml">导出冲突文物KML</button>
+                        <button class="btn btn-sipu" type="button" id="toggleSipuPanel">导出四普边界坐标</button>
                     </div>
+
+                    <div class="sipu-panel" id="sipuPanel">
+                        <div class="row" style="flex-direction:column; align-items:flex-start; gap:8px;">
+                            <div style="width:100%;">
+                                <label for="sipuCookie">四普系统 Cookie <span style="color:#f56c6c;">*</span></label>
+                                <div style="margin-top:4px; font-size:12px; color:#909399;">在四普系统浏览器中按 F12 → Network → 任意请求 → 复制 Cookie 请求头</div>
+                                <textarea id="sipuCookie" name="sipu_cookie" placeholder="JSESSIONID=XXXX..."></textarea>
+                            </div>
+                            <div style="display:flex; gap:12px; align-items:center;">
+                                <label for="sipuCounty">行政区划代码（可选）</label>
+                                <input type="text" id="sipuCounty" name="sipu_county" placeholder="如 650421（留空则不过滤）">
+                                <button class="btn btn-sipu" type="submit" name="action" value="export_boundary_points">确认导出边界坐标 CSV</button>
+                                <span class="hint">将重新分析所选 KML 并从四普系统拉取边界点（measurePointType=1）</span>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="row" style="margin-top:-2px;">
                         <span class="hint">勾选下方文件后，可同时在右侧地图查看叠加效果和冲突点位。</span>
                     </div>
@@ -795,6 +845,17 @@
                 }
             }
         });
+
+        // 四普边界坐标面板切换
+        const toggleSipuBtn = document.getElementById('toggleSipuPanel');
+        const sipuPanel = document.getElementById('sipuPanel');
+        if (toggleSipuBtn && sipuPanel) {
+            toggleSipuBtn.addEventListener('click', function () {
+                const shown = sipuPanel.style.display === 'block';
+                sipuPanel.style.display = shown ? 'none' : 'block';
+                toggleSipuBtn.textContent = shown ? '导出四普边界坐标' : '收起四普边界面板';
+            });
+        }
     </script>
 </body>
 </html>
