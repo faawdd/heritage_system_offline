@@ -972,6 +972,157 @@ def _build_boundary_points_csv(combined_conflicts, selected_records, cookie: str
     return response
 
 
+def _build_boundary_points_kmz(combined_conflicts, selected_records, cookie: str, user_county: str = '') -> HttpResponse:
+    """
+    将冲突文物点在四普系统中的边界点（measurePointType=1）导出为 KMZ。
+    每个文物点按边界点顺序闭合成面，并以文物名称命名 Placemark。
+    """
+    from collections import OrderedDict
+
+    source_sites: dict = OrderedDict()
+    site_meta: dict = {}
+
+    for row in combined_conflicts:
+        src = row.get('feature_source') or '未知来源'
+        sid = row.get('site_id')
+        if not sid:
+            continue
+        source_sites.setdefault(src, [])
+        if sid not in source_sites[src]:
+            source_sites[src].append(sid)
+        if sid not in site_meta:
+            site_meta[sid] = {
+                'name': row.get('site_name', ''),
+                'level': row.get('site_level', ''),
+            }
+
+    def _point_order_key(item):
+        for key in ('snNuM', 'counter'):
+            value = item.get(key)
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                continue
+        return 0
+
+    def _to_lonlat(item):
+        try:
+            lon = float(item.get('lng'))
+            lat = float(item.get('lat'))
+        except (TypeError, ValueError):
+            return None
+        return lon, lat
+
+    cul_rid_cache: dict = {}
+    polygons = []
+
+    for src, site_ids in source_sites.items():
+        for sid in site_ids:
+            meta = site_meta[sid]
+            site_name = meta.get('name') or '未命名文物'
+
+            if sid in cul_rid_cache:
+                cul_rid, sipu_name = cul_rid_cache[sid]
+            else:
+                candidates = _sipu_search_culrid(site_name, cookie, user_county)
+                matched = next((c for c in candidates if c.get('name') == site_name), None)
+                if matched is None and candidates:
+                    matched = candidates[0]
+                if matched:
+                    cul_rid = matched.get('id') or ''
+                    sipu_name = matched.get('name') or site_name
+                else:
+                    cul_rid = ''
+                    sipu_name = site_name
+                cul_rid_cache[sid] = (cul_rid, sipu_name)
+
+            if not cul_rid:
+                continue
+
+            points = _sipu_fetch_boundary_points(cul_rid, cookie)
+            if not points:
+                continue
+
+            ordered = sorted(points, key=_point_order_key)
+            ring = []
+            for item in ordered:
+                lonlat = _to_lonlat(item)
+                if lonlat is None:
+                    continue
+                ring.append(lonlat)
+
+            # 多边形至少需要3个点
+            if len(ring) < 3:
+                continue
+
+            # 闭合线环
+            if ring[0] != ring[-1]:
+                ring.append(ring[0])
+
+            polygons.append({
+                'name': sipu_name or site_name,
+                'source': src,
+                'site_level': meta.get('level', ''),
+                'cul_rid': cul_rid,
+                'ring': ring,
+            })
+
+    if not polygons:
+        # 无可导出多边形时，返回空 KML 文档，避免下载报错
+        polygons = []
+
+    date_str = timezone.now().strftime('%Y%m%d')
+    if selected_records and len(selected_records) == 1:
+        kmz_name = f'{date_str}{selected_records[0].title}冲突文物边界面'
+    elif selected_records:
+        kmz_name = f'{date_str}{selected_records[0].title}等冲突文物边界面'
+    else:
+        kmz_name = f'冲突文物边界面_{timezone.now().strftime("%Y%m%d_%H%M%S")}'
+
+    ET.register_namespace('', 'http://www.opengis.net/kml/2.2')
+    ns = 'http://www.opengis.net/kml/2.2'
+    kml_root = ET.Element(f'{{{ns}}}kml')
+    doc = ET.SubElement(kml_root, f'{{{ns}}}Document')
+    ET.SubElement(doc, f'{{{ns}}}name').text = kmz_name
+
+    # 奥维可读的面样式（红边半透明填充）
+    style = ET.SubElement(doc, f'{{{ns}}}Style')
+    style.set('id', 'conflictBoundaryPolygon')
+    line_style = ET.SubElement(style, f'{{{ns}}}LineStyle')
+    ET.SubElement(line_style, f'{{{ns}}}color').text = 'ff0000ff'
+    ET.SubElement(line_style, f'{{{ns}}}width').text = '2'
+    poly_style = ET.SubElement(style, f'{{{ns}}}PolyStyle')
+    ET.SubElement(poly_style, f'{{{ns}}}color').text = '4d0000ff'
+
+    for item in polygons:
+        pm = ET.SubElement(doc, f'{{{ns}}}Placemark')
+        ET.SubElement(pm, f'{{{ns}}}name').text = item['name']
+        ET.SubElement(pm, f'{{{ns}}}styleUrl').text = '#conflictBoundaryPolygon'
+        ET.SubElement(pm, f'{{{ns}}}description').text = (
+            f"来源KML: {item['source']}\n"
+            f"文物级别: {item['site_level']}\n"
+            f"边界点数: {max(len(item['ring']) - 1, 0)}"
+        )
+
+        polygon = ET.SubElement(pm, f'{{{ns}}}Polygon')
+        ET.SubElement(polygon, f'{{{ns}}}tessellate').text = '1'
+        outer = ET.SubElement(polygon, f'{{{ns}}}outerBoundaryIs')
+        ring = ET.SubElement(outer, f'{{{ns}}}LinearRing')
+        coord_text = ' '.join(f'{lon:.10f},{lat:.10f},0' for lon, lat in item['ring'])
+        ET.SubElement(ring, f'{{{ns}}}coordinates').text = coord_text
+
+    kml_bytes = ET.tostring(kml_root, encoding='utf-8', xml_declaration=True)
+
+    kmz_buffer = io.BytesIO()
+    with zipfile.ZipFile(kmz_buffer, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr('doc.kml', kml_bytes)
+
+    response = HttpResponse(kmz_buffer.getvalue(), content_type='application/vnd.google-earth.kmz')
+    encoded_name = quote(kmz_name + '.kmz', safe='')
+    response['Content-Disposition'] = f"attachment; filename*=UTF-8''{encoded_name}"
+    return response
+
+
 @staff_member_required
 def kml_management_view(request):
     if not _is_admin_user(request.user):
@@ -1071,7 +1222,7 @@ def kml_management_view(request):
                     messages.success(request, f'已快速上传 {created_count} 个文件。若需冲突报告，请勾选后点击“批量查询冲突并导出报告”。')
             return redirect('kml_overlay_check')
 
-        if action in {'analyze_selected', 'analyze_export_selected', 'export_conflict_kml', 'export_boundary_points'}:
+        if action in {'analyze_selected', 'analyze_export_selected', 'export_conflict_kml', 'export_boundary_points', 'export_boundary_kmz'}:
             selected_ids = request.POST.getlist('selected_ids')
             if not selected_ids:
                 messages.error(request, '请先选择要批量查询的文件。')
@@ -1104,6 +1255,17 @@ def kml_management_view(request):
                     return redirect('kml_overlay_check')
                 user_county = (request.POST.get('sipu_county') or '').strip()
                 return _build_boundary_points_csv(combined_conflicts, selected_records, cookie, user_county)
+
+            if action == 'export_boundary_kmz':
+                cookie = (request.POST.get('sipu_cookie') or '').strip()
+                if not cookie:
+                    messages.error(request, '请先填写四普系统的 Cookie 再导出边界 KMZ。')
+                    return redirect('kml_overlay_check')
+                if not combined_conflicts:
+                    messages.warning(request, '所选 KML 文件中未发现冲突文物点，无需导出边界 KMZ。')
+                    return redirect('kml_overlay_check')
+                user_county = (request.POST.get('sipu_county') or '').strip()
+                return _build_boundary_points_kmz(combined_conflicts, selected_records, cookie, user_county)
 
             return _build_conflict_report_csv(combined_conflicts, threshold, selected_records)
 

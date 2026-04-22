@@ -414,6 +414,7 @@
                                 <label for="sipuCounty">行政区划代码（可选）</label>
                                 <input type="text" id="sipuCounty" name="sipu_county" placeholder="如 650421（留空则不过滤）">
                                 <button class="btn btn-sipu" type="submit" name="action" value="export_boundary_points">确认导出边界坐标 CSV</button>
+                                <button class="btn btn-sipu" type="submit" name="action" value="export_boundary_kmz">导出奥维KMZ（闭合面）</button>
                                 <span class="hint">将重新分析所选 KML 并从四普系统拉取边界点（measurePointType=1）</span>
                             </div>
                         </div>
@@ -652,6 +653,45 @@
             return min;
         }
 
+        function getMinDistanceToPolygonBoundaryMeters(lon, lat, polygonCoords) {
+            if (!Array.isArray(polygonCoords) || polygonCoords.length === 0) {
+                return Infinity;
+            }
+            let min = Infinity;
+            polygonCoords.forEach(ring => {
+                if (!Array.isArray(ring) || ring.length === 0) {
+                    return;
+                }
+                const closedRing = ring.slice();
+                if (closedRing.length >= 2) {
+                    const first = closedRing[0];
+                    const last = closedRing[closedRing.length - 1];
+                    if (!first || !last || first[0] !== last[0] || first[1] !== last[1]) {
+                        closedRing.push(first);
+                    }
+                }
+                const d = getMinDistanceToLineStringMeters(lon, lat, closedRing);
+                if (d < min) {
+                    min = d;
+                }
+            });
+            return min;
+        }
+
+        function getMinDistanceToMultiPolygonBoundaryMeters(lon, lat, multiPolygonCoords) {
+            if (!Array.isArray(multiPolygonCoords) || multiPolygonCoords.length === 0) {
+                return Infinity;
+            }
+            let min = Infinity;
+            multiPolygonCoords.forEach(poly => {
+                const d = getMinDistanceToPolygonBoundaryMeters(lon, lat, poly);
+                if (d < min) {
+                    min = d;
+                }
+            });
+            return min;
+        }
+
         function isSiteConflictWithFeature(site, feature, threshold) {
             if (!feature || !feature.geometry) {
                 return null;
@@ -686,12 +726,23 @@
             }
 
             if (t === 'Polygon') {
-                return isPointInPolygon(site.longitude, site.latitude, geom.coordinates || []) ? { relation: '面内包含', distance: null } : null;
+                const polygonCoords = geom.coordinates || [];
+                const inside = isPointInPolygon(site.longitude, site.latitude, polygonCoords);
+                const d = getMinDistanceToPolygonBoundaryMeters(site.longitude, site.latitude, polygonCoords);
+                if (inside) {
+                    return { relation: '面内包含', distance: isFinite(d) ? Math.round(d) : null };
+                }
+                return d <= threshold ? { relation: '面边界最短距离', distance: Math.round(d) } : null;
             }
 
             if (t === 'MultiPolygon') {
                 const polygons = geom.coordinates || [];
-                return polygons.some(poly => isPointInPolygon(site.longitude, site.latitude, poly)) ? { relation: '面内包含', distance: null } : null;
+                const inside = polygons.some(poly => isPointInPolygon(site.longitude, site.latitude, poly));
+                const d = getMinDistanceToMultiPolygonBoundaryMeters(site.longitude, site.latitude, polygons);
+                if (inside) {
+                    return { relation: '面内包含', distance: isFinite(d) ? Math.round(d) : null };
+                }
+                return d <= threshold ? { relation: '面边界最短距离', distance: Math.round(d) } : null;
             }
 
             return null;
