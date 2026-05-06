@@ -147,6 +147,44 @@ def heritage_detail_view(request, pk):
     }
     return render(request, 'admin/heritage_detail.html', context)
 
+
+@staff_member_required
+def heritage_boundary_export_view(request, pk):
+    """单个不可移动文物边界导出（四普系统）：支持 CSV / KMZ。"""
+    heritage = get_object_or_404(HeritageSite, pk=pk)
+
+    if request.method != 'POST':
+        return redirect('heritage_detail', pk=pk)
+
+    action = (request.POST.get('action') or '').strip()
+    cookie = (request.POST.get('sipu_cookie') or '').strip()
+    user_county = (request.POST.get('sipu_county') or '').strip()
+
+    if not cookie:
+        messages.error(request, '请先填写四普系统 Cookie，再执行单文物边界导出。')
+        return redirect('heritage_detail', pk=pk)
+
+    combined_conflicts = [{
+        'feature_source': '单文物导出',
+        'site_id': heritage.id,
+        'site_name': heritage.name,
+        'site_level': heritage.level,
+        'site_longitude': heritage.longitude,
+        'site_latitude': heritage.latitude,
+    }]
+
+    # 构造最小 title 对象以复用统一命名逻辑
+    selected_records = [type('ExportRecord', (), {'title': heritage.name})()]
+
+    if action == 'export_single_boundary_csv':
+        return _build_boundary_points_csv(combined_conflicts, selected_records, cookie, user_county)
+
+    if action == 'export_single_boundary_kmz':
+        return _build_boundary_points_kmz(combined_conflicts, selected_records, cookie, user_county)
+
+    messages.error(request, '未知导出操作。')
+    return redirect('heritage_detail', pk=pk)
+
 @staff_member_required
 def admin_index_view(request):
     """自定义管理后台首页 - 显示统计仪表板"""
