@@ -317,6 +317,68 @@
             border-color: #409eff;
         }
 
+        .btn-sipu {
+            background: #7c4dff;
+            color: white;
+        }
+
+        .btn-sipu:hover {
+            background: #9c6fff;
+        }
+
+        .sipu-export-card {
+            margin-top: 22px;
+            padding: 14px;
+            border: 1px solid #e5dcff;
+            border-radius: 6px;
+            background: #faf8ff;
+        }
+
+        .sipu-export-card summary {
+            cursor: pointer;
+            font-weight: 600;
+            color: #5f3dc4;
+            outline: none;
+        }
+
+        .sipu-export-form {
+            margin-top: 12px;
+        }
+
+        .sipu-export-form .field {
+            margin-bottom: 10px;
+        }
+
+        .sipu-export-form label {
+            display: block;
+            font-size: 13px;
+            color: #606266;
+            margin-bottom: 4px;
+        }
+
+        .sipu-export-form textarea,
+        .sipu-export-form input[type="text"] {
+            width: 100%;
+            border: 1px solid #dcdfe6;
+            border-radius: 4px;
+            padding: 8px 10px;
+            font-size: 13px;
+            background: white;
+        }
+
+        .sipu-export-form textarea {
+            min-height: 56px;
+            resize: vertical;
+            font-family: monospace;
+        }
+
+        .sipu-export-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 8px;
+        }
+
         .tabs {
             display: flex;
             gap: 0;
@@ -605,6 +667,25 @@
             <a href="/admin/core/heritagesite/{{ heritage.id }}/change/" class="btn btn-primary">编辑此文物</a>
             <button onclick="window.print();" class="btn btn-secondary">🖨️ 打印</button>
         </div>
+
+        <details class="sipu-export-card">
+            <summary>导出该文物四普边界范围（单文物）</summary>
+            <form method="post" action="{% url 'heritage_boundary_export' heritage.id %}" class="sipu-export-form">
+                {% csrf_token %}
+                <div class="field">
+                    <label for="sipuCookie">四普系统 Cookie（必填）</label>
+                    <textarea id="sipuCookie" name="sipu_cookie" placeholder="JSESSIONID=XXXX..." required></textarea>
+                </div>
+                <div class="field">
+                    <label for="sipuCounty">行政区划代码（可选）</label>
+                    <input id="sipuCounty" type="text" name="sipu_county" placeholder="如 650421（留空则不过滤）">
+                </div>
+                <div class="sipu-export-actions">
+                    <button type="submit" class="btn btn-sipu" name="action" value="export_single_boundary_csv">导出边界坐标 CSV</button>
+                    <button type="submit" class="btn btn-sipu" name="action" value="export_single_boundary_kmz">导出奥维 KMZ（闭合面）</button>
+                </div>
+            </form>
+        </details>
     </div>
 
     <!-- Leaflet 地图库 -->
