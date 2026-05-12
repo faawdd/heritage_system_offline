@@ -369,47 +369,6 @@
             cursor: pointer;
         }
 
-        .kml-selection-bubble {
-            position: fixed;
-            top: 54px;
-            right: 14px;
-            z-index: 724;
-            width: min(300px, calc(100vw - 24px));
-            padding: 10px 12px;
-            border-radius: 10px;
-            background: rgba(255, 255, 255, 0.95);
-            border: 1px solid #e2e8f0;
-            box-shadow: 0 10px 22px rgba(15, 23, 42, 0.18);
-            color: #0f172a;
-            font-size: 12px;
-        }
-
-        .kml-selection-bubble h3 {
-            margin: 0 0 6px;
-            font-size: 12px;
-            color: #334155;
-            font-weight: 700;
-        }
-
-        .kml-selection-bubble ul {
-            margin: 0;
-            padding: 0 0 0 16px;
-            max-height: 126px;
-            overflow: auto;
-        }
-
-        .kml-selection-bubble li {
-            margin-bottom: 4px;
-            line-height: 1.35;
-        }
-
-        .kml-selection-bubble li:last-child {
-            margin-bottom: 0;
-        }
-
-        .kml-selection-bubble.is-hidden {
-            display: none;
-        }
 
         .kml-range-badge-wrap {
             background: transparent;
@@ -555,11 +514,6 @@
                 right: 10px;
             }
 
-            .kml-selection-bubble {
-                top: 48px;
-                right: 10px;
-                width: min(290px, calc(100vw - 20px));
-            }
         }
     </style>
 </head>
@@ -718,13 +672,6 @@
         <label for="kmlBubbleToggle">显示KML气泡</label>
     </div>
 
-    <div class="kml-selection-bubble" id="kmlSelectionBubble">
-        <h3>当前叠加KML</h3>
-        <ul id="kmlSelectionList">
-            <li>未选择文件</li>
-        </ul>
-    </div>
-
     <div class="legend">
         <div class="legend-row"><span class="dot" style="background:#2a9d8f;"></span>文物点</div>
         <div class="legend-row"><span class="dot" style="background:#ff5a36;"></span>KML点</div>
@@ -744,8 +691,6 @@
         const sipuPanel = document.getElementById('sipuPanel');
         const toggleSipuBtn = document.getElementById('toggleSipuPanel');
         const kmlBubbleToggleEl = document.getElementById('kmlBubbleToggle');
-        const kmlSelectionBubbleEl = document.getElementById('kmlSelectionBubble');
-        const kmlSelectionListEl = document.getElementById('kmlSelectionList');
         const tk = '424ac2af85564078477428c1a2b72018';
         const COLORS = ['#ff5a36', '#e6a23c', '#409eff', '#85ce61', '#f78989', '#b37feb', '#41d7d7'];
 
@@ -758,33 +703,17 @@
                 .replace(/'/g, '&#39;');
         }
 
-        function updateKmlSelectionBubble() {
-            if (!kmlSelectionListEl) {
-                return;
-            }
-            const selected = rowChecks.filter(item => item.checked && item.dataset.fileUrl);
-            const selectedNames = selected.map(item => item.dataset.fileName || '未命名文件');
-            const visibleNames = selectedNames.slice(0, 6);
-
-            if (!visibleNames.length) {
-                kmlSelectionListEl.innerHTML = '<li>未选择文件</li>';
-                return;
-            }
-
-            const extraCount = selectedNames.length - visibleNames.length;
-            let html = visibleNames.map(name => '<li>' + name + '</li>').join('');
-            if (extraCount > 0) {
-                html += '<li>其余 ' + extraCount + ' 个文件...</li>';
-            }
-            kmlSelectionListEl.innerHTML = html;
-        }
-
         function syncKmlBubbleVisible() {
-            if (!kmlBubbleToggleEl || !kmlSelectionBubbleEl) {
+            if (!kmlBubbleToggleEl) {
                 return;
             }
             const showBubble = kmlBubbleToggleEl.checked;
-            kmlSelectionBubbleEl.classList.toggle('is-hidden', !showBubble);
+            const isHidden = !showBubble;
+            kmlBadgeLayer.eachLayer(function(layer) {
+                if (layer && layer.getElement && layer.getElement()) {
+                    layer.getElement().style.display = isHidden ? 'none' : '';
+                }
+            });
         }
 
         if (kmlBubbleToggleEl) {
@@ -793,9 +722,6 @@
                 renderSelectedKmlLayers();
             });
         }
-
-        syncKmlBubbleVisible();
-        updateKmlSelectionBubble();
 
         if (panelToggle) {
             panelToggle.addEventListener('click', function() {
@@ -862,6 +788,7 @@
         const overlayLayer = L.featureGroup().addTo(map);
         const conflictLayer = L.layerGroup().addTo(map);
         const kmlBadgeLayer = L.layerGroup().addTo(map);
+        syncKmlBubbleVisible();
         const siteData = JSON.parse(document.getElementById('sites-data').textContent || '[]');
 
         function addKmlRangeBadge(layer, fileName, color, index) {
@@ -1211,7 +1138,6 @@
             kmlBadgeLayer.clearLayers();
             const selected = rowChecks.filter(item => item.checked && item.dataset.fileUrl);
             const threshold = getThresholdValue();
-            updateKmlSelectionBubble();
 
             if (!selected.length) {
                 mapStatusEl.textContent = '地图已就绪，默认显示全部文物点。';
@@ -1277,7 +1203,6 @@
                 rowChecks.forEach(item => {
                     item.checked = checkAll.checked;
                 });
-                updateKmlSelectionBubble();
                 renderSelectedKmlLayers();
             });
         }
@@ -1287,7 +1212,6 @@
                 if (!this.checked && checkAll && checkAll.checked) {
                     checkAll.checked = false;
                 }
-                updateKmlSelectionBubble();
                 renderSelectedKmlLayers();
             });
         });
@@ -1304,7 +1228,6 @@
 
         window.addEventListener('load', function() {
             map.invalidateSize();
-            updateKmlSelectionBubble();
             if (heritageLayer.getLayers().length > 0) {
                 try {
                     map.fitBounds(heritageLayer.getBounds().pad(0.2));
