@@ -411,6 +411,57 @@
             display: none;
         }
 
+        .kml-range-badge-wrap {
+            background: transparent;
+            border: none;
+        }
+
+        .kml-range-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 999px;
+            color: #fff;
+            font-size: 11px;
+            font-weight: 700;
+            white-space: nowrap;
+            max-width: 220px;
+            box-shadow: 0 6px 14px rgba(15, 23, 42, 0.26);
+            transform: translate(-50%, -100%);
+            pointer-events: auto;
+            cursor: pointer;
+        }
+
+        .kml-range-badge-index {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.28);
+            font-size: 10px;
+            font-weight: 700;
+        }
+
+        .kml-range-badge-text {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 170px;
+        }
+
+        .kml-range-badge-zoom {
+            border: 1px solid rgba(255, 255, 255, 0.56);
+            border-radius: 999px;
+            padding: 1px 7px;
+            font-size: 10px;
+            font-weight: 700;
+            color: #fff;
+            background: rgba(15, 23, 42, 0.22);
+            white-space: nowrap;
+        }
+
         .legend-row {
             display: flex;
             align-items: center;
@@ -698,6 +749,15 @@
         const tk = '424ac2af85564078477428c1a2b72018';
         const COLORS = ['#ff5a36', '#e6a23c', '#409eff', '#85ce61', '#f78989', '#b37feb', '#41d7d7'];
 
+        function escapeHtml(text) {
+            return String(text || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/\"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
         function updateKmlSelectionBubble() {
             if (!kmlSelectionListEl) {
                 return;
@@ -730,6 +790,7 @@
         if (kmlBubbleToggleEl) {
             kmlBubbleToggleEl.addEventListener('change', function() {
                 syncKmlBubbleVisible();
+                renderSelectedKmlLayers();
             });
         }
 
@@ -800,7 +861,57 @@
         const heritageLayer = L.layerGroup().addTo(map);
         const overlayLayer = L.featureGroup().addTo(map);
         const conflictLayer = L.layerGroup().addTo(map);
+        const kmlBadgeLayer = L.layerGroup().addTo(map);
         const siteData = JSON.parse(document.getElementById('sites-data').textContent || '[]');
+
+        function addKmlRangeBadge(layer, fileName, color, index) {
+            if (!kmlBubbleToggleEl || !kmlBubbleToggleEl.checked) {
+                return;
+            }
+            if (!layer || typeof layer.getBounds !== 'function') {
+                return;
+            }
+
+            let bounds = null;
+            try {
+                bounds = layer.getBounds();
+            } catch (e) {
+                return;
+            }
+
+            if (!bounds || !bounds.isValid()) {
+                return;
+            }
+
+            const center = bounds.getCenter();
+            const safeName = escapeHtml(fileName || '未命名文件');
+            const displayName = fileName || '未命名文件';
+            const markerHtml = '<div class="kml-range-badge" style="background:' + color + ';">'
+                + '<span class="kml-range-badge-index">' + String(index + 1) + '</span>'
+                + '<span class="kml-range-badge-text">' + safeName + '</span>'
+                + '<span class="kml-range-badge-zoom">自动放大</span>'
+                + '</div>';
+
+            const badgeMarker = L.marker(center, {
+                icon: L.divIcon({
+                    className: 'kml-range-badge-wrap',
+                    html: markerHtml,
+                    iconSize: null,
+                }),
+                keyboard: true,
+                interactive: true,
+                zIndexOffset: 1200,
+            }).addTo(kmlBadgeLayer);
+
+            badgeMarker.on('click', function() {
+                map.fitBounds(bounds.pad(0.45), {
+                    maxZoom: 19,
+                    animate: true,
+                    duration: 0.45,
+                });
+                mapStatusEl.textContent = '已自动放大到：' + displayName;
+            });
+        }
 
         function getThresholdValue() {
             const raw = Number(thresholdBatchEl.value);
@@ -1097,6 +1208,7 @@
         async function renderSelectedKmlLayers() {
             overlayLayer.clearLayers();
             conflictLayer.clearLayers();
+            kmlBadgeLayer.clearLayers();
             const selected = rowChecks.filter(item => item.checked && item.dataset.fileUrl);
             const threshold = getThresholdValue();
             updateKmlSelectionBubble();
@@ -1142,6 +1254,7 @@
                         },
                     });
                     overlayLayer.addLayer(layer);
+                    addKmlRangeBadge(layer, fileName, color, i);
                     renderedCount += 1;
                 } catch (err) {
                     mapStatusEl.textContent = '部分文件加载失败，请检查文件格式或权限。';
