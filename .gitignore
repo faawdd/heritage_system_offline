@@ -9,5 +9,3 @@ staticfiles/
 local_settings.py
 app/
 .venv/
-.env
-db.sqlite3
