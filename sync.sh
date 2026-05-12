@@ -9,6 +9,36 @@ echo "heritage_system 服务器同步脚本"
 echo "=================================="
 echo ""
 
+BACKUP_DB_PATH=""
+
+backup_database() {
+    if [ -f db.sqlite3 ]; then
+        BACKUP_DB_PATH="$(mktemp /tmp/heritage_db_backup.XXXXXX)"
+        cp db.sqlite3 "$BACKUP_DB_PATH"
+        echo "已备份当前数据库到: $BACKUP_DB_PATH"
+    fi
+}
+
+restore_database() {
+    if [ -n "$BACKUP_DB_PATH" ] && [ -f "$BACKUP_DB_PATH" ]; then
+        cp "$BACKUP_DB_PATH" db.sqlite3
+        echo "已恢复数据库文件"
+    fi
+}
+
+if [ -x ./push_code.sh ]; then
+    read -rp "是否先执行上传脚本 push_code.sh 并推送到仓库? [y/N]: " RUN_PUSH
+    case "$RUN_PUSH" in
+        [Yy]*)
+            echo "准备先执行代码上传脚本..."
+            ./push_code.sh
+            ;;
+    esac
+fi
+
+backup_database
+trap restore_database EXIT
+
 # 1. 解决可能存在的权限报错
 echo "[1/7] 配置 git 安全目录..."
 git config --global --add safe.directory /home/flower/heritage_system
@@ -21,6 +51,8 @@ git fetch --all
 CURRENT_BRANCH=$(git symbolic-ref --short -q HEAD || echo "master")
 echo "[3/7] 强制同步远程分支: origin/$CURRENT_BRANCH"
 git reset --hard origin/$CURRENT_BRANCH
+
+restore_database
 
 # 4. 权限与环境恢复
 echo "[4/7] 恢复权限和环境..."
