@@ -9,3 +9,6 @@ staticfiles/
 local_settings.py
 app/
 .venv/
+db.sqlite3
+db.sqlite3.bak_*
+db.sqlite3.local_before_migrate_backup*
