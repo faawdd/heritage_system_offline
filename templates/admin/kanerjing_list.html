@@ -240,7 +240,7 @@
 
         // 加载坎儿井统计数据
         function loadKanerjingStats() {
-            fetch('/api/kanerjing-stats/')
+            fetch(`/api/kanerjing-stats/?_=${Date.now()}`, { cache: 'no-store' })
                 .then(r => r.json())
                 .then(data => {
                     console.log('坎儿井数据:', data);
