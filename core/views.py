@@ -1694,7 +1694,7 @@ def kanerjing_stats_api(request):
         address_counter[normalized] = address_counter.get(normalized, 0) + 1
 
     address_distribution = [
-        {'address': addr, 'count': count}
+        {'township': addr, 'address': addr, 'count': count}
         for addr, count in sorted(address_counter.items(), key=lambda item: (-item[1], item[0]))[:10]
     ]
     

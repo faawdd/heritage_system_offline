@@ -295,8 +295,12 @@
 
                 return '未标注镇乡';
             }
-            
-            const labels = addressData.map(d => extractTownshipLabel(d.address));
+
+            const labels = addressData.map(d => {
+                const township = (d.township || '').toString().trim();
+                if (township) return township;
+                return extractTownshipLabel(d.address);
+            });
             const data = addressData.map(d => d.count);
             
             addressChart = new Chart(ctx, {
