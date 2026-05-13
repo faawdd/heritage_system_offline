@@ -1672,13 +1672,42 @@ def kanerjing_stats_api(request):
         count = kanerjing_sites.filter(level=level_code).count()
         level_breakdown[level_name] = count
     
-    # 按地址统计
-    address_distribution = kanerjing_sites.values('address').annotate(count=Count('id')).order_by('-count')[:10]
+    # 地址分组前先剥离行政区划前缀，仅按后续地域描述统计。
+    def normalize_address(address):
+        if not address:
+            return '未知地址'
+
+        text = str(address).strip()
+        if not text:
+            return '未知地址'
+
+        # 优先截断到县/区/旗等区划层级后；若不存在，再尝试到市/州/地区层级。
+        county_match = re.search(r'(自治县|自治旗|县|区|旗)', text)
+        if county_match:
+            trimmed = text[county_match.end():].strip(' ，,、；;。')
+            return trimmed or text
+
+        city_match = re.search(r'(自治州|地区|盟|市)', text)
+        if city_match:
+            trimmed = text[city_match.end():].strip(' ，,、；;。')
+            return trimmed or text
+
+        return text
+
+    address_counter = {}
+    for address in kanerjing_sites.values_list('address', flat=True):
+        normalized = normalize_address(address)
+        address_counter[normalized] = address_counter.get(normalized, 0) + 1
+
+    address_distribution = [
+        {'address': addr, 'count': count}
+        for addr, count in sorted(address_counter.items(), key=lambda item: (-item[1], item[0]))[:10]
+    ]
     
     return JsonResponse({
         'total': total,
         'by_level': level_breakdown,
-        'top_addresses': list(address_distribution),
+        'top_addresses': address_distribution,
     })
 
 @staff_member_required
