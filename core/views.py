@@ -1679,10 +1679,15 @@ def kanerjing_stats_api(request):
         if not text:
             return '未标注镇乡'
 
-        # 直接提取地址中的镇/乡名称，例如“鲁克沁镇”“吐峪沟乡”。
-        town_match = re.search(r'([\u4e00-\u9fa5A-Za-z0-9·]{1,20}(?:镇|乡))', text)
-        if town_match:
-            return town_match.group(1)
+        # 复用统一乡镇提取规则，避免把完整行政区划误当作乡镇标签。
+        township_name = _extract_township_name(text)
+        if township_name:
+            return township_name
+
+        # 兜底：取地址中最后一个“xx镇/xx乡/xx回族乡/xx街道”。
+        fallback_matches = re.findall(r'([\u4e00-\u9fa5]{1,12}(?:回族乡|乡|镇|街道))', text)
+        if fallback_matches:
+            return fallback_matches[-1]
 
         return '未标注镇乡'
 
