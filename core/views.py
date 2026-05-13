@@ -193,6 +193,7 @@ def admin_index_view(request):
     kanerjing_count = HeritageSite.filter_kanerjing().count()
     reviewed_project_count = ProjectAudit.objects.filter(received_date__year=current_year).count()
     checked_coordinate_count = Coordinate.objects.filter(check_status='checked').count()
+    kml_upload_count = KmlUploadRecord.objects.count()
 
     pending_projects = ProjectAudit.objects.filter(workflow_status='received').order_by('-received_date')[:12]
     heatmap_points = list(
@@ -204,6 +205,7 @@ def admin_index_view(request):
         'kanerjing_count': kanerjing_count,
         'reviewed_project_count': reviewed_project_count,
         'checked_coordinate_count': checked_coordinate_count,
+        'kml_upload_count': kml_upload_count,
         'pending_projects': pending_projects,
         'heatmap_points_json': json.dumps(heatmap_points, ensure_ascii=False),
         'title': '鄯善县文物数字化管理平台',

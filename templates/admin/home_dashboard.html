@@ -10,7 +10,7 @@
         .hero { background: linear-gradient(120deg, #3f7cf4, #5c89f7 55%, #7f67f8); color: #fff; border-radius: 12px; padding: 18px 20px; margin-bottom: 16px; box-shadow: 0 8px 24px rgba(63,124,244,.2); }
         .hero-title { margin: 0 0 6px; font-size: 20px; font-weight: 700; }
         .hero-sub { margin: 0; opacity: .92; font-size: 13px; }
-        .dashboard-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-bottom: 18px; }
+        .dashboard-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px; margin-bottom: 18px; }
         .stat-card { background: #fff; border-radius: 10px; padding: 16px; border: 1px solid #ebeef5; box-shadow: 0 4px 12px rgba(0, 0, 0, .04); }
         .stat-title { color: #909399; font-size: 13px; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
         .stat-value { color: #303133; font-size: 26px; font-weight: 700; }
@@ -65,12 +65,12 @@
 <body>
 <div class="hero">
     <h2 class="hero-title">鄯善县文物数字化管理平台</h2>
-    <p class="hero-sub">基于文物普查与项目评审数据的综合态势展示</p>
+    <p class="hero-sub">一屏查看文物底数、项目审批进度和坐标核查情况</p>
 </div>
 
 <div class="dashboard-grid">
     <div class="stat-card">
-        <div class="stat-title">🏛️ 已登记文物数</div>
+        <div class="stat-title">🏛️ 在册文物总数</div>
         <div class="stat-value">{{ total_sites }}</div>
     </div>
     <div class="stat-card">
@@ -78,18 +78,22 @@
         <div class="stat-value">{{ kanerjing_count }}</div>
     </div>
     <div class="stat-card">
-        <div class="stat-title">⚙️ 今年评审项目数</div>
+        <div class="stat-title">⚙️ 今年报送审批的项目</div>
         <div class="stat-value">{{ reviewed_project_count }}</div>
     </div>
     <div class="stat-card">
         <div class="stat-title">📍 已核查坐标点</div>
         <div class="stat-value">{{ checked_coordinate_count }}</div>
     </div>
+    <div class="stat-card">
+        <div class="stat-title">🗂️ kml导入数量</div>
+        <div class="stat-value">{{ kml_upload_count }}</div>
+    </div>
 </div>
 
 <div class="main-grid">
     <div class="panel">
-        <h3>文物统计图表概览</h3>
+        <h3>文物统计图表</h3>
         <div class="chart-grid">
             <div class="chart-box">
                 <h4>保护等级分布</h4>
@@ -102,7 +106,7 @@
         </div>
     </div>
     <div class="panel">
-        <h3>待办项目列表（待核查）</h3>
+        <h3>待核查项目</h3>
         <ul class="todo-list">
             {% for project in pending_projects %}
                 <li>
@@ -110,7 +114,7 @@
                     <div class="todo-meta"><span class="status-dot"></span>{{ project.project_unit|default:"--" }} ｜ {{ project.received_date|date:"Y年m月d日" }}</div>
                 </li>
             {% empty %}
-                <li>当前没有待核查工程。</li>
+                <li>当前暂无待核查项目。</li>
             {% endfor %}
         </ul>
     </div>
