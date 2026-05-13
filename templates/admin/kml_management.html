@@ -1095,6 +1095,106 @@
                 .addTo(heritageLayer);
         });
 
+        /* ── 计算 LineString 全长（米），输入 GeoJSON coordinates [[lon,lat],...] ── */
+        function calcLineLength(coords) {
+            if (!Array.isArray(coords) || coords.length < 2) {
+                return 0;
+            }
+            let total = 0;
+            for (let i = 0; i < coords.length - 1; i++) {
+                const [lon1, lat1] = coords[i];
+                const [lon2, lat2] = coords[i + 1];
+                total += getDistance(lat1, lon1, lat2, lon2);
+            }
+            return total;
+        }
+
+        /* ── 计算多段线总长（MultiLineString），输入 [[[lon,lat],...], ...] ── */
+        function calcMultiLineLength(rings) {
+            if (!Array.isArray(rings)) {
+                return 0;
+            }
+            return rings.reduce((sum, ring) => sum + calcLineLength(ring), 0);
+        }
+
+        /* ── 球面多边形面积（Shoelace + 墨卡托近似，单位 m²），输入单个环 [[lon,lat],...] ── */
+        function calcRingAreaM2(coords) {
+            if (!Array.isArray(coords) || coords.length < 3) {
+                return 0;
+            }
+            const R = 6371000;
+            let area = 0;
+            const n = coords.length;
+            for (let i = 0; i < n; i++) {
+                const [lon1, lat1] = coords[i];
+                const [lon2, lat2] = coords[(i + 1) % n];
+                const phi1 = lat1 * Math.PI / 180;
+                const phi2 = lat2 * Math.PI / 180;
+                const lam1 = lon1 * Math.PI / 180;
+                const lam2 = lon2 * Math.PI / 180;
+                area += (lam2 - lam1) * (2 + Math.sin(phi1) + Math.sin(phi2));
+            }
+            return Math.abs(area * R * R / 2);
+        }
+
+        /* ── 多边形面积（外环减孔洞，GeoJSON rings: [outerRing, ...holes]） ── */
+        function calcPolygonAreaM2(rings) {
+            if (!Array.isArray(rings) || rings.length === 0) {
+                return 0;
+            }
+            let area = calcRingAreaM2(rings[0]);
+            for (let i = 1; i < rings.length; i++) {
+                area -= calcRingAreaM2(rings[i]);
+            }
+            return Math.max(0, area);
+        }
+
+        /* ── 格式化长度输出 ── */
+        function fmtLength(m) {
+            if (m >= 1000) {
+                return (m / 1000).toFixed(3) + ' km';
+            }
+            return Math.round(m) + ' m';
+        }
+
+        /* ── 格式化面积输出 ── */
+        function fmtArea(m2) {
+            if (m2 >= 1e6) {
+                return (m2 / 1e6).toFixed(4) + ' km²';
+            }
+            if (m2 >= 10000) {
+                return (m2 / 10000).toFixed(2) + ' 公顷';
+            }
+            return Math.round(m2) + ' m²';
+        }
+
+        /* ── 根据 GeoJSON feature 生成额外统计 HTML ── */
+        function buildFeatureStatsHtml(feature) {
+            if (!feature || !feature.geometry) {
+                return '';
+            }
+            const t = feature.geometry.type;
+            const coords = feature.geometry.coordinates;
+            if (t === 'LineString') {
+                return '<br>全长: <strong>' + fmtLength(calcLineLength(coords)) + '</strong>';
+            }
+            if (t === 'MultiLineString') {
+                const total = calcMultiLineLength(coords);
+                return '<br>全长: <strong>' + fmtLength(total) + '</strong>（' + coords.length + ' 段）';
+            }
+            if (t === 'Polygon') {
+                return '<br>面积: <strong>' + fmtArea(calcPolygonAreaM2(coords)) + '</strong>';
+            }
+            if (t === 'MultiPolygon') {
+                let total = 0;
+                coords.forEach(function(poly) {
+                    total += calcPolygonAreaM2(poly);
+                });
+                return '<br>面积: <strong>' + fmtArea(total) + '</strong>（' + coords.length + ' 个多边形）';
+            }
+            return '';
+        }
+
         function featureStyle(feature, color) {
             const geomType = feature.geometry && feature.geometry.type ? feature.geometry.type : '';
             if (geomType.includes('Polygon')) {
@@ -1176,7 +1276,12 @@
                         },
                         onEachFeature: function(feature, item) {
                             const name = feature.properties && feature.properties.name ? feature.properties.name : fileName;
-                            item.bindPopup('<strong>' + name + '</strong><br>来源: ' + fileName);
+                            const statsHtml = buildFeatureStatsHtml(feature);
+                            item.bindPopup(
+                                '<strong>' + escapeHtml(name) + '</strong>' +
+                                '<br>来源: ' + escapeHtml(fileName) +
+                                statsHtml
+                            );
                         },
                     });
                     overlayLayer.addLayer(layer);
