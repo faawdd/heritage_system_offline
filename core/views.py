@@ -1672,27 +1672,21 @@ def kanerjing_stats_api(request):
         count = kanerjing_sites.filter(level=level_code).count()
         level_breakdown[level_name] = count
     
-    # 地址分组前先剥离行政区划前缀，仅按后续地域描述统计。
+    # 地址分组按镇/乡统计，只保留“xx镇/xx乡”层级。
     def normalize_address(address):
         if not address:
-            return '未知地址'
+            return '未标注镇乡'
 
         text = str(address).strip()
         if not text:
-            return '未知地址'
+            return '未标注镇乡'
 
-        # 优先截断到县/区/旗等区划层级后；若不存在，再尝试到市/州/地区层级。
-        county_match = re.search(r'(自治县|自治旗|县|区|旗)', text)
-        if county_match:
-            trimmed = text[county_match.end():].strip(' ，,、；;。')
-            return trimmed or text
+        # 直接提取地址中的镇/乡名称，例如“鲁克沁镇”“吐峪沟乡”。
+        town_match = re.search(r'([\u4e00-\u9fa5A-Za-z0-9·]{1,20}(?:镇|乡))', text)
+        if town_match:
+            return town_match.group(1)
 
-        city_match = re.search(r'(自治州|地区|盟|市)', text)
-        if city_match:
-            trimmed = text[city_match.end():].strip(' ，,、；;。')
-            return trimmed or text
-
-        return text
+        return '未标注镇乡'
 
     address_counter = {}
     for address in kanerjing_sites.values_list('address', flat=True):
