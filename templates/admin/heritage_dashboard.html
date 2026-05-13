@@ -320,7 +320,7 @@
 
         function loadStats() {
             const query = buildQuery();
-            fetch(`/api/heritage-classification-stats/?${query}`)
+            fetch(`/api/heritage-classification-stats/?${query}&_=${Date.now()}`, { cache: 'no-store' })
                 .then(resp => resp.json())
                 .then(result => {
                     const labels = result.labels || [];

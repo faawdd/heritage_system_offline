@@ -1532,9 +1532,7 @@ def _extract_township_name(address):
 def _to_township_full_name(township_name):
     if not township_name:
         return ''
-    if township_name.startswith('鄯善县'):
-        return township_name
-    return f'鄯善县{township_name}'
+    return township_name
 
 
 def _apply_kanerjing_filter(queryset, kanerjing_scope):
