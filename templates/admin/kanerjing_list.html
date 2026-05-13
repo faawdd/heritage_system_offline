@@ -285,11 +285,18 @@
         function loadAddressChart(addressData) {
             const ctx = document.getElementById('addressChart').getContext('2d');
             if (addressChart) addressChart.destroy();
+
+            function extractTownshipLabel(rawAddress) {
+                const text = (rawAddress || '').toString().trim();
+                if (!text) return '未标注镇乡';
+
+                const match = text.match(/([\u4e00-\u9fa5A-Za-z0-9·]{1,20}(?:镇|乡))/);
+                if (match && match[1]) return match[1];
+
+                return '未标注镇乡';
+            }
             
-            const labels = addressData.map(d => {
-                let addr = d.address || '未知地址';
-                return addr.length > 10 ? addr.substring(0, 10) + '...' : addr;
-            });
+            const labels = addressData.map(d => extractTownshipLabel(d.address));
             const data = addressData.map(d => d.count);
             
             addressChart = new Chart(ctx, {
