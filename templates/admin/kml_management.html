@@ -369,6 +369,22 @@
             cursor: pointer;
         }
 
+        .panorama-back-btn {
+            border: 1px solid #cbd5e1;
+            background: #f8fafc;
+            color: #0f172a;
+            border-radius: 999px;
+            padding: 3px 10px;
+            font-size: 12px;
+            line-height: 1.2;
+            cursor: pointer;
+        }
+
+        .panorama-back-btn:hover {
+            background: #eef2ff;
+            border-color: #94a3b8;
+        }
+
 
         .kml-range-badge-wrap {
             background: transparent;
@@ -670,6 +686,7 @@
     <div class="bubble-switch">
         <input type="checkbox" id="kmlBubbleToggle" checked>
         <label for="kmlBubbleToggle">显示KML气泡</label>
+        <button type="button" id="returnPanoramaBtn" class="panorama-back-btn" style="display:none;">返回全景</button>
     </div>
 
     <div class="legend">
@@ -691,6 +708,7 @@
         const sipuPanel = document.getElementById('sipuPanel');
         const toggleSipuBtn = document.getElementById('toggleSipuPanel');
         const kmlBubbleToggleEl = document.getElementById('kmlBubbleToggle');
+        const returnPanoramaBtn = document.getElementById('returnPanoramaBtn');
         const tk = '424ac2af85564078477428c1a2b72018';
         const COLORS = ['#ff5a36', '#e6a23c', '#409eff', '#85ce61', '#f78989', '#b37feb', '#41d7d7'];
 
@@ -714,6 +732,13 @@
                     layer.getElement().style.display = isHidden ? 'none' : '';
                 }
             });
+        }
+
+        function setReturnPanoramaVisible(visible) {
+            if (!returnPanoramaBtn) {
+                return;
+            }
+            returnPanoramaBtn.style.display = visible ? '' : 'none';
         }
 
         if (kmlBubbleToggleEl) {
@@ -791,6 +816,39 @@
         syncKmlBubbleVisible();
         const siteData = JSON.parse(document.getElementById('sites-data').textContent || '[]');
 
+        function fitToPanorama() {
+            if (overlayLayer.getLayers().length > 0) {
+                try {
+                    const overlayBounds = overlayLayer.getBounds();
+                    if (overlayBounds && overlayBounds.isValid()) {
+                        map.fitBounds(overlayBounds.pad(0.18), {
+                            animate: true,
+                            duration: 0.45,
+                        });
+                        return true;
+                    }
+                } catch (e) {
+                    // ignore invalid bounds
+                }
+            }
+            if (heritageLayer.getLayers().length > 0) {
+                try {
+                    const heritageBounds = heritageLayer.getBounds();
+                    if (heritageBounds && heritageBounds.isValid()) {
+                        map.fitBounds(heritageBounds.pad(0.2), {
+                            animate: true,
+                            duration: 0.45,
+                        });
+                        return true;
+                    }
+                } catch (e) {
+                    // ignore invalid bounds
+                }
+            }
+            map.setView([42.84, 90.21], 10, { animate: true });
+            return true;
+        }
+
         function addKmlRangeBadge(layer, fileName, color, index) {
             if (!kmlBubbleToggleEl || !kmlBubbleToggleEl.checked) {
                 return;
@@ -837,6 +895,7 @@
                     duration: 0.45,
                 });
                 mapStatusEl.textContent = '已自动放大到：' + displayName;
+                setReturnPanoramaVisible(true);
             });
         }
 
@@ -1279,6 +1338,7 @@
             overlayLayer.clearLayers();
             conflictLayer.clearLayers();
             kmlBadgeLayer.clearLayers();
+            setReturnPanoramaVisible(false);
             const selected = rowChecks.filter(item => item.checked && item.dataset.fileUrl);
             const threshold = getThresholdValue();
 
@@ -1363,6 +1423,14 @@
                 renderSelectedKmlLayers();
             });
         });
+
+        if (returnPanoramaBtn) {
+            returnPanoramaBtn.addEventListener('click', function() {
+                fitToPanorama();
+                setReturnPanoramaVisible(false);
+                mapStatusEl.textContent = '已返回全景查看状态';
+            });
+        }
 
         if (thresholdBatchEl) {
             thresholdBatchEl.addEventListener('change', function() {
