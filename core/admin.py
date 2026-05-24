@@ -1,5 +1,15 @@
 from django.contrib import admin
-from .models import HeritageSite, InspectionRecord, ProjectAudit, Coordinate, UserProfile, UserManagementAudit, KmlUploadRecord
+from .models import (
+    HeritageSite,
+    InspectionRecord,
+    ProjectAudit,
+    Coordinate,
+    UserProfile,
+    UserManagementAudit,
+    KmlUploadRecord,
+    ImmovableHeritage,
+    HeritagePhoto,
+)
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin, GroupAdmin as BaseGroupAdmin
 from django.contrib.auth.forms import UserChangeForm, UserCreationForm
@@ -1090,6 +1100,62 @@ if not admin.site.is_registered(UserProfile):
 # 注册 UserManagementAudit
 if not admin.site.is_registered(UserManagementAudit):
     admin.site.register(UserManagementAudit, UserManagementAuditAdmin)
+
+
+@admin.register(ImmovableHeritage)
+class ImmovableHeritageAdmin(admin.ModelAdmin):
+    """四普不可移动文物采集数据管理。"""
+    list_display = (
+        'survey_code',
+        'name',
+        'category',
+        'era',
+        'protection_level',
+        'preservation_status',
+        'collector',
+        'collected_at',
+    )
+    list_filter = (
+        'category',
+        'protection_level',
+        'preservation_status',
+        'ownership',
+        'coordinate_system',
+        'collected_at',
+    )
+    search_fields = (
+        'survey_code',
+        'name',
+        'former_name',
+        'address',
+        'province',
+        'city',
+        'county',
+    )
+    readonly_fields = ('created_at', 'updated_at')
+    ordering = ('-collected_at', '-id')
+
+
+@admin.register(HeritagePhoto)
+class HeritagePhotoAdmin(admin.ModelAdmin):
+    """四普采集现场照片管理。"""
+    list_display = (
+        'id',
+        'heritage',
+        'photo_type',
+        'is_cover',
+        'uploaded_by',
+        'uploaded_at',
+    )
+    list_filter = ('photo_type', 'is_cover', 'uploaded_at')
+    search_fields = (
+        'heritage__survey_code',
+        'heritage__name',
+        'caption',
+        'uploaded_by__username',
+    )
+    readonly_fields = ('uploaded_at',)
+    ordering = ('-uploaded_at', '-id')
 
 
 
