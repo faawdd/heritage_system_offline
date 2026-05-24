@@ -155,7 +155,7 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 SIMPLEUI_CONFIG = {
     'system_keep': True,  # 设置为True，系统会自动保留原有的所有菜单，即使你没定义
-    'menu_display': ['文物管理', '日常办公','可视化分析', '坎儿井专项', '系统设置'], 
+    'menu_display': ['文物管理', '采集管理', '日常办公', '可视化分析', '坎儿井专项', '系统设置'],
     'menus': [
         {
             'name': '首页',
@@ -184,6 +184,32 @@ SIMPLEUI_CONFIG = {
             'models': [
                 {'name': '巡查记录', 'url': 'core/inspectionrecord/', 'icon': 'fas fa-camera'},
                 {'name': '项目管理', 'url': 'core/projectaudit/', 'icon': 'fas fa-project-diagram'},
+            ]
+        },
+        {
+            'name': '采集管理',
+            'icon': 'fas fa-clipboard-check',
+            'models': [
+                {
+                    'name': '现场数据采集',
+                    'icon': 'fas fa-mobile-alt',
+                    'url': '/mobile/collect/'
+                },
+                {
+                    'name': '采集数据管理',
+                    'icon': 'fas fa-database',
+                    'url': 'core/immovableheritage/'
+                },
+                {
+                    'name': '采集照片管理',
+                    'icon': 'fas fa-images',
+                    'url': 'core/heritagephoto/'
+                },
+                {
+                    'name': 'DOCX导出（批量）',
+                    'icon': 'fas fa-file-word',
+                    'url': '/admin/core/immovableheritage/'
+                },
             ]
         },
         {

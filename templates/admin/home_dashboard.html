@@ -15,6 +15,26 @@
         .stat-title { color: #909399; font-size: 13px; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
         .stat-value { color: #303133; font-size: 26px; font-weight: 700; }
         .main-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
+        .quick-entry-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+        .quick-entry {
+            display: block;
+            background: #fff;
+            border: 1px solid #ebeef5;
+            border-radius: 10px;
+            padding: 12px 14px;
+            text-decoration: none;
+            color: #303133;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, .04);
+            transition: transform .16s ease, box-shadow .16s ease;
+        }
+        .quick-entry:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 16px rgba(63,124,244,.18);
+            color: #1f2d3d;
+            text-decoration: none;
+        }
+        .quick-entry-title { display: block; font-size: 14px; font-weight: 700; margin-bottom: 4px; }
+        .quick-entry-desc { display: block; font-size: 12px; color: #909399; line-height: 1.45; }
         .panel { background: #fff; border-radius: 10px; border: 1px solid #ebeef5; padding: 16px; min-height: 360px; box-shadow: 0 4px 12px rgba(0, 0, 0, .04); }
         .panel h3 { margin: 0 0 12px; font-size: 16px; }
         .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
@@ -49,6 +69,7 @@
         }
         @media (max-width: 1100px) {
             .dashboard-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .quick-entry-grid { grid-template-columns: 1fr; }
             .main-grid { grid-template-columns: 1fr; }
             .chart-grid { grid-template-columns: 1fr; }
         }
@@ -89,6 +110,21 @@
         <div class="stat-title">🗂️ kml导入数量</div>
         <div class="stat-value">{{ kml_upload_count }}</div>
     </div>
+</div>
+
+<div class="quick-entry-grid">
+    <a class="quick-entry" href="/mobile/collect/">
+        <span class="quick-entry-title">现场数据采集</span>
+        <span class="quick-entry-desc">进入四普不可移动文物现场采集表单，支持定位与水印照片上传。</span>
+    </a>
+    <a class="quick-entry" href="/admin/core/immovableheritage/">
+        <span class="quick-entry-title">采集数据管理</span>
+        <span class="quick-entry-desc">查看与管理已采集的不可移动文物登记记录。</span>
+    </a>
+    <a class="quick-entry" href="/admin/core/heritagephoto/">
+        <span class="quick-entry-title">采集照片管理</span>
+        <span class="quick-entry-desc">统一查看采集照片、封面图与上传时间信息。</span>
+    </a>
 </div>
 
 <div class="main-grid">
