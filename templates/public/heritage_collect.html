@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>文物现场数据采集</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* ── 全局基础 ── */
+    * { -webkit-tap-highlight-color: transparent; }
+    body { background: #f0f4f8; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+
+    /* ── 必填标记 ── */
+    .required-mark::after { content: " *"; color: #ef4444; font-weight: 700; }
+
+    /* ── 照片预览区 ── */
+    #photo-preview-area { display: flex; flex-wrap: wrap; gap: 10px; }
+    .preview-wrapper { position: relative; width: 88px; height: 88px; border-radius: 10px; overflow: hidden;
+                       border: 2px solid #cbd5e1; box-shadow: 0 1px 4px rgba(0,0,0,.12); }
+    .preview-wrapper img { width: 100%; height: 100%; object-fit: cover; }
+    .remove-photo { position: absolute; top: 2px; right: 2px; background: rgba(0,0,0,.55);
+                    color: #fff; border: none; border-radius: 50%; width: 20px; height: 20px;
+                    font-size: 13px; line-height: 20px; text-align: center; cursor: pointer; }
+    .add-photo-btn { width: 88px; height: 88px; border-radius: 10px; border: 2px dashed #94a3b8;
+                     background: #f8fafc; display: flex; flex-direction: column; align-items: center;
+                     justify-content: center; cursor: pointer; color: #64748b; gap: 4px;
+                     font-size: 12px; transition: border-color .2s, background .2s; }
+    .add-photo-btn:hover { border-color: #3b82f6; background: #eff6ff; color: #3b82f6; }
+    .add-photo-btn svg { width: 28px; height: 28px; }
+
+    /* ── GPS 状态 ── */
+    .gps-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;
+                 border-radius: 9999px; font-size: 12px; font-weight: 500; }
+    .gps-badge.idle    { background: #f1f5f9; color: #64748b; }
+    .gps-badge.loading { background: #fef9c3; color: #854d0e; }
+    .gps-badge.ok      { background: #dcfce7; color: #166534; }
+    .gps-badge.error   { background: #fee2e2; color: #991b1b; }
+
+    /* ── 提交按钮加载动画 ── */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner { animation: spin .8s linear infinite; display: inline-block; }
+
+    /* ── Toast 通知 ── */
+    #toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px);
+             padding: 12px 24px; border-radius: 12px; font-size: 14px; font-weight: 500;
+             box-shadow: 0 4px 20px rgba(0,0,0,.18); transition: transform .3s ease, opacity .3s ease;
+             opacity: 0; pointer-events: none; z-index: 9999; white-space: pre-line; max-width: 88vw;
+             text-align: center; }
+    #toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+    #toast.success { background: #166534; color: #fff; }
+    #toast.error   { background: #991b1b; color: #fff; }
+    #toast.info    { background: #1e40af; color: #fff; }
+  </style>
+</head>
+<body class="min-h-screen pb-10">
+
+  <!-- ══ 顶部导航栏 ══ -->
+  <header class="sticky top-0 z-50 bg-blue-700 text-white shadow-md">
+    <div class="flex items-center justify-between px-4 py-3 max-w-2xl mx-auto">
+      <button onclick="history.back()" class="p-1 -ml-1 rounded-lg active:bg-blue-600">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
+        </svg>
+      </button>
+      <h1 class="text-base font-semibold tracking-wide">不可移动文物现场采集</h1>
+      <div class="w-8"></div>
+    </div>
+  </header>
+
+  <main class="max-w-2xl mx-auto px-4 pt-5 space-y-4">
+
+    <!-- ══ 进度提示 ══ -->
+    <div id="progress-hint" class="text-xs text-slate-500 flex items-center gap-1.5">
+      <span class="inline-block w-2 h-2 bg-blue-500 rounded-full"></span>
+      带 <span class="text-red-500 font-bold">*</span> 为必填项，经纬度需点击下方按钮自动获取
+    </div>
+
+    <!-- ══ 卡片：基础信息 ══ -->
+    <section class="bg-white rounded-2xl shadow-sm p-4 space-y-4">
+      <h2 class="text-sm font-semibold text-slate-700 border-b border-slate-100 pb-2 flex items-center gap-2">
+        <span class="w-1 h-4 bg-blue-500 rounded-full"></span>基础信息
+      </h2>
+
+      <!-- 普查编号 -->
+      <div>
+        <label class="block text-sm text-slate-600 mb-1 required-mark">普查编号</label>
+        <input id="survey_code" name="survey_code" type="text" placeholder="如：650000-0001"
+               class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50" />
+        <p id="err-survey_code" class="text-red-500 text-xs mt-1 hidden"></p>
+      </div>
+
+      <!-- 文物名称 -->
+      <div>
+        <label class="block text-sm text-slate-600 mb-1 required-mark">文物名称</label>
+        <input id="name" name="name" type="text" placeholder="请输入文物标准名称"
+               class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50" />
+        <p id="err-name" class="text-red-500 text-xs mt-1 hidden"></p>
+      </div>
+
+      <!-- 曾用名 -->
+      <div>
+        <label class="block text-sm text-slate-600 mb-1">曾用名 / 别名</label>
+        <input id="former_name" name="former_name" type="text" placeholder="（选填）"
+               class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50" />
+      </div>
+
+      <!-- 时代 + 文物类别 -->
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm text-slate-600 mb-1 required-mark">时代</label>
+          <input id="era" name="era" type="text" placeholder="如：汉、唐宋"
+                 class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50" />
+          <p id="err-era" class="text-red-500 text-xs mt-1 hidden"></p>
+        </div>
+        <div>
+          <label class="block text-sm text-slate-600 mb-1 required-mark">文物类别</label>
+          <select id="category" name="category"
+                  class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50">
+            <option value="">请选择</option>
+            {% for value, label in category_choices %}
+              <option value="{{ value }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+          <p id="err-category" class="text-red-500 text-xs mt-1 hidden"></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══ 卡片：地理位置 ══ -->
+    <section class="bg-white rounded-2xl shadow-sm p-4 space-y-4">
+      <h2 class="text-sm font-semibold text-slate-700 border-b border-slate-100 pb-2 flex items-center gap-2">
+        <span class="w-1 h-4 bg-green-500 rounded-full"></span>地理位置
+      </h2>
+
+      <!-- GPS 获取按钮 -->
+      <div class="flex items-center gap-3">
+        <button id="btn-gps" onclick="fetchLocation()"
+                class="flex items-center gap-2 bg-green-600 hover:bg-green-700 active:bg-green-800
+                       text-white text-sm font-medium px-4 py-2.5 rounded-xl shadow-sm transition-colors">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>
+            <circle cx="12" cy="12" r="9" stroke-dasharray="2 4"/>
+          </svg>
+          <span id="btn-gps-text">获取当前位置</span>
+        </button>
+        <span id="gps-status" class="gps-badge idle">未定位</span>
+      </div>
+      <p id="err-location" class="text-red-500 text-xs -mt-2 hidden"></p>
+
+      <!-- 经纬度展示 -->
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">经度 (Longitude)</label>
+          <input id="longitude" name="longitude" type="text" readonly placeholder="—"
+                 class="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-green-50 text-green-800 font-mono" />
+        </div>
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">纬度 (Latitude)</label>
+          <input id="latitude" name="latitude" type="text" readonly placeholder="—"
+                 class="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-green-50 text-green-800 font-mono" />
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">海拔高程（米）</label>
+          <input id="altitude" name="altitude" type="number" step="0.01" placeholder="（选填）"
+                 class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50" />
+        </div>
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">精度（米）</label>
+          <input id="accuracy" type="text" readonly placeholder="—"
+                 class="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-slate-50 text-slate-500" />
+        </div>
+      </div>
+
+      <!-- 行政区划 -->
+      <div class="grid grid-cols-3 gap-2">
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">省/自治区</label>
+          <input id="province" name="province" type="text" placeholder="省级"
+                 class="w-full border border-slate-200 rounded-xl px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50" />
+        </div>
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">市/州</label>
+          <input id="city" name="city" type="text" placeholder="市级"
+                 class="w-full border border-slate-200 rounded-xl px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50" />
+        </div>
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">县/市/区</label>
+          <input id="county" name="county" type="text" placeholder="县级"
+                 class="w-full border border-slate-200 rounded-xl px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50" />
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">乡镇/街道</label>
+          <input id="township" name="township" type="text" placeholder="（选填）"
+                 class="w-full border border-slate-200 rounded-xl px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50" />
+        </div>
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">村/社区</label>
+          <input id="village" name="village" type="text" placeholder="（选填）"
+                 class="w-full border border-slate-200 rounded-xl px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50" />
+        </div>
+      </div>
+      <div>
+        <label class="block text-sm text-slate-600 mb-1">详细地址</label>
+        <input id="address" name="address" type="text" placeholder="精确到自然地标或门牌号"
+               class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50" />
+      </div>
+    </section>
+
+    <!-- ══ 卡片：保存状况与权属 ══ -->
+    <section class="bg-white rounded-2xl shadow-sm p-4 space-y-4">
+      <h2 class="text-sm font-semibold text-slate-700 border-b border-slate-100 pb-2 flex items-center gap-2">
+        <span class="w-1 h-4 bg-amber-500 rounded-full"></span>保存状况与权属
+      </h2>
+
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm text-slate-600 mb-1">保存现状</label>
+          <select id="preservation_status" name="preservation_status"
+                  class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50">
+            {% for value, label in preservation_status_choices %}
+              <option value="{{ value }}" {% if value == "一般" %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm text-slate-600 mb-1">权属</label>
+          <select id="ownership" name="ownership"
+                  class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50">
+            {% for value, label in ownership_choices %}
+              <option value="{{ value }}" {% if value == "state" %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <label class="block text-sm text-slate-600 mb-1">保护级别</label>
+        <select id="protection_level" name="protection_level"
+                class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50">
+          {% for value, label in protection_level_choices %}
+            <option value="{{ value }}" {% if value == "DS" %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </section>
+
+    <!-- ══ 卡片：文物简介 ══ -->
+    <section class="bg-white rounded-2xl shadow-sm p-4 space-y-3">
+      <h2 class="text-sm font-semibold text-slate-700 border-b border-slate-100 pb-2 flex items-center gap-2">
+        <span class="w-1 h-4 bg-purple-500 rounded-full"></span>文物简介
+      </h2>
+      <textarea id="description" name="description" rows="4"
+                placeholder="对文物的历史背景、形制特征及现状进行描述（建议 100 字以上）"
+                class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50 resize-none leading-relaxed"></textarea>
+    </section>
+
+    <!-- ══ 卡片：现场照片 ══ -->
+    <section class="bg-white rounded-2xl shadow-sm p-4 space-y-3">
+      <h2 class="text-sm font-semibold text-slate-700 border-b border-slate-100 pb-2 flex items-center gap-2">
+        <span class="w-1 h-4 bg-rose-500 rounded-full"></span>现场照片
+        <span class="ml-auto text-xs font-normal text-slate-400">最多 10 张，系统自动加水印</span>
+      </h2>
+
+      <!-- 隐藏 file input -->
+      <input id="photo-input" type="file" name="photos" accept="image/*" multiple capture="environment"
+             class="hidden" onchange="handlePhotoSelect(this)" />
+
+      <div id="photo-preview-area">
+        <!-- 添加按钮 -->
+        <div class="add-photo-btn" onclick="document.getElementById('photo-input').click()">
+          <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round"
+                  d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z"/>
+            <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zM18.75 10.5h.008v.008h-.008V10.5z"/>
+          </svg>
+          <span>拍照/相册</span>
+        </div>
+      </div>
+
+      <p id="photo-count" class="text-xs text-slate-400">已选 0 张</p>
+      <p class="text-xs text-slate-400 leading-relaxed">
+        💡 第一张照片将作为封面图。上传后系统自动合成水印（文物名称 / 经纬度 / 时间 / 采集单位），
+        原图不会被修改，水印版本另行保存。
+      </p>
+    </section>
+
+    <!-- ══ 采集单位提示 ══ -->
+    <div class="flex items-center gap-2 px-1 text-xs text-slate-500">
+      <svg class="w-4 h-4 text-blue-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>
+      </svg>
+      采集单位：<strong class="text-slate-700">{{ collect_unit }}</strong>
+      （如需修改，请联系管理员在系统设置中更新 <code>HERITAGE_COLLECT_UNIT</code>）
+    </div>
+
+    <!-- ══ 提交按钮 ══ -->
+    <button id="btn-submit" onclick="submitForm()"
+            class="w-full bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold
+                   text-base py-3.5 rounded-2xl shadow-md transition-colors flex items-center justify-center gap-2">
+      <svg id="submit-icon" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+      </svg>
+      <span id="submit-text">提交采集数据</span>
+    </button>
+
+  </main>
+
+  <!-- ══ Toast ══ -->
+  <div id="toast"></div>
+
+  <!-- ══ 成功弹窗 ══ -->
+  <div id="success-modal" class="hidden fixed inset-0 bg-black/40 z-50 flex items-end justify-center p-4">
+    <div class="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl space-y-4 animate-bounce-in">
+      <div class="flex flex-col items-center gap-3 text-center">
+        <div class="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center">
+          <svg class="w-8 h-8 text-green-600" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/>
+          </svg>
+        </div>
+        <h3 class="text-lg font-semibold text-slate-800">采集成功！</h3>
+        <p id="success-msg" class="text-sm text-slate-600 leading-relaxed"></p>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <button onclick="resetForm()" class="border border-slate-200 text-slate-600 text-sm py-2.5 rounded-xl hover:bg-slate-50">
+          继续采集
+        </button>
+        <button onclick="goBack()" class="bg-blue-600 text-white text-sm py-2.5 rounded-xl hover:bg-blue-700">
+          返回列表
+        </button>
+      </div>
+    </div>
+  </div>
+
+<script>
+// ── 全局状态 ────────────────────────────────────────────────
+const selectedFiles = [];   // 维护已选照片文件列表（File 对象）
+
+// ── Toast 通知 ─────────────────────────────────────────────
+function showToast(msg, type = 'info', duration = 3000) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = `show ${type}`;
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => { t.className = ''; }, duration);
+}
+
+// ── 获取当前 GPS 位置 ────────────────────────────────────────
+function fetchLocation() {
+  if (!navigator.geolocation) {
+    showToast('当前浏览器不支持 GPS 定位', 'error');
+    return;
+  }
+
+  const btn      = document.getElementById('btn-gps');
+  const btnText  = document.getElementById('btn-gps-text');
+  const badge    = document.getElementById('gps-status');
+
+  btn.disabled = true;
+  btnText.textContent = '定位中…';
+  badge.className = 'gps-badge loading';
+  badge.textContent = '定位中…';
+
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      const { longitude, latitude, altitude, accuracy } = pos.coords;
+      document.getElementById('longitude').value = longitude.toFixed(8);
+      document.getElementById('latitude').value  = latitude.toFixed(8);
+      if (altitude !== null) {
+        document.getElementById('altitude').value = altitude.toFixed(2);
+      }
+      document.getElementById('accuracy').value = `±${accuracy.toFixed(1)} m`;
+
+      badge.className = 'gps-badge ok';
+      badge.textContent = `已定位 ±${accuracy.toFixed(0)}m`;
+      btnText.textContent = '重新获取';
+      btn.disabled = false;
+
+      // 清除错误提示
+      const errEl = document.getElementById('err-location');
+      if (errEl) { errEl.classList.add('hidden'); errEl.textContent = ''; }
+      showToast('GPS 定位成功！', 'success', 2000);
+    },
+    (err) => {
+      badge.className = 'gps-badge error';
+      const messages = {
+        1: '用户拒绝了定位权限，请在浏览器设置中开启',
+        2: 'GPS 信号不可用，请移至开阔区域重试',
+        3: '定位超时，请检查网络或重试',
+      };
+      badge.textContent = '定位失败';
+      btnText.textContent = '重试定位';
+      btn.disabled = false;
+      showToast(messages[err.code] || '定位失败', 'error', 4000);
+    },
+    {
+      enableHighAccuracy: true,   // 启用高精度（GPS 硬件）
+      timeout: 15000,             // 15s 超时
+      maximumAge: 10000,          // 允许使用 10s 内的缓存位置
+    }
+  );
+}
+
+// ── 照片选择处理 ─────────────────────────────────────────────
+function handlePhotoSelect(input) {
+  const MAX = 10;
+  const newFiles = Array.from(input.files);
+
+  for (const file of newFiles) {
+    if (selectedFiles.length >= MAX) {
+      showToast(`最多上传 ${MAX} 张照片`, 'info');
+      break;
+    }
+    if (!file.type.startsWith('image/')) {
+      showToast(`"${file.name}" 不是图片文件，已跳过`, 'error');
+      continue;
+    }
+    selectedFiles.push(file);
+    renderPreview(file, selectedFiles.length - 1);
+  }
+
+  // 重置 input，允许重复选同一文件
+  input.value = '';
+  updatePhotoCount();
+}
+
+function renderPreview(file, index) {
+  const area  = document.getElementById('photo-preview-area');
+  const addBtn = area.querySelector('.add-photo-btn');
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'preview-wrapper';
+    wrapper.dataset.index = index;
+    wrapper.innerHTML = `
+      <img src="${e.target.result}" alt="预览" />
+      ${index === 0 ? '<span style="position:absolute;bottom:2px;left:2px;background:rgba(0,0,0,.5);color:#fff;font-size:10px;padding:1px 5px;border-radius:4px;">封面</span>' : ''}
+      <button class="remove-photo" onclick="removePhoto(${index})" title="移除">×</button>
+    `;
+    area.insertBefore(wrapper, addBtn);
+  };
+  reader.readAsDataURL(file);
+}
+
+function removePhoto(index) {
+  selectedFiles.splice(index, 1);
+  // 重建预览区
+  const area   = document.getElementById('photo-preview-area');
+  const addBtn = area.querySelector('.add-photo-btn');
+  // 移除所有 wrapper
+  area.querySelectorAll('.preview-wrapper').forEach(el => el.remove());
+  // 重新渲染
+  selectedFiles.forEach((f, i) => renderPreview(f, i));
+  updatePhotoCount();
+}
+
+function updatePhotoCount() {
+  document.getElementById('photo-count').textContent = `已选 ${selectedFiles.length} 张`;
+}
+
+// ── 表单提交 ─────────────────────────────────────────────────
+async function submitForm() {
+  // 清除旧错误
+  document.querySelectorAll('[id^="err-"]').forEach(el => {
+    el.classList.add('hidden'); el.textContent = '';
+  });
+
+  const btn  = document.getElementById('btn-submit');
+  const icon = document.getElementById('submit-icon');
+  const text = document.getElementById('submit-text');
+
+  btn.disabled = true;
+  icon.classList.add('spinner');
+  text.textContent = '提交中…';
+
+  // 构建 FormData
+  const fd = new FormData();
+  const fields = [
+    'survey_code', 'name', 'former_name', 'era', 'category',
+    'longitude', 'latitude', 'altitude',
+    'province', 'city', 'county', 'township', 'village', 'address',
+    'protection_level', 'ownership', 'preservation_status', 'description',
+  ];
+  for (const id of fields) {
+    const el = document.getElementById(id);
+    if (el) fd.append(id, el.value);
+  }
+  // 照片（使用内存中的 File 对象，保留原始文件名）
+  for (const file of selectedFiles) {
+    fd.append('photos', file, file.name);
+  }
+
+  // CSRF Token
+  fd.append('csrfmiddlewaretoken', getCsrf());
+
+  try {
+    const res  = await fetch(window.location.href, { method: 'POST', body: fd });
+    const data = await res.json();
+
+    if (data.success) {
+      document.getElementById('success-msg').textContent = data.message;
+      document.getElementById('success-modal').classList.remove('hidden');
+      if (data.photo_warnings && data.photo_warnings.length) {
+        showToast('部分照片处理异常：\n' + data.photo_warnings.join('\n'), 'error', 6000);
+      }
+    } else {
+      // 显示字段级错误
+      if (data.errors) {
+        for (const [field, msg] of Object.entries(data.errors)) {
+          const errEl = document.getElementById(`err-${field}`);
+          if (errEl) {
+            errEl.textContent = msg;
+            errEl.classList.remove('hidden');
+          } else {
+            showToast(`${field}：${msg}`, 'error');
+          }
+        }
+      }
+      showToast(data.message || '提交失败，请检查表单', 'error', 4000);
+    }
+  } catch (e) {
+    showToast('网络错误，请稍后重试', 'error', 4000);
+  } finally {
+    btn.disabled = false;
+    icon.classList.remove('spinner');
+    text.textContent = '提交采集数据';
+  }
+}
+
+// ── 表单重置（继续采集） ──────────────────────────────────────
+function resetForm() {
+  document.getElementById('success-modal').classList.add('hidden');
+
+  const keepFields = ['province', 'city', 'county', 'township', 'village', 'collect_unit'];
+  const allInputs = document.querySelectorAll('input:not([readonly]), select, textarea');
+  allInputs.forEach(el => {
+    if (!keepFields.includes(el.id)) el.value = '';
+  });
+
+  // 重置 GPS 状态
+  document.getElementById('gps-status').className = 'gps-badge idle';
+  document.getElementById('gps-status').textContent = '未定位';
+  document.getElementById('btn-gps-text').textContent = '获取当前位置';
+  document.getElementById('btn-gps').disabled = false;
+  document.getElementById('accuracy').value = '';
+
+  // 清空照片
+  selectedFiles.splice(0, selectedFiles.length);
+  const area   = document.getElementById('photo-preview-area');
+  area.querySelectorAll('.preview-wrapper').forEach(el => el.remove());
+  updatePhotoCount();
+
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function goBack() {
+  window.history.back();
+}
+
+// ── CSRF Token 获取 ──────────────────────────────────────────
+function getCsrf() {
+  // 优先从 cookie 中读取（Django 标准方式）
+  const name = 'csrftoken';
+  const cookies = document.cookie.split(';');
+  for (let c of cookies) {
+    c = c.trim();
+    if (c.startsWith(name + '=')) {
+      return decodeURIComponent(c.slice(name.length + 1));
+    }
+  }
+  // 回退：从隐藏 input 读取
+  const el = document.querySelector('[name=csrfmiddlewaretoken]');
+  return el ? el.value : '';
+}
+
+// ── 页面加载后自动尝试定位（非强制，失败不报错） ──────────────
+document.addEventListener('DOMContentLoaded', () => {
+  if (navigator.geolocation) {
+    // 静默预热：不触发 UI 变化，只缓存位置
+    navigator.geolocation.getCurrentPosition(() => {}, () => {}, {
+      enableHighAccuracy: false, timeout: 5000, maximumAge: 30000,
+    });
+  }
+});
+</script>
+</body>
+</html>

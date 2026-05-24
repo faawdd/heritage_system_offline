@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>四普登记表 — {{ heritage.name }}</title>
+<style>
+/* ══════════════════════════════════════════════════
+   全局 & A4 页面
+══════════════════════════════════════════════════ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --border: 1px solid #222;
+  --border-light: 1px solid #888;
+  --head-bg: #e8edf4;
+  --label-bg: #f2f4f7;
+  --photo-bg: #f8f8f8;
+  --font: 'SimSun', '宋体', 'Times New Roman', serif;
+  --font-hei: 'SimHei', '黑体', 'Arial', sans-serif;
+  --fs-base: 9pt;
+  --fs-sm: 8pt;
+  --fs-title: 15pt;
+  --fs-sub: 11pt;
+  --cell-pad: 3px 6px;
+}
+
+body {
+  font-family: var(--font);
+  font-size: var(--fs-base);
+  background: #d0d0d0;
+  color: #111;
+  line-height: 1.45;
+}
+
+/* ── A4 纸张容器 ── */
+.a4-wrap {
+  width: 210mm;
+  min-height: 297mm;
+  margin: 12mm auto;
+  background: #fff;
+  padding: 12mm 14mm 14mm;
+  box-shadow: 0 2px 20px rgba(0,0,0,.25);
+  position: relative;
+}
+
+/* ── 操作浮动栏（仅屏幕显示）── */
+.toolbar {
+  position: fixed;
+  top: 16px; right: 20px;
+  display: flex;
+  gap: 8px;
+  z-index: 999;
+}
+.toolbar button {
+  padding: 8px 18px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-family: var(--font-hei);
+}
+.btn-print  { background: #1a3a6b; color: #fff; }
+.btn-back   { background: #555;    color: #fff; }
+.btn-print:hover { background: #122d54; }
+.btn-back:hover  { background: #333; }
+
+/* ══════════════════════════════════════════════════
+   表格通用
+══════════════════════════════════════════════════ */
+.reg-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: var(--border);
+  table-layout: fixed;
+}
+
+.reg-table th,
+.reg-table td {
+  border: var(--border);
+  padding: var(--cell-pad);
+  vertical-align: middle;
+  word-break: break-all;
+  overflow-wrap: break-word;
+}
+
+/* 标签格（左侧说明文字） */
+.lbl {
+  background: var(--label-bg);
+  font-weight: bold;
+  white-space: nowrap;
+  text-align: center;
+  font-size: var(--fs-sm);
+  width: 14%;
+}
+.lbl-wide  { width: 18%; }
+.lbl-xwide { width: 22%; }
+
+/* 填充格（右侧数据）*/
+.val { background: #fff; font-size: var(--fs-base); }
+.val-center { text-align: center; }
+.val-mono   { font-family: 'Courier New', monospace; font-size: var(--fs-sm); }
+
+/* 分区标题行 */
+.sec-head {
+  background: var(--head-bg);
+  text-align: center;
+  font-family: var(--font-hei);
+  font-weight: bold;
+  font-size: var(--fs-sm);
+  padding: 4px 6px;
+  letter-spacing: .5px;
+}
+
+/* 复选框样式 */
+.chk {
+  display: inline-block;
+  width: 12px; height: 12px;
+  border: 1px solid #444;
+  vertical-align: middle;
+  margin-right: 3px;
+  text-align: center;
+  line-height: 11px;
+  font-size: 9pt;
+}
+.chk.yes { background: #1a3a6b; color: #fff; }
+
+/* 半格（两列拼凑） */
+.half-row { display: flex; gap: 0; }
+
+/* 照片容器 */
+.photo-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  padding: 4px;
+}
+.photo-item {
+  background: var(--photo-bg);
+  border: 1px solid #ccc;
+  border-radius: 2px;
+  overflow: hidden;
+  text-align: center;
+}
+.photo-item img {
+  display: block;
+  width: 100%;
+  height: 52mm;
+  object-fit: cover;
+}
+.photo-caption {
+  font-size: 7pt;
+  color: #555;
+  padding: 2px 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.photo-placeholder {
+  width: 100%;
+  height: 52mm;
+  background: #eee;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #bbb;
+  font-size: 20pt;
+}
+
+/* 大照片（封面）*/
+.cover-photo { width: 100%; max-height: 70mm; object-fit: cover; display: block; }
+
+/* ══════════════════════════════════════════════════
+   页眉
+══════════════════════════════════════════════════ */
+.page-header {
+  text-align: center;
+  margin-bottom: 6px;
+}
+.page-header .org-line {
+  font-size: 9pt;
+  color: #444;
+  margin-bottom: 2px;
+}
+.page-header .main-title {
+  font-family: var(--font-hei);
+  font-size: var(--fs-title);
+  font-weight: bold;
+  letter-spacing: 3px;
+  color: #111;
+  margin-bottom: 2px;
+}
+.page-header .sub-title {
+  font-family: var(--font-hei);
+  font-size: var(--fs-sub);
+  font-weight: bold;
+  letter-spacing: 1px;
+  color: #333;
+}
+
+/* 编号行 */
+.code-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border: var(--border);
+  border-bottom: none;
+  padding: 3px 8px;
+  font-size: var(--fs-sm);
+  background: var(--label-bg);
+}
+.code-bar .code-val {
+  font-family: 'Courier New', monospace;
+  font-size: 10pt;
+  font-weight: bold;
+  color: #1a3a6b;
+  letter-spacing: 1px;
+}
+
+/* ══════════════════════════════════════════════════
+   签章栏
+══════════════════════════════════════════════════ */
+.sign-bar {
+  display: flex;
+  border: var(--border);
+  border-top: none;
+  font-size: var(--fs-sm);
+}
+.sign-cell {
+  flex: 1;
+  border-right: var(--border);
+  padding: 4px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-height: 40px;
+}
+.sign-cell:last-child { border-right: none; }
+.sign-label { font-weight: bold; color: #555; }
+.sign-val   { color: #111; }
+
+/* ══════════════════════════════════════════════════
+   说明文字
+══════════════════════════════════════════════════ */
+.footer-note {
+  margin-top: 6px;
+  font-size: 7.5pt;
+  color: #666;
+  line-height: 1.6;
+  padding: 0 2px;
+}
+
+/* ══════════════════════════════════════════════════
+   打印专用
+══════════════════════════════════════════════════ */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 10mm 12mm 12mm;
+  }
+
+  body {
+    background: #fff;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .toolbar { display: none !important; }
+
+  .a4-wrap {
+    width: 100%;
+    min-height: auto;
+    margin: 0;
+    padding: 0;
+    box-shadow: none;
+  }
+
+  /* 避免表格行在分页时被截断 */
+  .reg-table tr { page-break-inside: avoid; }
+
+  /* 照片区域整体不断页 */
+  .photo-section { page-break-inside: avoid; }
+
+  /* 签章栏不断页 */
+  .sign-bar { page-break-inside: avoid; }
+}
+</style>
+</head>
+<body>
+
+<!-- ══════ 操作浮动栏 ══════ -->
+<div class="toolbar">
+  <button class="btn-back"  onclick="history.back()">← 返回</button>
+  <button class="btn-print" onclick="window.print()">🖨 打印 / 另存 PDF</button>
+</div>
+
+<!-- ══════ A4 纸张容器 ══════ -->
+<div class="a4-wrap">
+
+  <!-- ── 页眉 ── -->
+  <div class="page-header">
+    <div class="org-line">国家文物局监制</div>
+    <div class="main-title">第四次全国文物普查</div>
+    <div class="sub-title">不可移动文物登记表</div>
+  </div>
+
+  <!-- ── 普查编号栏 ── -->
+  <div class="code-bar">
+    <span>普查编号：<span class="code-val">{{ heritage.survey_code }}</span></span>
+    <span>
+      {% if heritage.previous_survey_code %}三普编号：{{ heritage.previous_survey_code }}{% endif %}
+    </span>
+    <span>采集时间：{{ heritage.collected_at|date:"Y年m月d日" }}</span>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════
+       主体登记表
+  ════════════════════════════════════════════════════ -->
+  <table class="reg-table">
+
+    <!-- ┌─────────────────── 一、基础信息 ────────────────────┐ -->
+    <tr>
+      <td colspan="8" class="sec-head">一、基本信息</td>
+    </tr>
+
+    <!-- 名称 / 曾用名 -->
+    <tr>
+      <td class="lbl" style="width:12%">名&emsp;&emsp;称</td>
+      <td class="val" colspan="3" style="width:38%">{{ heritage.name }}</td>
+      <td class="lbl" style="width:12%">曾用名/别名</td>
+      <td class="val" colspan="3" style="width:38%">{{ heritage.former_name|default:"——" }}</td>
+    </tr>
+
+    <!-- 时代 / 类别 / 类型 -->
+    <tr>
+      <td class="lbl">时&emsp;&emsp;代</td>
+      <td class="val" style="width:20%">{{ heritage.era }}</td>
+      <td class="lbl" style="width:10%">类&emsp;别</td>
+      <td class="val" style="width:20%">{{ heritage.get_category_display }}</td>
+      <td class="lbl" style="width:10%">类&emsp;型</td>
+      <td class="val" colspan="3">{{ heritage.heritage_type|default:"——" }}</td>
+    </tr>
+
+    <!-- ┌─────────────────── 二、地理位置 ────────────────────┐ -->
+    <tr>
+      <td colspan="8" class="sec-head">二、地理位置</td>
+    </tr>
+
+    <!-- 省市县 -->
+    <tr>
+      <td class="lbl">省/自治区</td>
+      <td class="val">{{ heritage.province|default:"——" }}</td>
+      <td class="lbl">市/州</td>
+      <td class="val">{{ heritage.city|default:"——" }}</td>
+      <td class="lbl">县/区</td>
+      <td class="val" colspan="3">{{ heritage.county|default:"——" }}</td>
+    </tr>
+
+    <!-- 乡镇 / 村 -->
+    <tr>
+      <td class="lbl">乡镇/街道</td>
+      <td class="val" colspan="3">{{ heritage.township|default:"——" }}</td>
+      <td class="lbl">村/社区</td>
+      <td class="val" colspan="3">{{ heritage.village|default:"——" }}</td>
+    </tr>
+
+    <!-- 详细地址 -->
+    <tr>
+      <td class="lbl">详细地址</td>
+      <td class="val" colspan="7">{{ heritage.address|default:"——" }}</td>
+    </tr>
+
+    <!-- 坐标系 / 经度 / 纬度 / 海拔 -->
+    <tr>
+      <td class="lbl">坐标系</td>
+      <td class="val">{{ heritage.get_coordinate_system_display }}</td>
+      <td class="lbl">经&emsp;度</td>
+      <td class="val val-mono">{{ heritage.longitude|floatformat:8 }}</td>
+      <td class="lbl">纬&emsp;度</td>
+      <td class="val val-mono">{{ heritage.latitude|floatformat:8 }}</td>
+      <td class="lbl">海拔(m)</td>
+      <td class="val val-mono">{% if heritage.altitude %}{{ heritage.altitude|floatformat:2 }}{% else %}——{% endif %}</td>
+    </tr>
+
+    <!-- 占地面积 -->
+    <tr>
+      <td class="lbl">占地面积</td>
+      <td class="val" colspan="3">
+        {% if heritage.area %}{{ heritage.area|floatformat:2 }} 平方米{% else %}——{% endif %}
+      </td>
+      <td class="lbl">度分秒(经)</td>
+      <td class="val val-mono">{{ lon_dms }}</td>
+      <td class="lbl">度分秒(纬)</td>
+      <td class="val val-mono">{{ lat_dms }}</td>
+    </tr>
+
+    <!-- ┌─────────────────── 三、保存状况 ────────────────────┐ -->
+    <tr>
+      <td colspan="8" class="sec-head">三、保存状况</td>
+    </tr>
+
+    <!-- 保存现状评级（五格勾选） -->
+    <tr>
+      <td class="lbl">保存现状</td>
+      <td class="val" colspan="7">
+        {% for choice in preservation_choices %}
+          <span class="chk {% if choice.0 == heritage.preservation_status %}yes{% endif %}">
+            {% if choice.0 == heritage.preservation_status %}✓{% endif %}
+          </span>{{ choice.1 }}&ensp;
+        {% endfor %}
+      </td>
+    </tr>
+
+    <!-- 是否消失 / 是否迁移 -->
+    <tr>
+      <td class="lbl">是否消失</td>
+      <td class="val">
+        <span class="chk {% if heritage.is_disappeared %}yes{% endif %}">{% if heritage.is_disappeared %}✓{% endif %}</span>是&ensp;
+        <span class="chk {% if not heritage.is_disappeared %}yes{% endif %}">{% if not heritage.is_disappeared %}✓{% endif %}</span>否
+      </td>
+      <td class="lbl" style="width:10%">消失原因</td>
+      <td class="val" colspan="2">{{ heritage.disappear_reason|default:"——" }}</td>
+      <td class="lbl" style="width:10%">是否迁移</td>
+      <td class="val" colspan="2">
+        <span class="chk {% if heritage.is_relocated %}yes{% endif %}">{% if heritage.is_relocated %}✓{% endif %}</span>是&ensp;
+        <span class="chk {% if not heritage.is_relocated %}yes{% endif %}">{% if not heritage.is_relocated %}✓{% endif %}</span>否
+      </td>
+    </tr>
+
+    <!-- 迁移说明（仅迁移时才填） -->
+    {% if heritage.is_relocated %}
+    <tr>
+      <td class="lbl">迁移情况</td>
+      <td class="val" colspan="7">{{ heritage.relocation_note|default:"——" }}</td>
+    </tr>
+    {% endif %}
+
+    <!-- 破坏原因 -->
+    <tr>
+      <td class="lbl">破坏原因</td>
+      <td class="val" colspan="7" style="min-height:28px;">{{ heritage.damage_cause|default:"无" }}</td>
+    </tr>
+
+    <!-- 现存威胁因素 -->
+    <tr>
+      <td class="lbl">威胁因素</td>
+      <td class="val" colspan="7" style="min-height:28px;">{{ heritage.threat_factors|default:"无" }}</td>
+    </tr>
+
+    <!-- ┌─────────────────── 四、权属与管理 ──────────────────┐ -->
+    <tr>
+      <td colspan="8" class="sec-head">四、权属与管理</td>
+    </tr>
+
+    <!-- 权属 / 权属单位 -->
+    <tr>
+      <td class="lbl">权&emsp;&emsp;属</td>
+      <td class="val" colspan="3">
+        {% for choice in ownership_choices %}
+          <span class="chk {% if choice.0 == heritage.ownership %}yes{% endif %}">
+            {% if choice.0 == heritage.ownership %}✓{% endif %}
+          </span>{{ choice.1 }}&ensp;
+        {% endfor %}
+      </td>
+      <td class="lbl">权属单位/人</td>
+      <td class="val" colspan="3">{{ heritage.ownership_detail|default:"——" }}</td>
+    </tr>
+
+    <!-- 使用单位 / 管理单位 -->
+    <tr>
+      <td class="lbl">使用单位</td>
+      <td class="val" colspan="3">{{ heritage.user_unit|default:"——" }}</td>
+      <td class="lbl">管理单位</td>
+      <td class="val" colspan="3">{{ heritage.management_unit|default:"——" }}</td>
+    </tr>
+
+    <!-- 管理责任人 -->
+    <tr>
+      <td class="lbl">管理责任人</td>
+      <td class="val" colspan="7">{{ heritage.manager|default:"——" }}</td>
+    </tr>
+
+    <!-- ┌─────────────────── 五、保护情况 ────────────────────┐ -->
+    <tr>
+      <td colspan="8" class="sec-head">五、保护情况</td>
+    </tr>
+
+    <!-- 保护级别（四级勾选） -->
+    <tr>
+      <td class="lbl">保护级别</td>
+      <td class="val" colspan="7">
+        {% for choice in protection_choices %}
+          <span class="chk {% if choice.0 == heritage.protection_level %}yes{% endif %}">
+            {% if choice.0 == heritage.protection_level %}✓{% endif %}
+          </span>{{ choice.1 }}&ensp;
+        {% endfor %}
+      </td>
+    </tr>
+
+    <!-- 公布批次 / 公布日期 -->
+    <tr>
+      <td class="lbl">公布批次</td>
+      <td class="val" colspan="3">{{ heritage.protection_announced_batch|default:"——" }}</td>
+      <td class="lbl">公布日期</td>
+      <td class="val" colspan="3">
+        {% if heritage.protection_announced_date %}{{ heritage.protection_announced_date|date:"Y年m月d日" }}{% else %}——{% endif %}
+      </td>
+    </tr>
+
+    <!-- 三项保护设施 -->
+    <tr>
+      <td class="lbl">保护标志碑</td>
+      <td class="val val-center">
+        <span class="chk {% if heritage.has_marker_stele %}yes{% endif %}">{% if heritage.has_marker_stele %}✓{% endif %}</span>已设立&ensp;
+        <span class="chk {% if not heritage.has_marker_stele %}yes{% endif %}">{% if not heritage.has_marker_stele %}✓{% endif %}</span>未设立
+      </td>
+      <td class="lbl">保护范围</td>
+      <td class="val val-center">
+        <span class="chk {% if heritage.has_protection_zone_announced %}yes{% endif %}">{% if heritage.has_protection_zone_announced %}✓{% endif %}</span>已公布&ensp;
+        <span class="chk {% if not heritage.has_protection_zone_announced %}yes{% endif %}">{% if not heritage.has_protection_zone_announced %}✓{% endif %}</span>未公布
+      </td>
+      <td class="lbl">建设控制<br>地带</td>
+      <td class="val val-center" colspan="3">
+        <span class="chk {% if heritage.has_construction_control_zone_announced %}yes{% endif %}">{% if heritage.has_construction_control_zone_announced %}✓{% endif %}</span>已公布&ensp;
+        <span class="chk {% if not heritage.has_construction_control_zone_announced %}yes{% endif %}">{% if not heritage.has_construction_control_zone_announced %}✓{% endif %}</span>未公布
+      </td>
+    </tr>
+
+    <!-- ┌─────────────────── 六、文物简介 ────────────────────┐ -->
+    <tr>
+      <td colspan="8" class="sec-head">六、文物简介</td>
+    </tr>
+    <tr>
+      <td class="val" colspan="8" style="min-height:60px; padding:6px 8px; line-height:1.7; text-align:justify; text-indent:2em;">
+        {% if heritage.description %}
+          {{ heritage.description|linebreaksbr }}
+        {% else %}
+          <span style="color:#aaa;">（暂无简介）</span>
+        {% endif %}
+      </td>
+    </tr>
+
+    <!-- 备注 -->
+    {% if heritage.remarks %}
+    <tr>
+      <td class="lbl">备&emsp;&emsp;注</td>
+      <td class="val" colspan="7" style="line-height:1.6;">{{ heritage.remarks|linebreaksbr }}</td>
+    </tr>
+    {% endif %}
+
+    <!-- ┌─────────────────── 七、现场照片 ────────────────────┐ -->
+    <tr>
+      <td colspan="8" class="sec-head photo-section">七、现场照片（含水印）</td>
+    </tr>
+    <tr class="photo-section">
+      <td colspan="8" style="padding:0;">
+        {% if photos %}
+          {% if cover_photo %}
+          <!-- 封面大图 -->
+          <div style="padding:6px 6px 0;">
+            <img src="{{ cover_photo.image.url }}"
+                 alt="{{ cover_photo.caption|default:'封面照片' }}"
+                 class="cover-photo"
+                 onerror="this.style.display='none'">
+            <div style="font-size:7.5pt;color:#555;text-align:center;padding:2px 0 4px;">
+              【封面·{{ cover_photo.get_photo_type_display }}】
+              {% if cover_photo.caption %}{{ cover_photo.caption }}{% endif %}
+              {% if cover_photo.shot_at %}&ensp;拍摄于 {{ cover_photo.shot_at|date:"Y-m-d H:i" }}{% endif %}
+            </div>
+          </div>
+          {% endif %}
+          <!-- 其余照片九宫格 -->
+          {% if other_photos %}
+          <div class="photo-grid">
+            {% for photo in other_photos %}
+            <div class="photo-item">
+              <img src="{{ photo.image.url }}"
+                   alt="{{ photo.caption|default:photo.get_photo_type_display }}"
+                   onerror="this.parentElement.querySelector('.photo-placeholder').style.display='flex';this.style.display='none';">
+              <div class="photo-placeholder" style="display:none;">🖼</div>
+              <div class="photo-caption">
+                【{{ photo.get_photo_type_display }}】
+                {% if photo.caption %}{{ photo.caption }}{% endif %}
+                {% if photo.shot_at %}<br>{{ photo.shot_at|date:"Y-m-d H:i" }}{% endif %}
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+          {% endif %}
+        {% else %}
+          <div style="text-align:center;padding:20px;color:#aaa;font-size:9pt;">
+            暂未上传现场照片
+          </div>
+        {% endif %}
+      </td>
+    </tr>
+
+  </table>
+  <!-- ── 主表格结束 ── -->
+
+  <!-- ── 签章栏 ── -->
+  <div class="sign-bar">
+    <div class="sign-cell">
+      <span class="sign-label">采 集 人</span>
+      <span class="sign-val">{{ heritage.collector.get_full_name|default:heritage.collector.username|default:"——" }}</span>
+      <span class="sign-val" style="color:#777;font-size:7.5pt;">
+        {{ heritage.collected_at|date:"Y年m月d日 H:i"|default:"——" }}
+      </span>
+    </div>
+    <div class="sign-cell">
+      <span class="sign-label">录 入 人</span>
+      <span class="sign-val">{{ heritage.input_by.get_full_name|default:heritage.input_by.username|default:"——" }}</span>
+    </div>
+    <div class="sign-cell">
+      <span class="sign-label">审 核 人</span>
+      <span class="sign-val">{{ heritage.reviewer.get_full_name|default:heritage.reviewer.username|default:"——" }}</span>
+      <span class="sign-val" style="color:#777;font-size:7.5pt;">
+        {% if heritage.reviewed_at %}{{ heritage.reviewed_at|date:"Y年m月d日" }}{% endif %}
+      </span>
+    </div>
+    <div class="sign-cell">
+      <span class="sign-label">普查单位（盖章）</span>
+      <span class="sign-val" style="height:28px;"></span>
+    </div>
+  </div>
+
+  <!-- ── 说明文字 ── -->
+  <div class="footer-note">
+    <strong>填表说明：</strong>本表依据《第四次全国文物普查不可移动文物登记表》格式制作，
+    经纬度采用 {{ heritage.get_coordinate_system_display }} 坐标系，精度保留8位小数。
+    现场照片由系统自动叠加采集水印（文物名称、坐标、时间）。
+    本预览页可直接打印或另存为PDF，请在浏览器打印对话框中选择"A4竖向"、无缩放。
+  </div>
+
+</div><!-- .a4-wrap -->
+</body>
+</html>

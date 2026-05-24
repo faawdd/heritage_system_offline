@@ -12,10 +12,14 @@ from urllib.parse import quote
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth import get_user_model, login as auth_login
 from django.db.models import Count, Q
-from django.http import JsonResponse, HttpResponse, HttpResponseForbidden
+from django.http import JsonResponse, HttpResponse, HttpResponseForbidden, FileResponse
 from django.utils import timezone
 from django.conf import settings
 from docxtpl import DocxTemplate
+from docx import Document
+from docx.shared import Mm, Pt
+from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
+from PIL import Image as PILImage
 import os
 import io
 import zipfile
@@ -1921,4 +1925,465 @@ def app_showcase_view(request):
         ],
     }
     return render(request, 'public/app_showcase.html', context)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 不可移动文物现场数据采集视图
+# ─────────────────────────────────────────────────────────────────────────────
+from decimal import Decimal, InvalidOperation as DecimalInvalidOperation
+from django.contrib.auth.decorators import login_required
+
+
+@login_required
+def heritage_collect_view(request):
+    """
+    文物点现场数据采集（手机/平板端）
+
+    GET  → 渲染采集表单
+    POST → 接收表单数据，执行 Pillow 水印合成，保存 ImmovableHeritage + HeritagePhoto
+    """
+    from .models import ImmovableHeritage, HeritagePhoto
+    from .utils_watermark import add_heritage_watermark
+    from django.core.files.base import ContentFile
+    import io as _io
+
+    collect_unit = getattr(settings, "HERITAGE_COLLECT_UNIT", "文物管理部门")
+
+    if request.method == "POST":
+        try:
+            p = request.POST
+
+            # ── 必填字段 ────────────────────────────────────────
+            name         = p.get("name", "").strip()
+            survey_code  = p.get("survey_code", "").strip()
+            era          = p.get("era", "").strip()
+            category     = p.get("category", "").strip()
+            lon_raw      = p.get("longitude", "").strip()
+            lat_raw      = p.get("latitude", "").strip()
+
+            # ── 选填字段 ────────────────────────────────────────
+            province            = p.get("province", "").strip()
+            city                = p.get("city", "").strip()
+            county              = p.get("county", "").strip()
+            township            = p.get("township", "").strip()
+            village             = p.get("village", "").strip()
+            address             = p.get("address", "").strip()
+            altitude_raw        = p.get("altitude", "").strip()
+            protection_level    = p.get("protection_level", "DS")
+            ownership           = p.get("ownership", "state")
+            preservation_status = p.get("preservation_status", "一般")
+            description         = p.get("description", "").strip()
+            former_name         = p.get("former_name", "").strip()
+
+            # ── 字段验证 ────────────────────────────────────────
+            errors: dict[str, str] = {}
+            if not name:
+                errors["name"] = "文物名称不能为空"
+            if not survey_code:
+                errors["survey_code"] = "普查编号不能为空"
+            if not era:
+                errors["era"] = "时代不能为空"
+            if not category:
+                errors["category"] = "文物类别不能为空"
+            if not lon_raw or not lat_raw:
+                errors["location"] = "请先点击"获取当前位置"以填入经纬度"
+
+            # 经纬度合法性
+            longitude = latitude = None
+            if lon_raw and lat_raw:
+                try:
+                    longitude = Decimal(lon_raw)
+                    latitude  = Decimal(lat_raw)
+                    if not (-180 <= longitude <= 180):
+                        errors["longitude"] = "经度须在 -180 ~ 180 之间"
+                    if not (-90 <= latitude <= 90):
+                        errors["latitude"] = "纬度须在 -90 ~ 90 之间"
+                except DecimalInvalidOperation:
+                    errors["location"] = "经纬度格式不合法"
+
+            if errors:
+                return JsonResponse({"success": False, "errors": errors}, status=400)
+
+            altitude = None
+            if altitude_raw:
+                try:
+                    altitude = Decimal(altitude_raw)
+                except DecimalInvalidOperation:
+                    pass
+
+            # ── 普查编号唯一性校验 ────────────────────────────
+            if ImmovableHeritage.objects.filter(survey_code=survey_code).exists():
+                return JsonResponse(
+                    {"success": False, "errors": {"survey_code": "该普查编号已存在，请确认后重新输入"}},
+                    status=400,
+                )
+
+            collected_at = timezone.now()
+
+            # ── 创建文物记录 ──────────────────────────────────
+            heritage = ImmovableHeritage(
+                survey_code=survey_code,
+                former_name=former_name,
+                name=name,
+                era=era,
+                category=category,
+                province=province,
+                city=city,
+                county=county,
+                township=township,
+                village=village,
+                address=address,
+                longitude=longitude,
+                latitude=latitude,
+                altitude=altitude,
+                protection_level=protection_level,
+                ownership=ownership,
+                preservation_status=preservation_status,
+                description=description,
+                collector=request.user,
+                collected_at=collected_at,
+            )
+            heritage.save()
+
+            # ── 处理照片：水印合成 → 保存 HeritagePhoto ────────
+            photo_files = request.FILES.getlist("photos")
+            saved_count = 0
+            photo_errors = []
+
+            for idx, photo_file in enumerate(photo_files):
+                try:
+                    watermarked = add_heritage_watermark(
+                        image_source=photo_file,
+                        heritage_name=name,
+                        collected_at=collected_at,
+                        longitude=longitude,
+                        latitude=latitude,
+                        collect_unit=collect_unit,
+                    )
+                    buf = _io.BytesIO()
+                    watermarked.save(buf, format="JPEG", quality=88, optimize=True)
+                    buf.seek(0)
+
+                    hp = HeritagePhoto(
+                        heritage=heritage,
+                        photo_type="overview" if idx == 0 else "detail",
+                        is_cover=(idx == 0),
+                        shot_at=collected_at,
+                        shot_longitude=longitude,
+                        shot_latitude=latitude,
+                        uploaded_by=request.user,
+                        caption=f"现场采集照片 {idx + 1}",
+                    )
+                    filename = f"collect_{heritage.id}_{idx + 1:02d}.jpg"
+                    hp.image.save(filename, ContentFile(buf.read()), save=True)
+                    saved_count += 1
+
+                except Exception as exc:
+                    photo_errors.append(f"第 {idx + 1} 张照片处理失败：{exc}")
+
+            response_data: dict = {
+                "success": True,
+                "message": f"采集成功！文物「{name}」已登记，共保存 {saved_count} 张照片。",
+                "heritage_id": heritage.id,
+            }
+            if photo_errors:
+                response_data["photo_warnings"] = photo_errors
+
+            return JsonResponse(response_data)
+
+        except Exception as exc:
+            return JsonResponse({"success": False, "message": f"采集失败：{exc}"}, status=500)
+
+    # ── GET：渲染表单页 ─────────────────────────────────────────
+    from .models import ImmovableHeritage  # noqa: F811 — 保证在 GET 路径也可用
+    context = {
+        "category_choices":           ImmovableHeritage.CATEGORY_CHOICES,
+        "protection_level_choices":   ImmovableHeritage.PROTECTION_LEVEL_CHOICES,
+        "ownership_choices":          ImmovableHeritage.OWNERSHIP_CHOICES,
+        "preservation_status_choices": ImmovableHeritage.PRESERVATION_STATUS_CHOICES,
+        "collect_unit":               collect_unit,
+    }
+    return render(request, "public/heritage_collect.html", context)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 四普登记表预览视图（仅登录用户可访问）
+# ─────────────────────────────────────────────────────────────────────────────
+import math as _math
+
+
+def _decimal_to_dms(decimal_deg, is_longitude: bool) -> str:
+    """
+    将十进制度转换为"度°分′秒″"格式（中文方向符号）。
+    例：90.335167 → 东经 90°20′06.60″
+    """
+    try:
+        val = float(decimal_deg)
+    except (TypeError, ValueError):
+        return "——"
+
+    direction = ""
+    if is_longitude:
+        direction = "东经" if val >= 0 else "西经"
+    else:
+        direction = "北纬" if val >= 0 else "南纬"
+
+    val = abs(val)
+    degrees = int(val)
+    minutes_float = (val - degrees) * 60
+    minutes = int(minutes_float)
+    seconds = (minutes_float - minutes) * 60
+
+    return f"{direction} {degrees}°{minutes:02d}′{seconds:05.2f}″"
+
+
+@login_required
+def heritage_detail_preview_view(request, pk):
+    """
+    不可移动文物"四普登记表"预览页面。
+
+    - 任意已登录用户均可访问（字段只读，无修改功能）。
+    - 提供打印友好的 A4 布局，可直接从浏览器打印为 PDF。
+    - URL：/mobile/collect/<int:pk>/preview/
+    """
+    from .models import ImmovableHeritage, HeritagePhoto
+    from django.shortcuts import get_object_or_404
+
+    heritage = get_object_or_404(
+        ImmovableHeritage.objects.select_related(
+            "collector", "input_by", "reviewer"
+        ).prefetch_related("photos"),
+        pk=pk,
+    )
+
+    # 照片：封面 + 其余（最多展示 8 张附图，避免撑破页面）
+    all_photos = list(heritage.photos.order_by("-is_cover", "-shot_at", "-uploaded_at"))
+    cover_photo = next((p for p in all_photos if p.is_cover), None) or (all_photos[0] if all_photos else None)
+    other_photos = [p for p in all_photos if p != cover_photo][:8]
+
+    # 度分秒在视图层计算，保持模板简洁
+    lon_dms = _decimal_to_dms(heritage.longitude, is_longitude=True)
+    lat_dms = _decimal_to_dms(heritage.latitude,  is_longitude=False)
+
+    context = {
+        "heritage":             heritage,
+        "cover_photo":          cover_photo,
+        "other_photos":         other_photos,
+        "photos":               all_photos,
+        "lon_dms":              lon_dms,
+        "lat_dms":              lat_dms,
+        "preservation_choices": ImmovableHeritage.PRESERVATION_STATUS_CHOICES,
+        "protection_choices":   ImmovableHeritage.PROTECTION_LEVEL_CHOICES,
+        "ownership_choices":    ImmovableHeritage.OWNERSHIP_CHOICES,
+    }
+    return render(request, "public/detail_preview.html", context)
+
+
+def _set_cell_text(cell, text, *, bold=False, align=WD_PARAGRAPH_ALIGNMENT.LEFT, font_size=10):
+    """统一设置表格单元格文本样式。"""
+    cell.text = ""
+    paragraph = cell.paragraphs[0]
+    paragraph.alignment = align
+    run = paragraph.add_run("" if text is None else str(text))
+    run.bold = bold
+    run.font.size = Pt(font_size)
+    run.font.name = "宋体"
+
+
+def _set_table_column_widths(table, widths_mm):
+    """设置表格列宽，避免 Word 自动拉伸导致打印错位。"""
+    for row in table.rows:
+        for idx, width in enumerate(widths_mm):
+            row.cells[idx].width = Mm(width)
+
+
+def _scaled_size_mm(img_bytes, max_w_mm=70.0, max_h_mm=52.0):
+    """按比例缩放图片，返回毫米宽高。"""
+    with PILImage.open(io.BytesIO(img_bytes)) as im:
+        px_w, px_h = im.size
+    if px_w <= 0 or px_h <= 0:
+        return max_w_mm, max_h_mm
+
+    ratio = px_w / px_h
+    width_mm = max_w_mm
+    height_mm = width_mm / ratio
+    if height_mm > max_h_mm:
+        height_mm = max_h_mm
+        width_mm = height_mm * ratio
+    return width_mm, height_mm
+
+
+def _insert_photos_into_cell(cell, photos):
+    """
+    将现场照片插入单元格。
+    优先封面图，其余最多补充 2 张，避免撑破表格。
+    """
+    cell.text = ""
+    if not photos:
+        _set_cell_text(cell, "暂无现场照片", align=WD_PARAGRAPH_ALIGNMENT.CENTER, font_size=10)
+        return
+
+    ordered = sorted(photos, key=lambda p: (not p.is_cover, p.uploaded_at or timezone.now()))
+    selected = ordered[:3]
+
+    for index, photo in enumerate(selected):
+        try:
+            with photo.image.open("rb") as image_file:
+                img_bytes = image_file.read()
+        except Exception:
+            p_err = cell.add_paragraph()
+            p_err.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
+            p_err.add_run(f"照片{index + 1}读取失败")
+            continue
+
+        width_mm, height_mm = _scaled_size_mm(img_bytes, max_w_mm=68.0, max_h_mm=50.0)
+        stream = io.BytesIO(img_bytes)
+
+        p_img = cell.add_paragraph()
+        p_img.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+        p_img.add_run().add_picture(stream, width=Mm(width_mm), height=Mm(height_mm))
+
+        p_caption = cell.add_paragraph()
+        p_caption.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+        caption = f"图{index + 1}  {photo.get_photo_type_display()}"
+        if photo.caption:
+            caption = f"{caption}：{photo.caption}"
+        run_caption = p_caption.add_run(caption)
+        run_caption.font.size = Pt(8)
+        run_caption.font.name = "宋体"
+
+
+@login_required
+def export_immovable_heritage_docx_view(request, pk):
+    """
+    一键导出：第四次全国文物普查不可移动文物登记表（.docx）
+    - python-docx 动态绘制复杂表格
+    - A4 纵向 + 标准页边距
+    - 单元格合并 + 现场照片插入
+    """
+    from .models import ImmovableHeritage
+
+    heritage = get_object_or_404(
+        ImmovableHeritage.objects.select_related("collector", "input_by", "reviewer").prefetch_related("photos"),
+        pk=pk,
+    )
+
+    document = Document()
+    section = document.sections[0]
+    section.page_width = Mm(210)
+    section.page_height = Mm(297)
+    section.left_margin = Mm(25.4)
+    section.right_margin = Mm(25.4)
+    section.top_margin = Mm(25.4)
+    section.bottom_margin = Mm(25.4)
+
+    p_title = document.add_paragraph()
+    p_title.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+    run_title = p_title.add_run("第四次全国文物普查不可移动文物登记表")
+    run_title.bold = True
+    run_title.font.size = Pt(16)
+    run_title.font.name = "黑体"
+
+    p_code = document.add_paragraph()
+    p_code.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+    run_code = p_code.add_run(f"普查编号：{heritage.survey_code}")
+    run_code.font.size = Pt(11)
+    run_code.font.name = "宋体"
+
+    table = document.add_table(rows=17, cols=8)
+    table.style = "Table Grid"
+    _set_table_column_widths(table, [18, 24, 14, 24, 14, 24, 14, 27])
+
+    _set_cell_text(table.cell(0, 0).merge(table.cell(0, 7)), "一、基本信息", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    _set_cell_text(table.cell(1, 0), "名称", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    _set_cell_text(table.cell(1, 1).merge(table.cell(1, 3)), heritage.name)
+    _set_cell_text(table.cell(1, 4), "曾用名/别名", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    _set_cell_text(table.cell(1, 5).merge(table.cell(1, 7)), heritage.former_name or "——")
+
+    _set_cell_text(table.cell(2, 0), "时代", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    _set_cell_text(table.cell(2, 1), heritage.era)
+    _set_cell_text(table.cell(2, 2), "类别", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    _set_cell_text(table.cell(2, 3), heritage.get_category_display())
+    _set_cell_text(table.cell(2, 4), "类型", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    _set_cell_text(table.cell(2, 5).merge(table.cell(2, 7)), heritage.heritage_type or "——")
+
+    _set_cell_text(table.cell(3, 0).merge(table.cell(3, 7)), "二、地理位置", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    _set_cell_text(table.cell(4, 0), "省/自治区", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    _set_cell_text(table.cell(4, 1), heritage.province or "——")
+    _set_cell_text(table.cell(4, 2), "市/州", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    _set_cell_text(table.cell(4, 3), heritage.city or "——")
+    _set_cell_text(table.cell(4, 4), "县/区", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    _set_cell_text(table.cell(4, 5).merge(table.cell(4, 7)), heritage.county or "——")
+
+    _set_cell_text(table.cell(5, 0), "乡镇/街道", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    _set_cell_text(table.cell(5, 1).merge(table.cell(5, 3)), heritage.township or "——")
+    _set_cell_text(table.cell(5, 4), "村/社区", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    _set_cell_text(table.cell(5, 5).merge(table.cell(5, 7)), heritage.village or "——")
+
+    _set_cell_text(table.cell(6, 0), "详细地址", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    _set_cell_text(table.cell(6, 1).merge(table.cell(6, 7)), heritage.address or "——")
+
+    _set_cell_text(table.cell(7, 0), "坐标系", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    _set_cell_text(table.cell(7, 1), heritage.get_coordinate_system_display())
+    _set_cell_text(table.cell(7, 2), "经度", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    _set_cell_text(table.cell(7, 3), f"{heritage.longitude:.8f}", font_size=9)
+    _set_cell_text(table.cell(7, 4), "纬度", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    _set_cell_text(table.cell(7, 5), f"{heritage.latitude:.8f}", font_size=9)
+    _set_cell_text(table.cell(7, 6), "海拔(m)", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    _set_cell_text(table.cell(7, 7), f"{heritage.altitude:.2f}" if heritage.altitude is not None else "——", font_size=9)
+
+    _set_cell_text(table.cell(8, 0), "占地面积", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    _set_cell_text(table.cell(8, 1).merge(table.cell(8, 3)), f"{heritage.area:.2f} 平方米" if heritage.area else "——")
+    _set_cell_text(table.cell(8, 4), "经度(度分秒)", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER, font_size=9)
+    _set_cell_text(table.cell(8, 5), _decimal_to_dms(heritage.longitude, True), font_size=8)
+    _set_cell_text(table.cell(8, 6), "纬度(度分秒)", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER, font_size=9)
+    _set_cell_text(table.cell(8, 7), _decimal_to_dms(heritage.latitude, False), font_size=8)
+
+    _set_cell_text(table.cell(9, 0).merge(table.cell(9, 7)), "三、现状与保护", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    _set_cell_text(table.cell(10, 0), "保存现状", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    _set_cell_text(table.cell(10, 1), heritage.preservation_status)
+    _set_cell_text(table.cell(10, 2), "权属", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    _set_cell_text(table.cell(10, 3), heritage.get_ownership_display())
+    _set_cell_text(table.cell(10, 4), "保护级别", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    _set_cell_text(table.cell(10, 5).merge(table.cell(10, 7)), heritage.get_protection_level_display())
+
+    _set_cell_text(table.cell(11, 0), "破坏原因", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    _set_cell_text(table.cell(11, 1).merge(table.cell(11, 3)), heritage.damage_cause or "无")
+    _set_cell_text(table.cell(11, 4), "威胁因素", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    _set_cell_text(table.cell(11, 5).merge(table.cell(11, 7)), heritage.threat_factors or "无")
+
+    _set_cell_text(table.cell(12, 0).merge(table.cell(12, 7)), "四、文物简介", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    _set_cell_text(table.cell(13, 0).merge(table.cell(13, 7)), heritage.description or "（暂无简介）")
+
+    _set_cell_text(table.cell(14, 0).merge(table.cell(14, 7)), "五、照片说明（现场采集水印照片）", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    _set_cell_text(table.cell(15, 0).merge(table.cell(16, 1)), "照片说明", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    photo_cell = table.cell(15, 2).merge(table.cell(16, 7))
+    _insert_photos_into_cell(photo_cell, list(heritage.photos.all()))
+
+    document.add_paragraph("")
+    sign = document.add_paragraph(
+        "采集人：{0}    审核人：{1}    日期：{2}".format(
+            heritage.collector.get_full_name() if heritage.collector else "",
+            heritage.reviewer.get_full_name() if heritage.reviewer else "",
+            timezone.localtime(heritage.collected_at).strftime("%Y-%m-%d") if heritage.collected_at else "",
+        )
+    )
+    sign.alignment = WD_PARAGRAPH_ALIGNMENT.RIGHT
+    for run in sign.runs:
+        run.font.size = Pt(10)
+        run.font.name = "宋体"
+
+    output = io.BytesIO()
+    document.save(output)
+    output.seek(0)
+
+    filename = f"四普登记表_{heritage.survey_code}_{heritage.name}.docx"
+    response = FileResponse(
+        output,
+        as_attachment=True,
+        filename=filename,
+        content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+    response["Content-Type"] = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    return response
 

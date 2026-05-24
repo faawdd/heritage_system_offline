@@ -19,20 +19,25 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from django.views.generic import RedirectView
-from core.views import (heritage_map_view, heritage_dashboard_view, heritage_stats_api, 
+from core.views import (heritage_map_view, heritage_dashboard_view, heritage_stats_api,
                         heritage_stats_by_category_api, admin_index_view,
                         kanerjing_list_view, kanerjing_stats_api, kanerjing_import_check_view,
-                        CustomPasswordChangeDoneView, inspection_mobile_add_view, 
+                        CustomPasswordChangeDoneView, inspection_mobile_add_view,
                         inspection_mobile_list_view, export_doc_view, kml_overlay_check_view,
                         ovkml_converter_view, heritage_classification_stats_api, heritage_detail_view,
                         heritage_boundary_export_view,
                         mobile_kml_entry_view, app_showcase_view,
-                        system_version_api)
+                        system_version_api, heritage_collect_view,
+                        heritage_detail_preview_view,
+                        export_immovable_heritage_docx_view)
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 urlpatterns = [
     path('app-download/', app_showcase_view, name='app_showcase'),
     path('download/', app_showcase_view, name='app_showcase_alias'),
+    path('mobile/collect/', heritage_collect_view, name='heritage_collect'),  # 文物现场采集
+    path('mobile/collect/<int:pk>/preview/', heritage_detail_preview_view, name='heritage_detail_preview'),  # 四普登记表预览
+    path('mobile/collect/<int:pk>/export-docx/', export_immovable_heritage_docx_view, name='export_immovable_heritage_docx'),
     path('admin/home/', admin_index_view, name='admin_home'),  # 自定义首页
     path('admin/heritage/<int:pk>/detail/', heritage_detail_view, name='heritage_detail'),  # 文物详情页（只读）
     path('admin/heritage/<int:pk>/boundary-export/', heritage_boundary_export_view, name='heritage_boundary_export'),
