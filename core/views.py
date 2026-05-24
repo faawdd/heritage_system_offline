@@ -1986,7 +1986,7 @@ def heritage_collect_view(request):
             if not category:
                 errors["category"] = "文物类别不能为空"
             if not lon_raw or not lat_raw:
-                errors["location"] = "请先点击"获取当前位置"以填入经纬度"
+                errors["location"] = "请先点击\"获取当前位置\"以填入经纬度"
 
             # 经纬度合法性
             longitude = latitude = None
