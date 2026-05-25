@@ -38,6 +38,7 @@ INVALID_ELEVATION_SENTINELS = {-32768.0, -32767.0}
 # 防止并发请求同一瓦片时重复下载。
 _TILE_LOCKS: dict[str, threading.Lock] = {}
 _TILE_LOCKS_GUARD = threading.Lock()
+_ASYNC_WARMING_TILES: set[str] = set()
 
 
 @dataclass(frozen=True)
@@ -239,6 +240,39 @@ def ensure_tile_cached(longitude: float, latitude: float, dem_type: str = DEFAUL
     return tile_path if tile_path.exists() else None
 
 
+def get_cached_tile_path(longitude: float, latitude: float, dem_type: str = DEFAULT_DEM_TYPE) -> Optional[Path]:
+    """仅检查本地缓存，不触发下载。"""
+    tile_spec = build_tile_spec(longitude, latitude)
+    tile_path = _build_tile_path(tile_spec, dem_type)
+    return tile_path if tile_path.exists() else None
+
+
+def warm_tile_cache_async(longitude: float, latitude: float, dem_type: str = DEFAULT_DEM_TYPE) -> None:
+    """后台异步预热瓦片缓存，不阻塞请求线程。"""
+    tile_spec = build_tile_spec(longitude, latitude)
+    tile_path = _build_tile_path(tile_spec, dem_type)
+    tile_key = str(tile_path)
+
+    if tile_path.exists():
+        return
+
+    with _TILE_LOCKS_GUARD:
+        if tile_key in _ASYNC_WARMING_TILES:
+            return
+        _ASYNC_WARMING_TILES.add(tile_key)
+
+    def _worker() -> None:
+        try:
+            ensure_tile_cached(longitude=longitude, latitude=latitude, dem_type=dem_type)
+        except Exception:
+            logger.exception("DEM 后台预热失败: tile=%s", tile_spec.tile_name)
+        finally:
+            with _TILE_LOCKS_GUARD:
+                _ASYNC_WARMING_TILES.discard(tile_key)
+
+    threading.Thread(target=_worker, name=f"dem-warm-{tile_spec.tile_name}", daemon=True).start()
+
+
 def _clean_elevation(value: float, nodata: Optional[float]) -> Optional[float]:
     """清洗 DEM 异常值（海洋、无信号、坏值）。"""
     if value != value:  # NaN
@@ -288,8 +322,20 @@ def sample_tile_elevation(tile_path: Path, longitude: float, latitude: float) ->
         return None
 
 
-def get_dem_elevation(longitude: float, latitude: float, dem_type: str = DEFAULT_DEM_TYPE) -> Optional[float]:
-    """外部统一调用入口：按需下载 + 缓存 + 高程反查。"""
+def get_dem_elevation(
+    longitude: float,
+    latitude: float,
+    dem_type: str = DEFAULT_DEM_TYPE,
+    *,
+    prefer_cached_only: bool = False,
+    trigger_background_download: bool = True,
+) -> Optional[float]:
+    """外部统一调用入口：按需下载 + 缓存 + 高程反查。
+
+    参数说明：
+    - prefer_cached_only=True：只查本地缓存；未命中立即返回 None；
+    - trigger_background_download=True：缓存未命中时后台异步预热。
+    """
     try:
         lon = float(longitude)
         lat = float(latitude)
@@ -301,7 +347,15 @@ def get_dem_elevation(longitude: float, latitude: float, dem_type: str = DEFAULT
         logger.warning("DEM 反查参数越界: lon=%s, lat=%s", lon, lat)
         return None
 
-    tile_path = ensure_tile_cached(longitude=lon, latitude=lat, dem_type=dem_type)
+    if prefer_cached_only:
+        tile_path = get_cached_tile_path(longitude=lon, latitude=lat, dem_type=dem_type)
+        if tile_path is None:
+            if trigger_background_download:
+                warm_tile_cache_async(longitude=lon, latitude=lat, dem_type=dem_type)
+            return None
+    else:
+        tile_path = ensure_tile_cached(longitude=lon, latitude=lat, dem_type=dem_type)
+
     if tile_path is None:
         return None
 
