@@ -610,6 +610,17 @@ def kml_overlay_entry(current_user: Any = Depends(require_admin)) -> dict:
     }
 
 
+@app.get("/api/admin/collect-entry")
+def collect_entry(current_user: Any = Depends(require_admin)) -> dict:
+    base_url = os.environ.get("DJANGO_WEB_BASE_URL", "https://beichenhome.top:9081")
+    token = create_token(current_user, expires_in=60 * 10)
+    target = quote("/mobile/collect/", safe="/")
+    return {
+        "url": f"{base_url.rstrip('/')}/mobile/collect-entry/?token={quote(token)}&next={target}",
+        "note": "该功能复用现有 Django 网页工具，App 将自动桥接登录后再打开不可移动文物采集页。",
+    }
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 不可移动文物现场采集 API（四普）
 # ─────────────────────────────────────────────────────────────────────────────
