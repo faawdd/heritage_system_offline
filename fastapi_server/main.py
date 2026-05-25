@@ -52,7 +52,6 @@ from django.contrib.auth.hashers import check_password
 from django.db import models
 from core.models import HeritageSite, InspectionRecord, ProjectAudit  # type: ignore[import]
 from core.models import ImmovableHeritage, HeritagePhoto            # type: ignore[import]
-from core.utils_watermark import add_heritage_watermark             # type: ignore[import]
 
 
 DB_PATH = Path(settings.DATABASES["default"]["NAME"])
@@ -847,12 +846,11 @@ def collect_upload_photo(
 ) -> dict:
     """
     第二步：为已创建的 ImmovableHeritage 记录上传一张现场照片。
-    服务端自动合成 Pillow 水印（文物名称 / 经纬度(度分秒) / 采集时间 / 采集单位）
-    后保存为 HeritagePhoto。
+    服务端仅做权限与文件校验，按原图保存为 HeritagePhoto。
+    水印统一由手机端拍摄环节写入，后端不再二次改图，避免重复水印。
 
     App 端对每张照片调用一次此接口（顺序上传）。
     """
-    import io as _io
     from django.core.files.base import ContentFile
     from django.utils import timezone
 
@@ -874,26 +872,11 @@ def collect_upload_photo(
         raise HTTPException(status_code=400, detail="请上传图片文件（JPEG / PNG）")
 
     raw_bytes = photo.file.read()
+    if not raw_bytes:
+        raise HTTPException(status_code=400, detail="空文件，上传失败")
     if len(raw_bytes) > 30 * 1024 * 1024:          # 30 MB 上限
         raise HTTPException(status_code=413, detail="单张照片不得超过 30 MB")
-
-    collect_unit = os.environ.get("HERITAGE_COLLECT_UNIT", "文物管理部门")
     collected_at = heritage.collected_at or timezone.now()
-
-    try:
-        watermarked = add_heritage_watermark(
-            image_source=_io.BytesIO(raw_bytes),
-            heritage_name=heritage.name,
-            collected_at=collected_at,
-            longitude=float(heritage.longitude),
-            latitude=float(heritage.latitude),
-            collect_unit=collect_unit,
-        )
-        buf = _io.BytesIO()
-        watermarked.save(buf, format="JPEG", quality=88, optimize=True)
-        buf.seek(0)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"水印合成失败：{exc}") from exc
 
     now = timezone.now()
     hp = HeritagePhoto(
@@ -906,15 +889,24 @@ def collect_upload_photo(
         uploaded_by=current_user,
         caption=f"现场采集照片（{current_user.first_name or current_user.username}）",
     )
-    filename = f"collect_{heritage_id}_{now.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}.jpg"
-    hp.image.save(filename, ContentFile(buf.read()), save=True)
+    suffix = os.path.splitext(photo.filename or "")[1].lower()
+    if suffix not in {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}:
+        if content_type == "image/png":
+            suffix = ".png"
+        elif content_type == "image/webp":
+            suffix = ".webp"
+        else:
+            suffix = ".jpg"
+
+    filename = f"collect_{heritage_id}_{now.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}{suffix}"
+    hp.image.save(filename, ContentFile(raw_bytes), save=True)
 
     base_url = os.environ.get("DJANGO_WEB_BASE_URL", "https://beichenhome.top:9081").rstrip("/")
     return {
         "photo_id": hp.id,
         "photo_url": f"{base_url}/media/{str(hp.image)}",
         "is_cover": hp.is_cover,
-        "message": "照片上传并加水印成功",
+        "message": "照片上传成功",
     }
 
 
