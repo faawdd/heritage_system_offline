@@ -208,7 +208,7 @@ SIMPLEUI_CONFIG = {
                 {
                     'name': 'DOCX导出（批量）',
                     'icon': 'fas fa-file-word',
-                    'url': '/admin/core/immovableheritage/'
+                    'url': '/admin/export_doc/'
                 },
             ]
         },

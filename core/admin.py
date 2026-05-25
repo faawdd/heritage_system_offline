@@ -26,6 +26,7 @@ import io
 from .utils import generate_word_log
 import json
 from django.shortcuts import render
+from django.urls import reverse
 import re
 from django.conf import settings
 from django.utils import timezone
@@ -1114,6 +1115,8 @@ class ImmovableHeritageAdmin(admin.ModelAdmin):
         'preservation_status',
         'collector',
         'collected_at',
+        'preview_render_button',
+        'export_docx_button',
     )
     list_filter = (
         'category',
@@ -1134,6 +1137,22 @@ class ImmovableHeritageAdmin(admin.ModelAdmin):
     )
     readonly_fields = ('created_at', 'updated_at')
     ordering = ('-collected_at', '-id')
+
+    def preview_render_button(self, obj):
+        url = reverse('heritage_detail_preview', kwargs={'pk': obj.pk})
+        return format_html(
+            '<a class="button" href="{}" target="_blank" style="padding:2px 8px;">查看渲染页</a>',
+            url,
+        )
+    preview_render_button.short_description = '登记表渲染'
+
+    def export_docx_button(self, obj):
+        url = reverse('export_immovable_heritage_docx', kwargs={'pk': obj.pk})
+        return format_html(
+            '<a class="button" href="{}" target="_blank" style="padding:2px 8px;">导出DOCX</a>',
+            url,
+        )
+    export_docx_button.short_description = 'DOCX导出'
 
 
 @admin.register(HeritagePhoto)
