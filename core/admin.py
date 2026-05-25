@@ -1108,14 +1108,13 @@ class ImmovableHeritageAdmin(admin.ModelAdmin):
     """四普不可移动文物采集数据管理。"""
     list_display = (
         'survey_code',
-        'name',
+        'name_preview_link',
         'category',
         'era',
         'protection_level',
         'preservation_status',
         'collector',
         'collected_at',
-        'preview_render_button',
         'export_docx_button',
     )
     list_filter = (
@@ -1138,13 +1137,11 @@ class ImmovableHeritageAdmin(admin.ModelAdmin):
     readonly_fields = ('created_at', 'updated_at')
     ordering = ('-collected_at', '-id')
 
-    def preview_render_button(self, obj):
+    def name_preview_link(self, obj):
         url = reverse('heritage_detail_preview', kwargs={'pk': obj.pk})
-        return format_html(
-            '<a class="button" href="{}" target="_blank" style="padding:2px 8px;">查看渲染页</a>',
-            url,
-        )
-    preview_render_button.short_description = '登记表渲染'
+        return format_html('<a href="{}" target="_blank">{}</a>', url, obj.name)
+    name_preview_link.short_description = '文物名称'
+    name_preview_link.admin_order_field = 'name'
 
     def export_docx_button(self, obj):
         url = reverse('export_immovable_heritage_docx', kwargs={'pk': obj.pk})

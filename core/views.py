@@ -2100,6 +2100,24 @@ def _decimal_to_dms(decimal_deg, is_longitude: bool) -> str:
     return f"{direction} {degrees}°{minutes:02d}′{seconds:05.2f}″"
 
 
+def _safe_file_url(file_field) -> str:
+    """安全获取文件 URL，避免坏数据或空文件导致预览页 500。"""
+    try:
+        if file_field and getattr(file_field, "name", ""):
+            return file_field.url
+    except Exception:
+        return ""
+    return ""
+
+
+def _display_user_name(user) -> str:
+    """统一处理用户显示名称，避免模板对空对象链式取值。"""
+    if not user:
+        return "——"
+    full_name = user.get_full_name() if hasattr(user, "get_full_name") else ""
+    return full_name or getattr(user, "username", "——") or "——"
+
+
 @login_required
 def heritage_detail_preview_view(request, pk):
     """
@@ -2127,14 +2145,30 @@ def heritage_detail_preview_view(request, pk):
     # 度分秒在视图层计算，保持模板简洁
     lon_dms = _decimal_to_dms(heritage.longitude, is_longitude=True)
     lat_dms = _decimal_to_dms(heritage.latitude,  is_longitude=False)
+    cover_photo_url = _safe_file_url(cover_photo.image if cover_photo else None)
+    other_photo_items = [
+        {
+            "url": _safe_file_url(photo.image),
+            "caption": photo.caption,
+            "photo_type_display": photo.get_photo_type_display(),
+            "shot_at": photo.shot_at,
+        }
+        for photo in other_photos
+        if _safe_file_url(photo.image)
+    ]
 
     context = {
         "heritage":             heritage,
         "cover_photo":          cover_photo,
+        "cover_photo_url":      cover_photo_url,
         "other_photos":         other_photos,
+        "other_photo_items":    other_photo_items,
         "photos":               all_photos,
         "lon_dms":              lon_dms,
         "lat_dms":              lat_dms,
+        "collector_display":    _display_user_name(heritage.collector),
+        "input_by_display":     _display_user_name(heritage.input_by),
+        "reviewer_display":     _display_user_name(heritage.reviewer),
         "preservation_choices": ImmovableHeritage.PRESERVATION_STATUS_CHOICES,
         "protection_choices":   ImmovableHeritage.PROTECTION_LEVEL_CHOICES,
         "ownership_choices":    ImmovableHeritage.OWNERSHIP_CHOICES,
