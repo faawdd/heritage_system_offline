@@ -2,43 +2,104 @@
 
 {% block content %}
 <div style="background:#fff;border:1px solid #ebeef5;border-radius:8px;padding:18px;">
-    <h2 style="margin-top:0;">一键公文生成（批量）</h2>
-    <p style="color:#606266;">勾选需要发文的输变电项目，系统将按模板批量生成上行文并打包下载。</p>
+    <h2 style="margin-top:0;">四普登记表 DOCX 批量导出</h2>
+    <p style="color:#606266;">按条件筛选采集记录后勾选导出，系统会将每条记录渲染为独立 DOCX 并打包下载。</p>
+
+    <form method="get" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:10px 0 16px;">
+        <input type="text" name="q" value="{{ q|default:'' }}" placeholder="搜索普查编号/名称/地址"
+               style="height:34px;padding:0 10px;border:1px solid #dcdfe6;border-radius:6px;min-width:280px;">
+
+        <select name="category" style="height:34px;padding:0 8px;border:1px solid #dcdfe6;border-radius:6px;min-width:150px;">
+            <option value="">全部类别</option>
+            {% for value, label in category_choices %}
+            <option value="{{ value }}" {% if category == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+
+        <select name="protection_level" style="height:34px;padding:0 8px;border:1px solid #dcdfe6;border-radius:6px;min-width:150px;">
+            <option value="">全部保护级别</option>
+            {% for value, label in protection_level_choices %}
+            <option value="{{ value }}" {% if protection_level == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+
+        <button type="submit" class="button default">筛选</button>
+        <a href="?" class="button">重置</a>
+    </form>
 
     {% if error %}
     <div style="color:#f56c6c;margin-bottom:12px;">{{ error }}</div>
     {% endif %}
 
-    <form method="post">
+    {% if failed_items %}
+    <div style="margin-bottom:12px;padding:10px;border-radius:6px;background:#fff7e6;border:1px solid #ffe58f;color:#ad6800;">
+        <div style="font-weight:600;margin-bottom:6px;">以下记录导出失败：</div>
+        <ul style="margin:0;padding-left:18px;max-height:140px;overflow:auto;">
+            {% for item in failed_items %}
+            <li>{{ item }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
+    <form method="post" id="exportForm">
         {% csrf_token %}
         <table class="table" style="width:100%;border-collapse:collapse;">
             <thead>
-                <tr style="text-align:left;border-bottom:1px solid #ebeef5;">
-                    <th style="padding:8px;">选择</th>
-                    <th style="padding:8px;">项目名称</th>
-                    <th style="padding:8px;">项目单位</th>
-                    <th style="padding:8px;">当前状态</th>
+                <tr style="text-align:left;border-bottom:1px solid #ebeef5;background:#fafafa;">
+                    <th style="padding:8px;width:42px;"><input type="checkbox" id="checkAll"></th>
+                    <th style="padding:8px;">普查编号</th>
+                    <th style="padding:8px;">文物名称</th>
+                    <th style="padding:8px;">类别</th>
+                    <th style="padding:8px;">保护级别</th>
+                    <th style="padding:8px;">采集人</th>
+                    <th style="padding:8px;">采集时间</th>
                 </tr>
             </thead>
             <tbody>
-                {% for project in projects %}
+                {% for item in records %}
                 <tr style="border-bottom:1px solid #f2f6fc;">
-                    <td style="padding:8px;"><input type="checkbox" name="project_ids" value="{{ project.id }}"></td>
-                    <td style="padding:8px;">{{ project.project_name }}</td>
-                    <td style="padding:8px;">{{ project.project_unit|default:"--" }}</td>
-                    <td style="padding:8px;">{{ project.get_workflow_status_display }}</td>
+                    <td style="padding:8px;"><input type="checkbox" name="heritage_ids" value="{{ item.id }}"></td>
+                    <td style="padding:8px;">{{ item.survey_code }}</td>
+                    <td style="padding:8px;">{{ item.name }}</td>
+                    <td style="padding:8px;">{{ item.get_category_display }}</td>
+                    <td style="padding:8px;">{{ item.get_protection_level_display }}</td>
+                    <td style="padding:8px;">{{ item.collector.get_full_name|default:item.collector.username|default:"--" }}</td>
+                    <td style="padding:8px;">{{ item.collected_at|date:"Y-m-d H:i"|default:"--" }}</td>
                 </tr>
                 {% empty %}
                 <tr>
-                    <td colspan="4" style="padding:12px;">暂无可导出项目。</td>
+                    <td colspan="7" style="padding:12px;">暂无可导出的采集记录。</td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
 
-        <div style="margin-top:14px;">
-            <button type="submit" class="el-button el-button--primary">批量生成并下载</button>
+        <div style="margin-top:14px;display:flex;align-items:center;gap:12px;">
+            <button type="submit" class="default" onclick="return confirmExport();">批量生成并下载 ZIP</button>
+            <span style="font-size:12px;color:#909399;">最多展示最近 300 条记录，请先筛选再导出。</span>
         </div>
     </form>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const checkAll = document.getElementById('checkAll');
+    if (!checkAll) return;
+    checkAll.addEventListener('change', function () {
+        document.querySelectorAll('input[name="heritage_ids"]').forEach(function (el) {
+            el.checked = checkAll.checked;
+        });
+    });
+});
+
+function confirmExport() {
+    const count = document.querySelectorAll('input[name="heritage_ids"]:checked').length;
+    if (count === 0) {
+        alert('请至少勾选一条记录。');
+        return false;
+    }
+    return confirm('确认导出 ' + count + ' 条记录为 DOCX 吗？');
+}
+</script>
 {% endblock %}

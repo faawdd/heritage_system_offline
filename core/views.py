@@ -256,31 +256,104 @@ def _render_project_docx(project):
 
 @staff_member_required
 def export_doc_view(request):
-    projects = ProjectAudit.objects.order_by('-received_date')[:100]
-    if request.method == 'POST':
-        selected_ids = request.POST.getlist('project_ids')
-        if not selected_ids:
-            return render(request, 'admin/export_doc.html', {
-                'projects': projects,
-                'error': '请至少选择一个项目。'
-            })
+    from .models import ImmovableHeritage
 
-        selected_projects = ProjectAudit.objects.filter(id__in=selected_ids)
-        zip_buffer = io.BytesIO()
-        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-            for project in selected_projects:
-                doc_stream = _render_project_docx(project)
-                filename = f'标准请示公文_{project.project_name}_{project.id}.docx'
-                zip_file.writestr(filename, doc_stream.getvalue())
+    q = (request.GET.get('q') or '').strip()
+    category = (request.GET.get('category') or '').strip()
+    protection_level = (request.GET.get('protection_level') or '').strip()
 
-        zip_buffer.seek(0)
-        return HttpResponse(
-            zip_buffer.getvalue(),
-            content_type='application/zip',
-            headers={'Content-Disposition': 'attachment; filename="批量公文导出.zip"'}
+    queryset = ImmovableHeritage.objects.select_related('collector').prefetch_related('photos').order_by('-collected_at', '-id')
+
+    if q:
+        queryset = queryset.filter(
+            Q(survey_code__icontains=q)
+            | Q(name__icontains=q)
+            | Q(former_name__icontains=q)
+            | Q(address__icontains=q)
         )
 
-    return render(request, 'admin/export_doc.html', {'projects': projects})
+    valid_categories = {value for value, _ in ImmovableHeritage.CATEGORY_CHOICES}
+    valid_levels = {value for value, _ in ImmovableHeritage.PROTECTION_LEVEL_CHOICES}
+
+    if category in valid_categories:
+        queryset = queryset.filter(category=category)
+    if protection_level in valid_levels:
+        queryset = queryset.filter(protection_level=protection_level)
+
+    records = list(queryset[:300])
+
+    if request.method == 'POST':
+        selected_ids = request.POST.getlist('heritage_ids')
+        if not selected_ids:
+            return render(request, 'admin/export_doc.html', {
+                'records': records,
+                'q': q,
+                'category': category,
+                'protection_level': protection_level,
+                'category_choices': ImmovableHeritage.CATEGORY_CHOICES,
+                'protection_level_choices': ImmovableHeritage.PROTECTION_LEVEL_CHOICES,
+                'error': '请至少选择一条采集记录。'
+            })
+
+        selected_records = list(
+            ImmovableHeritage.objects.select_related('collector', 'input_by', 'reviewer').prefetch_related('photos')
+            .filter(id__in=selected_ids)
+            .order_by('-collected_at', '-id')
+        )
+
+        if not selected_records:
+            return render(request, 'admin/export_doc.html', {
+                'records': records,
+                'q': q,
+                'category': category,
+                'protection_level': protection_level,
+                'category_choices': ImmovableHeritage.CATEGORY_CHOICES,
+                'protection_level_choices': ImmovableHeritage.PROTECTION_LEVEL_CHOICES,
+                'error': '未找到可导出的记录，请刷新页面后重试。'
+            })
+
+        zip_buffer = io.BytesIO()
+        success_count = 0
+        failed_items = []
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            for heritage in selected_records:
+                try:
+                    doc_stream, filename = _build_immovable_heritage_docx_stream(heritage)
+                    zip_file.writestr(filename, doc_stream.getvalue())
+                    success_count += 1
+                except Exception as exc:
+                    failed_items.append(f"{heritage.survey_code or heritage.id} - {heritage.name}: {exc}")
+
+        if success_count <= 0:
+            return render(request, 'admin/export_doc.html', {
+                'records': records,
+                'q': q,
+                'category': category,
+                'protection_level': protection_level,
+                'category_choices': ImmovableHeritage.CATEGORY_CHOICES,
+                'protection_level_choices': ImmovableHeritage.PROTECTION_LEVEL_CHOICES,
+                'error': '导出失败，未成功生成任何 DOCX 文件。',
+                'failed_items': failed_items,
+            })
+
+        zip_buffer.seek(0)
+        ts = timezone.localtime(timezone.now()).strftime('%Y%m%d%H%M%S')
+        zip_name = f'四普登记表批量导出_{ts}.zip'
+        response = HttpResponse(
+            zip_buffer.getvalue(),
+            content_type='application/zip',
+        )
+        response['Content-Disposition'] = f"attachment; filename*=UTF-8''{quote(zip_name)}"
+        return response
+
+    return render(request, 'admin/export_doc.html', {
+        'records': records,
+        'q': q,
+        'category': category,
+        'protection_level': protection_level,
+        'category_choices': ImmovableHeritage.CATEGORY_CHOICES,
+        'protection_level_choices': ImmovableHeritage.PROTECTION_LEVEL_CHOICES,
+    })
 
 @staff_member_required  # 确保只有登录后台的人能看
 def heritage_map_view(request):
@@ -1940,12 +2013,10 @@ def heritage_collect_view(request):
     文物点现场数据采集（手机/平板端）
 
     GET  → 渲染采集表单
-    POST → 接收表单数据，执行 Pillow 水印合成，保存 ImmovableHeritage + HeritagePhoto
+    POST → 接收表单数据，按巡查上报同规则保存照片，写入 ImmovableHeritage + HeritagePhoto
     """
     from .models import ImmovableHeritage, HeritagePhoto
-    from .utils_watermark import add_heritage_watermark
     from django.core.files.base import ContentFile
-    import io as _io
 
     collect_unit = getattr(settings, "HERITAGE_COLLECT_UNIT", "文物管理部门")
 
@@ -2045,24 +2116,24 @@ def heritage_collect_view(request):
             )
             heritage.save()
 
-            # ── 处理照片：水印合成 → 保存 HeritagePhoto ────────
+            # ── 处理照片：与巡查上报保持一致，按原图保存（来源端负责水印） ────────
             photo_files = request.FILES.getlist("photos")
             saved_count = 0
             photo_errors = []
 
             for idx, photo_file in enumerate(photo_files):
                 try:
-                    watermarked = add_heritage_watermark(
-                        image_source=photo_file,
-                        heritage_name=name,
-                        collected_at=collected_at,
-                        longitude=longitude,
-                        latitude=latitude,
-                        collect_unit=collect_unit,
-                    )
-                    buf = _io.BytesIO()
-                    watermarked.save(buf, format="JPEG", quality=88, optimize=True)
-                    buf.seek(0)
+                    content_type = (getattr(photo_file, "content_type", "") or "").lower()
+                    if content_type and not content_type.startswith("image/"):
+                        raise ValueError("仅支持图片文件")
+
+                    raw = photo_file.read()
+                    if not raw:
+                        raise ValueError("空文件")
+
+                    suffix = os.path.splitext(photo_file.name or "")[1].lower() or ".jpg"
+                    if suffix not in {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}:
+                        suffix = ".jpg"
 
                     hp = HeritagePhoto(
                         heritage=heritage,
@@ -2074,8 +2145,12 @@ def heritage_collect_view(request):
                         uploaded_by=request.user,
                         caption=f"现场采集照片 {idx + 1}",
                     )
-                    filename = f"collect_{heritage.id}_{idx + 1:02d}.jpg"
-                    hp.image.save(filename, ContentFile(buf.read()), save=True)
+                    filename = (
+                        f"collect_{heritage.id}_"
+                        f"{timezone.localtime(timezone.now()).strftime('%Y%m%d%H%M%S')}_"
+                        f"{idx + 1:02d}_{uuid.uuid4().hex[:6]}{suffix}"
+                    )
+                    hp.image.save(filename, ContentFile(raw), save=True)
                     saved_count += 1
 
                 except Exception as exc:
@@ -2253,21 +2328,17 @@ def _insert_photos_into_cell(cell, photos):
         run_caption.font.name = "宋体"
 
 
-@login_required
-def export_immovable_heritage_docx_view(request, pk):
-    """
-    一键导出：第四次全国文物普查不可移动文物登记表（.docx）
-    - python-docx 动态绘制复杂表格
-    - A4 纵向 + 标准页边距
-    - 单元格合并 + 现场照片插入
-    """
-    from .models import ImmovableHeritage
+def _safe_docx_fragment(text):
+    raw = (text or '').strip()
+    if not raw:
+        return 'unknown'
+    cleaned = re.sub(r'[\\/:*?"<>|]+', '_', raw)
+    cleaned = re.sub(r'\s+', '_', cleaned)
+    return cleaned[:80]
 
-    heritage = get_object_or_404(
-        ImmovableHeritage.objects.select_related("collector", "input_by", "reviewer").prefetch_related("photos"),
-        pk=pk,
-    )
 
+def _build_immovable_heritage_docx_stream(heritage):
+    """生成单条不可移动文物四普登记表 DOCX，返回 (BytesIO, filename)。"""
     document = Document()
     section = document.sections[0]
     section.page_width = Mm(210)
@@ -2377,7 +2448,25 @@ def export_immovable_heritage_docx_view(request, pk):
     document.save(output)
     output.seek(0)
 
-    filename = f"四普登记表_{heritage.survey_code}_{heritage.name}.docx"
+    filename = f"四普登记表_{_safe_docx_fragment(heritage.survey_code)}_{_safe_docx_fragment(heritage.name)}.docx"
+    return output, filename
+
+
+@login_required
+def export_immovable_heritage_docx_view(request, pk):
+    """
+    一键导出：第四次全国文物普查不可移动文物登记表（.docx）
+    - python-docx 动态绘制复杂表格
+    - A4 纵向 + 标准页边距
+    - 单元格合并 + 现场照片插入
+    """
+    from .models import ImmovableHeritage
+
+    heritage = get_object_or_404(
+        ImmovableHeritage.objects.select_related("collector", "input_by", "reviewer").prefetch_related("photos"),
+        pk=pk,
+    )
+    output, filename = _build_immovable_heritage_docx_stream(heritage)
     response = FileResponse(
         output,
         as_attachment=True,
