@@ -191,7 +191,7 @@ SIMPLEUI_CONFIG = {
             'icon': 'fas fa-clipboard-check',
             'models': [
                 {
-                    'name': '现场数据采集',
+                    'name': '鄯善县不可移动文物采集',
                     'icon': 'fas fa-mobile-alt',
                     'url': '/mobile/collect/'
                 },
@@ -204,11 +204,6 @@ SIMPLEUI_CONFIG = {
                     'name': '采集照片管理',
                     'icon': 'fas fa-images',
                     'url': 'core/heritagephoto/'
-                },
-                {
-                    'name': 'DOCX导出（批量）',
-                    'icon': 'fas fa-file-word',
-                    'url': '/admin/export_doc/'
                 },
             ]
         },

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>四普登记表 — {{ heritage.name }}</title>
+<title>不可移动文物采集登记表 — {{ heritage.name }}</title>
 <style>
 /* ══════════════════════════════════════════════════
    全局 & A4 页面
@@ -300,15 +300,15 @@ body {
   <!-- ── 页眉 ── -->
   <div class="page-header">
     <div class="org-line">国家文物局监制</div>
-    <div class="main-title">第四次全国文物普查</div>
+    <div class="main-title">鄯善县不可移动文物采集</div>
     <div class="sub-title">不可移动文物登记表</div>
   </div>
 
   <!-- ── 普查编号栏 ── -->
   <div class="code-bar">
-    <span>普查编号：<span class="code-val">{{ heritage.survey_code }}</span></span>
+    <span>采集编号：<span class="code-val">{{ heritage.survey_code }}</span></span>
     <span>
-      {% if heritage.previous_survey_code %}三普编号：{{ heritage.previous_survey_code }}{% endif %}
+      {% if heritage.previous_survey_code %}历史编号：{{ heritage.previous_survey_code }}{% endif %}
     </span>
     <span>采集时间：{{ heritage.collected_at|date:"Y年m月d日" }}</span>
   </div>
@@ -550,20 +550,20 @@ body {
 
     <!-- ┌─────────────────── 七、现场照片 ────────────────────┐ -->
     <tr>
-      <td colspan="8" class="sec-head photo-section">七、现场照片（含水印）</td>
+      <td colspan="8" class="sec-head photo-section">七、现场照片</td>
     </tr>
     <tr class="photo-section">
       <td colspan="8" style="padding:0;">
         {% if photos %}
-          {% if cover_photo %}
+          {% if cover_photo and cover_photo.image %}
           <!-- 封面大图 -->
           <div style="padding:6px 6px 0;">
-            <img src="{{ cover_photo.image.url }}"
+              <img src="{{ cover_photo.image.url }}"
                  alt="{{ cover_photo.caption|default:'封面照片' }}"
                  class="cover-photo"
                  onerror="this.style.display='none'">
             <div style="font-size:7.5pt;color:#555;text-align:center;padding:2px 0 4px;">
-              【封面·{{ cover_photo.get_photo_type_display }}】
+                【封面·{{ cover_photo.get_photo_type_display }}】
               {% if cover_photo.caption %}{{ cover_photo.caption }}{% endif %}
               {% if cover_photo.shot_at %}&ensp;拍摄于 {{ cover_photo.shot_at|date:"Y-m-d H:i" }}{% endif %}
             </div>
@@ -573,6 +573,7 @@ body {
           {% if other_photos %}
           <div class="photo-grid">
             {% for photo in other_photos %}
+            {% if photo.image %}
             <div class="photo-item">
               <img src="{{ photo.image.url }}"
                    alt="{{ photo.caption|default:photo.get_photo_type_display }}"
@@ -584,6 +585,7 @@ body {
                 {% if photo.shot_at %}<br>{{ photo.shot_at|date:"Y-m-d H:i" }}{% endif %}
               </div>
             </div>
+            {% endif %}
             {% endfor %}
           </div>
           {% endif %}
@@ -619,16 +621,16 @@ body {
       </span>
     </div>
     <div class="sign-cell">
-      <span class="sign-label">普查单位（盖章）</span>
+      <span class="sign-label">采集单位（盖章）</span>
       <span class="sign-val" style="height:28px;"></span>
     </div>
   </div>
 
   <!-- ── 说明文字 ── -->
   <div class="footer-note">
-    <strong>填表说明：</strong>本表依据《第四次全国文物普查不可移动文物登记表》格式制作，
+    <strong>填表说明：</strong>本表依据不可移动文物采集登记格式制作，
     经纬度采用 {{ heritage.get_coordinate_system_display }} 坐标系，精度保留8位小数。
-    现场照片由系统自动叠加采集水印（文物名称、坐标、时间）。
+    现场照片按采集系统规则保存展示。
     本预览页可直接打印或另存为PDF，请在浏览器打印对话框中选择"A4竖向"、无缩放。
   </div>
 
