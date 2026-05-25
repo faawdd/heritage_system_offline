@@ -12,6 +12,8 @@ geopy>=2.4.0
 pandas>=2.2.1
 numpy>=1.26.4
 pyproj>=3.6.1
+requests>=2.32.0
+rasterio>=1.3.10
 
 # Word 公文生成 (实现项目管理中的快速发文)
 python-docx>=1.1.0

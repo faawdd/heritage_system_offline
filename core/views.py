@@ -15,6 +15,8 @@ from django.db.models import Count, Q
 from django.http import JsonResponse, HttpResponse, HttpResponseForbidden, FileResponse
 from django.utils import timezone
 from django.conf import settings
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_POST
 from docx import Document
 from docx.shared import Mm, Pt
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
@@ -29,6 +31,7 @@ from django.shortcuts import get_object_or_404
 from django.contrib import messages
 from heritage_system.version import VERSION, VERSION_HISTORY
 from .permission_decorators import is_management_admin, is_limited_admin
+from utils.dem_handler import describe_tile, get_dem_elevation
 
 User = get_user_model()
 
@@ -1571,6 +1574,77 @@ def heritage_stats_api(request):
         'regional': regional,
         'county': county,
     })
+
+
+@csrf_exempt
+@require_POST
+def dem_elevation_lookup_api(request):
+    """DEM 海拔反查 API：接收经纬度，返回 SRTM 30m 高程。"""
+    try:
+        payload = json.loads(request.body.decode('utf-8')) if request.body else {}
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return JsonResponse(
+            {
+                'success': False,
+                'message': '请求体必须是合法 JSON',
+                'elevation': None,
+            },
+            status=400,
+        )
+
+    longitude = payload.get('longitude')
+    latitude = payload.get('latitude')
+
+    try:
+        lon = float(longitude)
+        lat = float(latitude)
+    except (TypeError, ValueError):
+        return JsonResponse(
+            {
+                'success': False,
+                'message': 'longitude/latitude 必须是数字',
+                'elevation': None,
+            },
+            status=400,
+        )
+
+    if not (-180 <= lon <= 180 and -90 <= lat <= 90):
+        return JsonResponse(
+            {
+                'success': False,
+                'message': '经纬度超出有效范围',
+                'elevation': None,
+            },
+            status=400,
+        )
+
+    tile_name = describe_tile(lon, lat)
+
+    try:
+        elevation = get_dem_elevation(lon, lat)
+    except Exception:
+        # 双保险兜底：任何 DEM 层异常都不影响主业务流程。
+        import logging
+
+        logging.getLogger(__name__).exception(
+            'DEM 反查发生未捕获异常，lon=%s, lat=%s, tile=%s',
+            lon,
+            lat,
+            tile_name,
+        )
+        elevation = None
+
+    return JsonResponse(
+        {
+            'success': True,
+            'longitude': lon,
+            'latitude': lat,
+            'tile': tile_name,
+            'elevation': elevation,
+            'source': 'SRTMGL1(OpenTopography)',
+            'fallback_hint': 'elevation 为 null 时，请前端降级使用设备海拔',
+        }
+    )
 
 @staff_member_required
 def heritage_stats_by_category_api(request):

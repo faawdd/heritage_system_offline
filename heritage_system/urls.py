@@ -28,6 +28,7 @@ from core.views import (heritage_map_view, heritage_dashboard_view, heritage_sta
                         heritage_boundary_export_view,
                         mobile_kml_entry_view, mobile_collect_entry_view, app_showcase_view,
                         system_version_api, heritage_collect_view,
+                        dem_elevation_lookup_api,
                         heritage_detail_preview_view,
                         export_immovable_heritage_docx_view)
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
@@ -58,6 +59,7 @@ urlpatterns = [
     path('api/heritage-stats-by-category/', heritage_stats_by_category_api, name='heritage_stats_by_category_api'),
     path('api/heritage-classification-stats/', heritage_classification_stats_api, name='heritage_classification_stats_api'),
     path('api/kanerjing-stats/', kanerjing_stats_api, name='kanerjing_stats_api'),  # 坎儿井统计API
+    path('api/dem-elevation-lookup/', dem_elevation_lookup_api, name='dem_elevation_lookup_api'),
     path('api/system-version/', system_version_api, name='system_version_api'),  # 系统版本号API
     path('admin/', admin.site.urls),
 ] + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT) + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
