@@ -12,14 +12,10 @@
 
     .collect-main { max-width: 42rem; }
     body[data-device='desktop'] .collect-main {
-      max-width: 1180px;
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      align-items: start;
-      gap: 16px;
+      max-width: 960px;
     }
-    body[data-device='desktop'] .collect-main > [data-layout-span='full'] {
-      grid-column: 1 / -1;
+    body[data-device='desktop'] .collect-main > * + * {
+      margin-top: 12px;
     }
 
     .collect-section {
@@ -36,6 +32,20 @@
       border-top-right-radius: 14px;
     }
     .collect-main section.collect-section:last-of-type {
+      border-bottom-left-radius: 14px;
+      border-bottom-right-radius: 14px;
+    }
+    body[data-device='desktop'] .collect-main .collect-section {
+      border: 1px solid #e2e8f0;
+      border-radius: 14px;
+      padding: 18px;
+    }
+    body[data-device='desktop'] .collect-main section.collect-section:first-of-type {
+      border-top: 1px solid #e2e8f0;
+      border-top-left-radius: 14px;
+      border-top-right-radius: 14px;
+    }
+    body[data-device='desktop'] .collect-main section.collect-section:last-of-type {
       border-bottom-left-radius: 14px;
       border-bottom-right-radius: 14px;
     }
