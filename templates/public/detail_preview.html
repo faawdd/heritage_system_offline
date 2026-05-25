@@ -16,8 +16,9 @@
   --head-bg: #e8edf4;
   --label-bg: #f2f4f7;
   --photo-bg: #f8f8f8;
-  --font: 'SimSun', '宋体', 'Times New Roman', serif;
+  --font: 'Times New Roman', 'SimSun', '宋体', serif;
   --font-hei: 'SimHei', '黑体', 'Arial', sans-serif;
+  --font-latin: 'Times New Roman', 'Times', serif;
   --fs-base: 12pt;
   --fs-sm: 12pt;
   --fs-title: 22pt;
@@ -128,9 +129,21 @@ body {
 .lbl-xwide { width: 22%; }
 
 /* 填充格（右侧数据）*/
-.val { background: #fff; font-size: var(--fs-base); }
+.val {
+  background: #fff;
+  font-size: var(--fs-base);
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
 .val-center { text-align: center; }
-.val-mono   { font-family: 'Courier New', monospace; font-size: 13pt; }
+.val-mono {
+  font-family: var(--font-latin);
+  font-size: 12pt;
+  white-space: normal;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+}
 
 /* 分区标题行 */
 .sec-head {
@@ -191,12 +204,13 @@ body {
   background: #fff;
 }
 .photo-caption {
+  font-family: var(--font-latin), 'SimSun', '宋体', serif;
   font-size: var(--fs-note);
   color: #555;
   padding: 2px 4px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 .photo-placeholder {
   width: 100%;
@@ -255,13 +269,19 @@ body {
 }
 .code-bar > span {
   min-width: 0;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 .code-bar .code-val {
-  font-family: 'Courier New', monospace;
+  font-family: var(--font-latin);
   font-size: 14pt;
   font-weight: bold;
   color: #1a3a6b;
   letter-spacing: 1px;
+  white-space: normal;
+  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 
 /* ══════════════════════════════════════════════════
@@ -285,7 +305,12 @@ body {
 }
 .sign-cell:last-child { border-right: none; }
 .sign-label { font-weight: bold; color: #555; }
-.sign-val   { color: #111; overflow-wrap: anywhere; }
+.sign-val {
+  color: #111;
+  font-family: var(--font-latin), 'SimSun', '宋体', serif;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
 
 /* ══════════════════════════════════════════════════
    说明文字
