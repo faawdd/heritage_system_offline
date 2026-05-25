@@ -1,15 +1,22 @@
 import json
+from django.conf import settings
 from .models import HeritageSite
-from heritage_system.version import VERSION, get_version_string
 
 
-def version_context(request):
-    """为模板提供版本号信息"""
+def system_version_context(request):
+    """为模板提供动态系统版本号。"""
+    updated_at = getattr(settings, 'SYS_VERSION_UPDATED_AT', None)
+    updated_at_label = updated_at.strftime('%Y-%m-%d %H:%M') if updated_at else ''
+    sys_version = getattr(settings, 'SYS_VERSION', 'v4.0-BuildUnknown')
+
     return {
-        'APP_VERSION': VERSION['version'],
-        'APP_VERSION_STRING': get_version_string(),
-        'APP_VERSION_NAME': VERSION['version_name'],
-        'APP_RELEASE_DATE': VERSION['release_date'],
+        'SYS_VERSION': sys_version,
+        'SYS_VERSION_SOURCE': getattr(settings, 'SYS_VERSION_SOURCE', 'unknown'),
+        'SYS_VERSION_UPDATED_AT': updated_at_label,
+        'APP_VERSION': sys_version,
+        'APP_VERSION_STRING': sys_version,
+        'APP_VERSION_NAME': '基于最后更新时间自动生成',
+        'APP_RELEASE_DATE': updated_at_label,
     }
 
 

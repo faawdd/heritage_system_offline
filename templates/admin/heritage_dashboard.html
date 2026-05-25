@@ -354,8 +354,8 @@
     </script>
     
     <!-- 版本号显示 -->
-    <div class="version-badge" title="{{ APP_VERSION_NAME }} - Released on {{ APP_RELEASE_DATE }}">
-        {{ APP_VERSION_STRING }}
+    <div class="version-badge" title="最后更新时间：{{ SYS_VERSION_UPDATED_AT|default:'未知' }}">
+        {{ SYS_VERSION }}
     </div>
 </body>
 </html>

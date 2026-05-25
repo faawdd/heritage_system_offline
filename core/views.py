@@ -15,14 +15,12 @@ from django.db.models import Count, Q
 from django.http import JsonResponse, HttpResponse, HttpResponseForbidden, FileResponse
 from django.utils import timezone
 from django.conf import settings
-from docxtpl import DocxTemplate
 from docx import Document
 from docx.shared import Mm, Pt
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 from PIL import Image as PILImage
 import os
 import io
-import zipfile
 import uuid
 import re
 import math
@@ -30,6 +28,7 @@ import xml.etree.ElementTree as ET
 from django.shortcuts import get_object_or_404
 from django.contrib import messages
 from heritage_system.version import VERSION, VERSION_HISTORY
+from .permission_decorators import is_management_admin, is_limited_admin
 
 User = get_user_model()
 
@@ -77,8 +76,7 @@ def mobile_kml_entry_view(request):
     if not user:
         return HttpResponseForbidden('用户不存在或已禁用')
 
-    is_admin = user.is_superuser or user.groups.filter(name='管理员').exists() or user.groups.filter(name='超级管理员').exists()
-    if not is_admin:
+    if not is_management_admin(user):
         return HttpResponseForbidden('当前账号无权使用KML叠加检查')
 
     auth_login(request, user, backend='django.contrib.auth.backends.ModelBackend')
@@ -240,71 +238,6 @@ def admin_index_view(request):
     return render(request, 'admin/home_dashboard.html', context)
 
 
-def _render_project_docx(project):
-    template_candidates = [
-        os.path.join(settings.BASE_DIR, '上行文 {{ file_id }} {{project_name}}.docx'),
-        os.path.join(settings.BASE_DIR, '上行文_模板.docx'),
-    ]
-    template_path = next((path for path in template_candidates if os.path.exists(path)), None)
-    if not template_path:
-        raise FileNotFoundError(f'模板不存在：{template_candidates[0]}')
-
-    doc = DocxTemplate(template_path)
-    issue_date = project.application_date or project.received_date or timezone.now()
-    file_id = project.archive_number or f"鄯文旅字〔{issue_date.year}〕{project.id}号"
-    coordinates = project.coordinates.all().order_by('tower_no')
-
-    context = {
-        'project_name': project.project_name,
-        'file_id': file_id,
-        'file_no': file_id,
-        'issue_date': f'{issue_date.year}年{issue_date.month}月{issue_date.day}日',
-        'coordinates': [
-            {
-                'tower_no': c.tower_no,
-                'x': c.cgcs2000_x or '',
-                'y': c.cgcs2000_y or '',
-                'lon': c.longitude or '',
-                'lat': c.latitude or '',
-            }
-            for c in coordinates
-        ],
-    }
-    doc.render(context)
-    output = io.BytesIO()
-    doc.save(output)
-    output.seek(0)
-    return output
-
-
-@staff_member_required
-def export_doc_view(request):
-    projects = ProjectAudit.objects.order_by('-received_date')[:100]
-    if request.method == 'POST':
-        selected_ids = request.POST.getlist('project_ids')
-        if not selected_ids:
-            return render(request, 'admin/export_doc.html', {
-                'projects': projects,
-                'error': '请至少选择一个项目。'
-            })
-
-        selected_projects = ProjectAudit.objects.filter(id__in=selected_ids)
-        zip_buffer = io.BytesIO()
-        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-            for project in selected_projects:
-                doc_stream = _render_project_docx(project)
-                filename = f'标准请示公文_{project.project_name}_{project.id}.docx'
-                zip_file.writestr(filename, doc_stream.getvalue())
-
-        zip_buffer.seek(0)
-        return HttpResponse(
-            zip_buffer.getvalue(),
-            content_type='application/zip',
-            headers={'Content-Disposition': 'attachment; filename="批量公文导出.zip"'}
-        )
-
-    return render(request, 'admin/export_doc.html', {'projects': projects})
-
 @staff_member_required  # 确保只有登录后台的人能看
 def heritage_map_view(request):
     sites = HeritageSite.objects.all()
@@ -333,8 +266,7 @@ def kml_overlay_check_view(request):
             payload = _decode_fastapi_token(token)
             user = User.objects.filter(id=payload.get('user_id'), is_active=True).first() if payload else None
             if user:
-                is_admin = user.is_superuser or user.groups.filter(name='管理员').exists() or user.groups.filter(name='超级管理员').exists()
-                if is_admin:
+                if is_management_admin(user):
                     auth_login(request, user, backend='django.contrib.auth.backends.ModelBackend')
     return kml_management_view(request)
 
@@ -812,11 +744,7 @@ def _reanalyze_kml_records(records, threshold):
 
 
 def _is_admin_user(user):
-    return user.is_authenticated and (
-        user.is_superuser
-        or user.groups.filter(name='管理员').exists()
-        or user.groups.filter(name='超级管理员').exists()
-    )
+    return user.is_authenticated and is_management_admin(user)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1789,6 +1717,12 @@ def inspection_mobile_add_view(request):
     
     # 检查用户是否属于"文物看护员"用户组
     is_inspector = request.user.groups.filter(name='文物看护员').exists()
+
+    if request.method == 'POST' and is_limited_admin(request.user):
+        return JsonResponse({
+            'success': False,
+            'message': '管理员用户组仅支持查看，不允许新增或修改巡查记录'
+        }, status=403)
     
     if request.method == 'POST':
         # 处理AJAX POST请求
@@ -1963,14 +1897,21 @@ def heritage_collect_view(request):
     文物点现场数据采集（手机/平板端）
 
     GET  → 渲染采集表单
-    POST → 接收表单数据，执行 Pillow 水印合成，保存 ImmovableHeritage + HeritagePhoto
+    POST → 接收表单数据，按巡查上报同规则保存照片，写入 ImmovableHeritage + HeritagePhoto
     """
     from .models import ImmovableHeritage, HeritagePhoto
-    from .utils_watermark import add_heritage_watermark
     from django.core.files.base import ContentFile
-    import io as _io
 
     collect_unit = getattr(settings, "HERITAGE_COLLECT_UNIT", "文物管理部门")
+
+    if request.method == "POST" and is_limited_admin(request.user):
+        return JsonResponse(
+            {
+                "success": False,
+                "message": "管理员用户组仅支持查看采集数据，不允许创建或修改采集记录",
+            },
+            status=403,
+        )
 
     if request.method == "POST":
         try:
@@ -1981,6 +1922,7 @@ def heritage_collect_view(request):
             survey_code  = p.get("survey_code", "").strip()
             era          = p.get("era", "").strip()
             category     = p.get("category", "").strip()
+            heritage_type = p.get("heritage_type", "").strip()
             lon_raw      = p.get("longitude", "").strip()
             lat_raw      = p.get("latitude", "").strip()
 
@@ -1991,19 +1933,21 @@ def heritage_collect_view(request):
             township            = p.get("township", "").strip()
             village             = p.get("village", "").strip()
             address             = p.get("address", "").strip()
+            coordinate_system   = p.get("coordinate_system", "CGCS2000").strip()
             altitude_raw        = p.get("altitude", "").strip()
+            area_raw            = p.get("area", "").strip()
             protection_level    = p.get("protection_level", "DS")
             ownership           = p.get("ownership", "state")
             preservation_status = p.get("preservation_status", "一般")
             description         = p.get("description", "").strip()
+            damage_cause        = p.get("damage_cause", "").strip()
+            threat_factors      = p.get("threat_factors", "").strip()
             former_name         = p.get("former_name", "").strip()
 
             # ── 字段验证 ────────────────────────────────────────
             errors: dict[str, str] = {}
             if not name:
                 errors["name"] = "文物名称不能为空"
-            if not survey_code:
-                errors["survey_code"] = "普查编号不能为空"
             if not era:
                 errors["era"] = "时代不能为空"
             if not category:
@@ -2034,10 +1978,28 @@ def heritage_collect_view(request):
                 except DecimalInvalidOperation:
                     pass
 
-            # ── 普查编号唯一性校验 ────────────────────────────
-            if ImmovableHeritage.objects.filter(survey_code=survey_code).exists():
+            area = None
+            if area_raw:
+                try:
+                    area = Decimal(area_raw)
+                except DecimalInvalidOperation:
+                    errors["area"] = "占地面积格式不合法"
+
+            if errors:
+                return JsonResponse({"success": False, "errors": errors}, status=400)
+
+            valid_coordinate_systems = {v for v, _ in ImmovableHeritage.COORDINATE_SYSTEM_CHOICES}
+            if coordinate_system not in valid_coordinate_systems:
+                coordinate_system = "CGCS2000"
+
+            valid_heritage_types = {v for v, _ in ImmovableHeritage.HERITAGE_TYPE_CHOICES}
+            if heritage_type and heritage_type not in valid_heritage_types:
+                heritage_type = ""
+
+            # ── 采集编号唯一性校验（手工填写时） ─────────────────
+            if survey_code and ImmovableHeritage.objects.filter(survey_code=survey_code).exists():
                 return JsonResponse(
-                    {"success": False, "errors": {"survey_code": "该普查编号已存在，请确认后重新输入"}},
+                    {"success": False, "errors": {"survey_code": "该采集编号已存在，请确认后重新输入"}},
                     status=400,
                 )
 
@@ -2050,42 +2012,47 @@ def heritage_collect_view(request):
                 name=name,
                 era=era,
                 category=category,
+                heritage_type=heritage_type,
                 province=province,
                 city=city,
                 county=county,
                 township=township,
                 village=village,
                 address=address,
+                coordinate_system=coordinate_system,
                 longitude=longitude,
                 latitude=latitude,
                 altitude=altitude,
+                area=area,
                 protection_level=protection_level,
                 ownership=ownership,
                 preservation_status=preservation_status,
+                damage_cause=damage_cause,
+                threat_factors=threat_factors,
                 description=description,
                 collector=request.user,
                 collected_at=collected_at,
             )
             heritage.save()
 
-            # ── 处理照片：水印合成 → 保存 HeritagePhoto ────────
+            # ── 处理照片：与巡查上报保持一致，按原图保存（来源端负责水印） ────────
             photo_files = request.FILES.getlist("photos")
             saved_count = 0
             photo_errors = []
 
             for idx, photo_file in enumerate(photo_files):
                 try:
-                    watermarked = add_heritage_watermark(
-                        image_source=photo_file,
-                        heritage_name=name,
-                        collected_at=collected_at,
-                        longitude=longitude,
-                        latitude=latitude,
-                        collect_unit=collect_unit,
-                    )
-                    buf = _io.BytesIO()
-                    watermarked.save(buf, format="JPEG", quality=88, optimize=True)
-                    buf.seek(0)
+                    content_type = (getattr(photo_file, "content_type", "") or "").lower()
+                    if content_type and not content_type.startswith("image/"):
+                        raise ValueError("仅支持图片文件")
+
+                    raw = photo_file.read()
+                    if not raw:
+                        raise ValueError("空文件")
+
+                    suffix = os.path.splitext(photo_file.name or "")[1].lower() or ".jpg"
+                    if suffix not in {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}:
+                        suffix = ".jpg"
 
                     hp = HeritagePhoto(
                         heritage=heritage,
@@ -2097,8 +2064,12 @@ def heritage_collect_view(request):
                         uploaded_by=request.user,
                         caption=f"现场采集照片 {idx + 1}",
                     )
-                    filename = f"collect_{heritage.id}_{idx + 1:02d}.jpg"
-                    hp.image.save(filename, ContentFile(buf.read()), save=True)
+                    filename = (
+                        f"collect_{heritage.id}_"
+                        f"{timezone.localtime(timezone.now()).strftime('%Y%m%d%H%M%S')}_"
+                        f"{idx + 1:02d}_{uuid.uuid4().hex[:6]}{suffix}"
+                    )
+                    hp.image.save(filename, ContentFile(raw), save=True)
                     saved_count += 1
 
                 except Exception as exc:
@@ -2121,6 +2092,8 @@ def heritage_collect_view(request):
     from .models import ImmovableHeritage  # noqa: F811 — 保证在 GET 路径也可用
     context = {
         "category_choices":           ImmovableHeritage.CATEGORY_CHOICES,
+        "heritage_type_choices":      ImmovableHeritage.HERITAGE_TYPE_CHOICES,
+        "coordinate_system_choices":  ImmovableHeritage.COORDINATE_SYSTEM_CHOICES,
         "protection_level_choices":   ImmovableHeritage.PROTECTION_LEVEL_CHOICES,
         "ownership_choices":          ImmovableHeritage.OWNERSHIP_CHOICES,
         "preservation_status_choices": ImmovableHeritage.PRESERVATION_STATUS_CHOICES,
@@ -2130,7 +2103,7 @@ def heritage_collect_view(request):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 四普登记表预览视图（仅登录用户可访问）
+# 采集登记表预览视图（仅登录用户可访问）
 # ─────────────────────────────────────────────────────────────────────────────
 import math as _math
 
@@ -2160,10 +2133,35 @@ def _decimal_to_dms(decimal_deg, is_longitude: bool) -> str:
     return f"{direction} {degrees}°{minutes:02d}′{seconds:05.2f}″"
 
 
+def _safe_file_url(file_field) -> str:
+    """安全获取文件 URL，避免坏数据或空文件导致预览页 500。"""
+    try:
+        if file_field and getattr(file_field, "name", ""):
+            return file_field.url
+    except Exception:
+        return ""
+    return ""
+
+
+def _display_user_name(user) -> str:
+    """统一处理用户显示名称，避免模板对空对象链式取值。"""
+    if not user:
+        return "——"
+    full_name = user.get_full_name() if hasattr(user, "get_full_name") else ""
+    return full_name or getattr(user, "username", "——") or "——"
+
+
+def _chunk_items(items, chunk_size):
+    """按固定大小切分列表，便于登记表照片分页。"""
+    if chunk_size <= 0:
+        return [items]
+    return [items[index:index + chunk_size] for index in range(0, len(items), chunk_size)]
+
+
 @login_required
 def heritage_detail_preview_view(request, pk):
     """
-    不可移动文物"四普登记表"预览页面。
+    不可移动文物采集登记表预览页面。
 
     - 任意已登录用户均可访问（字段只读，无修改功能）。
     - 提供打印友好的 A4 布局，可直接从浏览器打印为 PDF。
@@ -2180,21 +2178,41 @@ def heritage_detail_preview_view(request, pk):
     )
 
     # 照片：封面 + 其余（最多展示 8 张附图，避免撑破页面）
-    all_photos = list(heritage.photos.order_by("-is_cover", "-shot_at", "-uploaded_at"))
+    all_photos = list(heritage.photos.exclude(image="").order_by("-is_cover", "-shot_at", "-uploaded_at"))
     cover_photo = next((p for p in all_photos if p.is_cover), None) or (all_photos[0] if all_photos else None)
     other_photos = [p for p in all_photos if p != cover_photo][:8]
 
     # 度分秒在视图层计算，保持模板简洁
     lon_dms = _decimal_to_dms(heritage.longitude, is_longitude=True)
     lat_dms = _decimal_to_dms(heritage.latitude,  is_longitude=False)
+    cover_photo_url = _safe_file_url(cover_photo.image if cover_photo else None)
+    other_photo_items = [
+        {
+            "url": _safe_file_url(photo.image),
+            "caption": photo.caption,
+            "photo_type_display": photo.get_photo_type_display(),
+            "shot_at": photo.shot_at,
+        }
+        for photo in other_photos
+        if _safe_file_url(photo.image)
+    ]
+    other_photo_pages = _chunk_items(other_photo_items, 4)
+    collect_unit = "鄯善县文化体育广播电视和旅游局（文物局）"
 
     context = {
         "heritage":             heritage,
         "cover_photo":          cover_photo,
+        "cover_photo_url":      cover_photo_url,
         "other_photos":         other_photos,
+        "other_photo_items":    other_photo_items,
+        "other_photo_pages":    other_photo_pages,
         "photos":               all_photos,
         "lon_dms":              lon_dms,
         "lat_dms":              lat_dms,
+        "collector_display":    _display_user_name(heritage.collector),
+        "input_by_display":     _display_user_name(heritage.input_by),
+        "reviewer_display":     _display_user_name(heritage.reviewer),
+        "collect_unit":         collect_unit,
         "preservation_choices": ImmovableHeritage.PRESERVATION_STATUS_CHOICES,
         "protection_choices":   ImmovableHeritage.PROTECTION_LEVEL_CHOICES,
         "ownership_choices":    ImmovableHeritage.OWNERSHIP_CHOICES,
@@ -2202,7 +2220,7 @@ def heritage_detail_preview_view(request, pk):
     return render(request, "public/detail_preview.html", context)
 
 
-def _set_cell_text(cell, text, *, bold=False, align=WD_PARAGRAPH_ALIGNMENT.LEFT, font_size=10):
+def _set_cell_text(cell, text, *, bold=False, align=WD_PARAGRAPH_ALIGNMENT.LEFT, font_size=14):
     """统一设置表格单元格文本样式。"""
     cell.text = ""
     paragraph = cell.paragraphs[0]
@@ -2243,7 +2261,7 @@ def _insert_photos_into_cell(cell, photos):
     """
     cell.text = ""
     if not photos:
-        _set_cell_text(cell, "暂无现场照片", align=WD_PARAGRAPH_ALIGNMENT.CENTER, font_size=10)
+        _set_cell_text(cell, "暂无现场照片", align=WD_PARAGRAPH_ALIGNMENT.CENTER, font_size=14)
         return
 
     ordered = sorted(photos, key=lambda p: (not p.is_cover, p.uploaded_at or timezone.now()))
@@ -2272,25 +2290,21 @@ def _insert_photos_into_cell(cell, photos):
         if photo.caption:
             caption = f"{caption}：{photo.caption}"
         run_caption = p_caption.add_run(caption)
-        run_caption.font.size = Pt(8)
+        run_caption.font.size = Pt(14)
         run_caption.font.name = "宋体"
 
 
-@login_required
-def export_immovable_heritage_docx_view(request, pk):
-    """
-    一键导出：第四次全国文物普查不可移动文物登记表（.docx）
-    - python-docx 动态绘制复杂表格
-    - A4 纵向 + 标准页边距
-    - 单元格合并 + 现场照片插入
-    """
-    from .models import ImmovableHeritage
+def _safe_docx_fragment(text):
+    raw = (text or '').strip()
+    if not raw:
+        return 'unknown'
+    cleaned = re.sub(r'[\\/:*?"<>|]+', '_', raw)
+    cleaned = re.sub(r'\s+', '_', cleaned)
+    return cleaned[:80]
 
-    heritage = get_object_or_404(
-        ImmovableHeritage.objects.select_related("collector", "input_by", "reviewer").prefetch_related("photos"),
-        pk=pk,
-    )
 
+def _build_immovable_heritage_docx_stream(heritage):
+    """生成单条不可移动文物采集登记表 DOCX，返回 (BytesIO, filename)。"""
     document = Document()
     section = document.sections[0]
     section.page_width = Mm(210)
@@ -2302,15 +2316,16 @@ def export_immovable_heritage_docx_view(request, pk):
 
     p_title = document.add_paragraph()
     p_title.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-    run_title = p_title.add_run("第四次全国文物普查不可移动文物登记表")
+    run_title = p_title.add_run("鄯善县不可移动文物采集登记表")
     run_title.bold = True
-    run_title.font.size = Pt(16)
+    run_title.font.size = Pt(22)
     run_title.font.name = "黑体"
 
     p_code = document.add_paragraph()
     p_code.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-    run_code = p_code.add_run(f"普查编号：{heritage.survey_code}")
-    run_code.font.size = Pt(11)
+    run_code = p_code.add_run(f"采集编号：{heritage.survey_code}")
+    run_code.bold = True
+    run_code.font.size = Pt(14)
     run_code.font.name = "宋体"
 
     table = document.add_table(rows=17, cols=8)
@@ -2349,18 +2364,18 @@ def export_immovable_heritage_docx_view(request, pk):
     _set_cell_text(table.cell(7, 0), "坐标系", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
     _set_cell_text(table.cell(7, 1), heritage.get_coordinate_system_display())
     _set_cell_text(table.cell(7, 2), "经度", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
-    _set_cell_text(table.cell(7, 3), f"{heritage.longitude:.8f}", font_size=9)
+    _set_cell_text(table.cell(7, 3), f"{heritage.longitude:.8f}", font_size=14)
     _set_cell_text(table.cell(7, 4), "纬度", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
-    _set_cell_text(table.cell(7, 5), f"{heritage.latitude:.8f}", font_size=9)
+    _set_cell_text(table.cell(7, 5), f"{heritage.latitude:.8f}", font_size=14)
     _set_cell_text(table.cell(7, 6), "海拔(m)", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
-    _set_cell_text(table.cell(7, 7), f"{heritage.altitude:.2f}" if heritage.altitude is not None else "——", font_size=9)
+    _set_cell_text(table.cell(7, 7), f"{heritage.altitude:.2f}" if heritage.altitude is not None else "——", font_size=14)
 
     _set_cell_text(table.cell(8, 0), "占地面积", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
     _set_cell_text(table.cell(8, 1).merge(table.cell(8, 3)), f"{heritage.area:.2f} 平方米" if heritage.area else "——")
-    _set_cell_text(table.cell(8, 4), "经度(度分秒)", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER, font_size=9)
-    _set_cell_text(table.cell(8, 5), _decimal_to_dms(heritage.longitude, True), font_size=8)
-    _set_cell_text(table.cell(8, 6), "纬度(度分秒)", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER, font_size=9)
-    _set_cell_text(table.cell(8, 7), _decimal_to_dms(heritage.latitude, False), font_size=8)
+    _set_cell_text(table.cell(8, 4), "经度(度分秒)", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER, font_size=14)
+    _set_cell_text(table.cell(8, 5), _decimal_to_dms(heritage.longitude, True), font_size=14)
+    _set_cell_text(table.cell(8, 6), "纬度(度分秒)", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER, font_size=14)
+    _set_cell_text(table.cell(8, 7), _decimal_to_dms(heritage.latitude, False), font_size=14)
 
     _set_cell_text(table.cell(9, 0).merge(table.cell(9, 7)), "三、现状与保护", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
     _set_cell_text(table.cell(10, 0), "保存现状", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
@@ -2378,7 +2393,7 @@ def export_immovable_heritage_docx_view(request, pk):
     _set_cell_text(table.cell(12, 0).merge(table.cell(12, 7)), "四、文物简介", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
     _set_cell_text(table.cell(13, 0).merge(table.cell(13, 7)), heritage.description or "（暂无简介）")
 
-    _set_cell_text(table.cell(14, 0).merge(table.cell(14, 7)), "五、照片说明（现场采集水印照片）", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    _set_cell_text(table.cell(14, 0).merge(table.cell(14, 7)), "五、照片说明（现场采集照片）", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
     _set_cell_text(table.cell(15, 0).merge(table.cell(16, 1)), "照片说明", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
     photo_cell = table.cell(15, 2).merge(table.cell(16, 7))
     _insert_photos_into_cell(photo_cell, list(heritage.photos.all()))
@@ -2393,14 +2408,32 @@ def export_immovable_heritage_docx_view(request, pk):
     )
     sign.alignment = WD_PARAGRAPH_ALIGNMENT.RIGHT
     for run in sign.runs:
-        run.font.size = Pt(10)
+        run.font.size = Pt(14)
         run.font.name = "宋体"
 
     output = io.BytesIO()
     document.save(output)
     output.seek(0)
 
-    filename = f"四普登记表_{heritage.survey_code}_{heritage.name}.docx"
+    filename = f"不可移动文物采集登记表_{_safe_docx_fragment(heritage.survey_code)}_{_safe_docx_fragment(heritage.name)}.docx"
+    return output, filename
+
+
+@login_required
+def export_immovable_heritage_docx_view(request, pk):
+    """
+    一键导出：鄯善县不可移动文物采集登记表（.docx）
+    - python-docx 动态绘制复杂表格
+    - A4 纵向 + 标准页边距
+    - 单元格合并 + 现场照片插入
+    """
+    from .models import ImmovableHeritage
+
+    heritage = get_object_or_404(
+        ImmovableHeritage.objects.select_related("collector", "input_by", "reviewer").prefetch_related("photos"),
+        pk=pk,
+    )
+    output, filename = _build_immovable_heritage_docx_stream(heritage)
     response = FileResponse(
         output,
         as_attachment=True,

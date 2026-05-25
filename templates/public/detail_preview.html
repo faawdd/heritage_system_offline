@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>四普登记表 — {{ heritage.name }}</title>
+<title>不可移动文物采集登记表 — {{ heritage.name }}</title>
 <style>
 /* ══════════════════════════════════════════════════
    全局 & A4 页面
@@ -16,13 +16,18 @@
   --head-bg: #e8edf4;
   --label-bg: #f2f4f7;
   --photo-bg: #f8f8f8;
-  --font: 'SimSun', '宋体', 'Times New Roman', serif;
+  --font: 'Times New Roman', 'SimSun', '宋体', serif;
   --font-hei: 'SimHei', '黑体', 'Arial', sans-serif;
-  --fs-base: 9pt;
-  --fs-sm: 8pt;
-  --fs-title: 15pt;
-  --fs-sub: 11pt;
-  --cell-pad: 3px 6px;
+  --font-latin: 'Times New Roman', 'Times', serif;
+  --fs-base: 12pt;
+  --fs-sm: 12pt;
+  --fs-title: 22pt;
+  --fs-sub: 12pt;
+  --fs-note: 11pt;
+  --cell-pad: 3px 5px;
+  --page-pad-top: 12mm;
+  --page-pad-horizontal: 14mm;
+  --page-pad-bottom: 14mm;
 }
 
 body {
@@ -30,7 +35,7 @@ body {
   font-size: var(--fs-base);
   background: #d0d0d0;
   color: #111;
-  line-height: 1.45;
+  line-height: 1.35;
 }
 
 /* ── A4 纸张容器 ── */
@@ -39,9 +44,18 @@ body {
   min-height: 297mm;
   margin: 12mm auto;
   background: #fff;
-  padding: 12mm 14mm 14mm;
+  padding: var(--page-pad-top) var(--page-pad-horizontal) var(--page-pad-bottom);
   box-shadow: 0 2px 20px rgba(0,0,0,.25);
   position: relative;
+}
+
+.pdf-export-surface {
+	width: 210mm;
+	min-height: auto;
+	margin: 0;
+	padding: var(--page-pad-top) var(--page-pad-horizontal) var(--page-pad-bottom);
+	box-shadow: none;
+	background: #fff;
 }
 
 /* ── 操作浮动栏（仅屏幕显示）── */
@@ -58,11 +72,17 @@ body {
   border-radius: 6px;
   cursor: pointer;
   font-size: 13px;
-  font-family: var(--font-hei);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+.toolbar button[disabled] {
+  opacity: .7;
+  cursor: wait;
 }
 .btn-print  { background: #1a3a6b; color: #fff; }
+.btn-pdf    { background: #0f766e; color: #fff; }
 .btn-back   { background: #555;    color: #fff; }
 .btn-print:hover { background: #122d54; }
+.btn-pdf:hover   { background: #115e59; }
 .btn-back:hover  { background: #333; }
 
 /* ══════════════════════════════════════════════════
@@ -80,8 +100,9 @@ body {
   border: var(--border);
   padding: var(--cell-pad);
   vertical-align: middle;
-  word-break: break-all;
-  overflow-wrap: break-word;
+  word-break: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
 }
 
 /* 标签格（左侧说明文字） */
@@ -90,16 +111,42 @@ body {
   font-weight: bold;
   white-space: nowrap;
   text-align: center;
-  font-size: var(--fs-sm);
+  font-size: var(--fs-base);
+  line-height: 1.15;
   width: 14%;
+  word-break: normal;
+  overflow-wrap: normal;
+  line-break: strict;
+}
+.lbl-text {
+  display: inline-block;
+  max-width: 100%;
+  white-space: nowrap;
+}
+.lbl-text.breakable {
+  white-space: normal;
+  word-break: keep-all;
+  overflow-wrap: break-word;
 }
 .lbl-wide  { width: 18%; }
 .lbl-xwide { width: 22%; }
 
 /* 填充格（右侧数据）*/
-.val { background: #fff; font-size: var(--fs-base); }
+.val {
+  background: #fff;
+  font-size: var(--fs-base);
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
 .val-center { text-align: center; }
-.val-mono   { font-family: 'Courier New', monospace; font-size: var(--fs-sm); }
+.val-mono {
+  font-family: var(--font-latin);
+  font-size: 12pt;
+  white-space: normal;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+}
 
 /* 分区标题行 */
 .sec-head {
@@ -107,7 +154,7 @@ body {
   text-align: center;
   font-family: var(--font-hei);
   font-weight: bold;
-  font-size: var(--fs-sm);
+  font-size: var(--fs-sub);
   padding: 4px 6px;
   letter-spacing: .5px;
 }
@@ -115,13 +162,13 @@ body {
 /* 复选框样式 */
 .chk {
   display: inline-block;
-  width: 12px; height: 12px;
+  width: 14px; height: 14px;
   border: 1px solid #444;
   vertical-align: middle;
   margin-right: 3px;
   text-align: center;
-  line-height: 11px;
-  font-size: 9pt;
+  line-height: 13px;
+  font-size: 10pt;
 }
 .chk.yes { background: #1a3a6b; color: #fff; }
 
@@ -131,9 +178,19 @@ body {
 /* 照片容器 */
 .photo-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 6px;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
   padding: 4px;
+}
+.photo-page {
+  break-inside: avoid-page;
+  page-break-inside: avoid;
+}
+.photo-page + .photo-page {
+  margin-top: 8px;
+}
+.pdf-page-break {
+  display: none;
 }
 .photo-item {
   background: var(--photo-bg);
@@ -142,23 +199,35 @@ body {
   overflow: hidden;
   text-align: center;
 }
+.photo-media {
+  height: 40mm;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2mm;
+  background: #fff;
+}
 .photo-item img {
   display: block;
-  width: 100%;
-  height: 52mm;
-  object-fit: cover;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  background: #fff;
 }
 .photo-caption {
-  font-size: 7pt;
+  font-family: var(--font-latin), 'SimSun', '宋体', serif;
+  font-size: var(--fs-note);
   color: #555;
   padding: 2px 4px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 .photo-placeholder {
   width: 100%;
-  height: 52mm;
+  height: 100%;
   background: #eee;
   display: flex;
   align-items: center;
@@ -168,7 +237,24 @@ body {
 }
 
 /* 大照片（封面）*/
-.cover-photo { width: 100%; max-height: 70mm; object-fit: cover; display: block; }
+.cover-photo-frame {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42mm;
+  max-height: 42mm;
+  padding: 2mm;
+  background: #fff;
+}
+.cover-photo {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 38mm;
+  object-fit: contain;
+  display: block;
+  background: #fff;
+}
 
 /* ══════════════════════════════════════════════════
    页眉
@@ -178,7 +264,7 @@ body {
   margin-bottom: 6px;
 }
 .page-header .org-line {
-  font-size: 9pt;
+  font-size: 12pt;
   color: #444;
   margin-bottom: 2px;
 }
@@ -203,18 +289,29 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 12px;
   border: var(--border);
   border-bottom: none;
-  padding: 3px 8px;
-  font-size: var(--fs-sm);
+  padding: 4px 8px;
+  font-size: var(--fs-base);
   background: var(--label-bg);
 }
+.code-bar > span {
+  min-width: 0;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
 .code-bar .code-val {
-  font-family: 'Courier New', monospace;
-  font-size: 10pt;
+  font-family: var(--font-latin);
+  font-size: 14pt;
   font-weight: bold;
   color: #1a3a6b;
   letter-spacing: 1px;
+  white-space: normal;
+  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 
 /* ══════════════════════════════════════════════════
@@ -224,30 +321,54 @@ body {
   display: flex;
   border: var(--border);
   border-top: none;
-  font-size: var(--fs-sm);
+  font-size: var(--fs-base);
 }
 .sign-cell {
   flex: 1;
   border-right: var(--border);
-  padding: 4px 8px;
+  padding: 5px 8px;
   display: flex;
   flex-direction: column;
   gap: 3px;
-  min-height: 40px;
+  min-height: 48px;
+  min-width: 0;
 }
 .sign-cell:last-child { border-right: none; }
 .sign-label { font-weight: bold; color: #555; }
-.sign-val   { color: #111; }
+.sign-val {
+  color: #111;
+  font-family: var(--font-latin), 'SimSun', '宋体', serif;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
 
 /* ══════════════════════════════════════════════════
    说明文字
 ══════════════════════════════════════════════════ */
 .footer-note {
   margin-top: 6px;
-  font-size: 7.5pt;
+  font-size: var(--fs-note);
   color: #666;
   line-height: 1.6;
   padding: 0 2px;
+}
+
+@media screen {
+  .reg-table td[style*='width:10%'],
+  .reg-table td[style*='width:12%'] {
+    min-width: 0;
+  }
+}
+
+.reg-table tr,
+.reg-table td,
+.reg-table th,
+.sign-bar,
+.photo-section,
+.page-header,
+.code-bar,
+.footer-note {
+  break-inside: avoid-page;
 }
 
 /* ══════════════════════════════════════════════════
@@ -277,20 +398,35 @@ body {
 
   /* 避免表格行在分页时被截断 */
   .reg-table tr { page-break-inside: avoid; }
+  .reg-table td, .reg-table th { break-inside: avoid-page; }
 
   /* 照片区域整体不断页 */
   .photo-section { page-break-inside: avoid; }
+  .photo-page { page-break-inside: avoid; }
+  .photo-page + .photo-page {
+    break-before: page;
+    page-break-before: always;
+    margin-top: 0;
+  }
+  .pdf-page-break {
+    display: block;
+    break-before: page;
+    page-break-before: always;
+    height: 0;
+  }
 
   /* 签章栏不断页 */
   .sign-bar { page-break-inside: avoid; }
 }
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 </head>
 <body>
 
 <!-- ══════ 操作浮动栏 ══════ -->
 <div class="toolbar">
   <button class="btn-back"  onclick="history.back()">← 返回</button>
+  <button id="btn-download-pdf" class="btn-pdf" onclick="downloadPdf()">⬇ 下载 PDF</button>
   <button class="btn-print" onclick="window.print()">🖨 打印 / 另存 PDF</button>
 </div>
 
@@ -300,15 +436,15 @@ body {
   <!-- ── 页眉 ── -->
   <div class="page-header">
     <div class="org-line">国家文物局监制</div>
-    <div class="main-title">第四次全国文物普查</div>
+    <div class="main-title">鄯善县不可移动文物采集</div>
     <div class="sub-title">不可移动文物登记表</div>
   </div>
 
   <!-- ── 普查编号栏 ── -->
   <div class="code-bar">
-    <span>普查编号：<span class="code-val">{{ heritage.survey_code }}</span></span>
+    <span>采集编号：<span class="code-val">{{ heritage.survey_code }}</span></span>
     <span>
-      {% if heritage.previous_survey_code %}三普编号：{{ heritage.previous_survey_code }}{% endif %}
+      {% if heritage.previous_survey_code %}历史编号：{{ heritage.previous_survey_code }}{% endif %}
     </span>
     <span>采集时间：{{ heritage.collected_at|date:"Y年m月d日" }}</span>
   </div>
@@ -327,7 +463,7 @@ body {
     <tr>
       <td class="lbl" style="width:12%">名&emsp;&emsp;称</td>
       <td class="val" colspan="3" style="width:38%">{{ heritage.name }}</td>
-      <td class="lbl" style="width:12%">曾用名/别名</td>
+      <td class="lbl" style="width:12%"><span class="lbl-text breakable">曾用名<wbr>/别名</span></td>
       <td class="val" colspan="3" style="width:38%">{{ heritage.former_name|default:"——" }}</td>
     </tr>
 
@@ -348,25 +484,25 @@ body {
 
     <!-- 省市县 -->
     <tr>
-      <td class="lbl">省/自治区</td>
+      <td class="lbl"><span class="lbl-text breakable">省<wbr>/自治区</span></td>
       <td class="val">{{ heritage.province|default:"——" }}</td>
-      <td class="lbl">市/州</td>
+      <td class="lbl"><span class="lbl-text breakable">市<wbr>/州</span></td>
       <td class="val">{{ heritage.city|default:"——" }}</td>
-      <td class="lbl">县/区</td>
+      <td class="lbl"><span class="lbl-text breakable">县<wbr>/区</span></td>
       <td class="val" colspan="3">{{ heritage.county|default:"——" }}</td>
     </tr>
 
     <!-- 乡镇 / 村 -->
     <tr>
-      <td class="lbl">乡镇/街道</td>
+      <td class="lbl"><span class="lbl-text breakable">乡镇<wbr>/街道</span></td>
       <td class="val" colspan="3">{{ heritage.township|default:"——" }}</td>
-      <td class="lbl">村/社区</td>
+      <td class="lbl"><span class="lbl-text breakable">村<wbr>/社区</span></td>
       <td class="val" colspan="3">{{ heritage.village|default:"——" }}</td>
     </tr>
 
     <!-- 详细地址 -->
     <tr>
-      <td class="lbl">详细地址</td>
+      <td class="lbl"><span class="lbl-text breakable">详细<wbr>地址</span></td>
       <td class="val" colspan="7">{{ heritage.address|default:"——" }}</td>
     </tr>
 
@@ -384,7 +520,7 @@ body {
 
     <!-- 占地面积 -->
     <tr>
-      <td class="lbl">占地面积</td>
+      <td class="lbl"><span class="lbl-text breakable">占地<wbr>面积</span></td>
       <td class="val" colspan="3">
         {% if heritage.area %}{{ heritage.area|floatformat:2 }} 平方米{% else %}——{% endif %}
       </td>
@@ -401,7 +537,7 @@ body {
 
     <!-- 保存现状评级（五格勾选） -->
     <tr>
-      <td class="lbl">保存现状</td>
+      <td class="lbl"><span class="lbl-text breakable">保存<wbr>现状</span></td>
       <td class="val" colspan="7">
         {% for choice in preservation_choices %}
           <span class="chk {% if choice.0 == heritage.preservation_status %}yes{% endif %}">
@@ -418,9 +554,9 @@ body {
         <span class="chk {% if heritage.is_disappeared %}yes{% endif %}">{% if heritage.is_disappeared %}✓{% endif %}</span>是&ensp;
         <span class="chk {% if not heritage.is_disappeared %}yes{% endif %}">{% if not heritage.is_disappeared %}✓{% endif %}</span>否
       </td>
-      <td class="lbl" style="width:10%">消失原因</td>
+      <td class="lbl" style="width:10%"><span class="lbl-text breakable">消失<wbr>原因</span></td>
       <td class="val" colspan="2">{{ heritage.disappear_reason|default:"——" }}</td>
-      <td class="lbl" style="width:10%">是否迁移</td>
+      <td class="lbl" style="width:10%"><span class="lbl-text breakable">是否<wbr>迁移</span></td>
       <td class="val" colspan="2">
         <span class="chk {% if heritage.is_relocated %}yes{% endif %}">{% if heritage.is_relocated %}✓{% endif %}</span>是&ensp;
         <span class="chk {% if not heritage.is_relocated %}yes{% endif %}">{% if not heritage.is_relocated %}✓{% endif %}</span>否
@@ -430,20 +566,20 @@ body {
     <!-- 迁移说明（仅迁移时才填） -->
     {% if heritage.is_relocated %}
     <tr>
-      <td class="lbl">迁移情况</td>
+      <td class="lbl"><span class="lbl-text breakable">迁移<wbr>情况</span></td>
       <td class="val" colspan="7">{{ heritage.relocation_note|default:"——" }}</td>
     </tr>
     {% endif %}
 
     <!-- 破坏原因 -->
     <tr>
-      <td class="lbl">破坏原因</td>
+      <td class="lbl"><span class="lbl-text breakable">破坏<wbr>原因</span></td>
       <td class="val" colspan="7" style="min-height:28px;">{{ heritage.damage_cause|default:"无" }}</td>
     </tr>
 
     <!-- 现存威胁因素 -->
     <tr>
-      <td class="lbl">威胁因素</td>
+      <td class="lbl"><span class="lbl-text breakable">威胁<wbr>因素</span></td>
       <td class="val" colspan="7" style="min-height:28px;">{{ heritage.threat_factors|default:"无" }}</td>
     </tr>
 
@@ -462,21 +598,21 @@ body {
           </span>{{ choice.1 }}&ensp;
         {% endfor %}
       </td>
-      <td class="lbl">权属单位/人</td>
+      <td class="lbl"><span class="lbl-text breakable">权属单位<wbr>/人</span></td>
       <td class="val" colspan="3">{{ heritage.ownership_detail|default:"——" }}</td>
     </tr>
 
     <!-- 使用单位 / 管理单位 -->
     <tr>
-      <td class="lbl">使用单位</td>
+      <td class="lbl"><span class="lbl-text breakable">使用<wbr>单位</span></td>
       <td class="val" colspan="3">{{ heritage.user_unit|default:"——" }}</td>
-      <td class="lbl">管理单位</td>
+      <td class="lbl"><span class="lbl-text breakable">管理<wbr>单位</span></td>
       <td class="val" colspan="3">{{ heritage.management_unit|default:"——" }}</td>
     </tr>
 
     <!-- 管理责任人 -->
     <tr>
-      <td class="lbl">管理责任人</td>
+      <td class="lbl"><span class="lbl-text breakable">管理<wbr>责任人</span></td>
       <td class="val" colspan="7">{{ heritage.manager|default:"——" }}</td>
     </tr>
 
@@ -487,7 +623,7 @@ body {
 
     <!-- 保护级别（四级勾选） -->
     <tr>
-      <td class="lbl">保护级别</td>
+      <td class="lbl"><span class="lbl-text breakable">保护<wbr>级别</span></td>
       <td class="val" colspan="7">
         {% for choice in protection_choices %}
           <span class="chk {% if choice.0 == heritage.protection_level %}yes{% endif %}">
@@ -499,9 +635,9 @@ body {
 
     <!-- 公布批次 / 公布日期 -->
     <tr>
-      <td class="lbl">公布批次</td>
+      <td class="lbl"><span class="lbl-text breakable">公布<wbr>批次</span></td>
       <td class="val" colspan="3">{{ heritage.protection_announced_batch|default:"——" }}</td>
-      <td class="lbl">公布日期</td>
+      <td class="lbl"><span class="lbl-text breakable">公布<wbr>日期</span></td>
       <td class="val" colspan="3">
         {% if heritage.protection_announced_date %}{{ heritage.protection_announced_date|date:"Y年m月d日" }}{% else %}——{% endif %}
       </td>
@@ -509,17 +645,17 @@ body {
 
     <!-- 三项保护设施 -->
     <tr>
-      <td class="lbl">保护标志碑</td>
+      <td class="lbl"><span class="lbl-text breakable">保护<wbr>标志碑</span></td>
       <td class="val val-center">
         <span class="chk {% if heritage.has_marker_stele %}yes{% endif %}">{% if heritage.has_marker_stele %}✓{% endif %}</span>已设立&ensp;
         <span class="chk {% if not heritage.has_marker_stele %}yes{% endif %}">{% if not heritage.has_marker_stele %}✓{% endif %}</span>未设立
       </td>
-      <td class="lbl">保护范围</td>
+      <td class="lbl"><span class="lbl-text breakable">保护<wbr>范围</span></td>
       <td class="val val-center">
         <span class="chk {% if heritage.has_protection_zone_announced %}yes{% endif %}">{% if heritage.has_protection_zone_announced %}✓{% endif %}</span>已公布&ensp;
         <span class="chk {% if not heritage.has_protection_zone_announced %}yes{% endif %}">{% if not heritage.has_protection_zone_announced %}✓{% endif %}</span>未公布
       </td>
-      <td class="lbl">建设控制<br>地带</td>
+      <td class="lbl"><span class="lbl-text breakable">建设控制<wbr>地带</span></td>
       <td class="val val-center" colspan="3">
         <span class="chk {% if heritage.has_construction_control_zone_announced %}yes{% endif %}">{% if heritage.has_construction_control_zone_announced %}✓{% endif %}</span>已公布&ensp;
         <span class="chk {% if not heritage.has_construction_control_zone_announced %}yes{% endif %}">{% if not heritage.has_construction_control_zone_announced %}✓{% endif %}</span>未公布
@@ -550,42 +686,51 @@ body {
 
     <!-- ┌─────────────────── 七、现场照片 ────────────────────┐ -->
     <tr>
-      <td colspan="8" class="sec-head photo-section">七、现场照片（含水印）</td>
+      <td colspan="8" class="sec-head photo-section">七、现场照片</td>
     </tr>
     <tr class="photo-section">
       <td colspan="8" style="padding:0;">
         {% if photos %}
-          {% if cover_photo %}
+            {% if cover_photo_url %}
           <!-- 封面大图 -->
-          <div style="padding:6px 6px 0;">
-            <img src="{{ cover_photo.image.url }}"
-                 alt="{{ cover_photo.caption|default:'封面照片' }}"
-                 class="cover-photo"
-                 onerror="this.style.display='none'">
-            <div style="font-size:7.5pt;color:#555;text-align:center;padding:2px 0 4px;">
-              【封面·{{ cover_photo.get_photo_type_display }}】
+                    <div style="padding:6px 6px 0; break-inside: avoid-page; page-break-inside: avoid;">
+                      <div class="cover-photo-frame">
+                        <img src="{{ cover_photo_url }}"
+                             alt="{{ cover_photo.caption|default:'封面照片' }}"
+                             class="cover-photo"
+                             onerror="this.closest('.cover-photo-frame').style.display='none'">
+                      </div>
+                    <div style="font-size:11pt;color:#555;text-align:center;padding:2px 0 4px;">
+                【封面·{{ cover_photo.get_photo_type_display }}】
               {% if cover_photo.caption %}{{ cover_photo.caption }}{% endif %}
               {% if cover_photo.shot_at %}&ensp;拍摄于 {{ cover_photo.shot_at|date:"Y-m-d H:i" }}{% endif %}
             </div>
           </div>
           {% endif %}
           <!-- 其余照片九宫格 -->
-          {% if other_photos %}
-          <div class="photo-grid">
-            {% for photo in other_photos %}
-            <div class="photo-item">
-              <img src="{{ photo.image.url }}"
-                   alt="{{ photo.caption|default:photo.get_photo_type_display }}"
-                   onerror="this.parentElement.querySelector('.photo-placeholder').style.display='flex';this.style.display='none';">
-              <div class="photo-placeholder" style="display:none;">🖼</div>
-              <div class="photo-caption">
-                【{{ photo.get_photo_type_display }}】
-                {% if photo.caption %}{{ photo.caption }}{% endif %}
-                {% if photo.shot_at %}<br>{{ photo.shot_at|date:"Y-m-d H:i" }}{% endif %}
+          {% if other_photo_pages %}
+            {% for photo_page in other_photo_pages %}
+          <div class="photo-page">
+            <div class="photo-grid">
+              {% for photo in photo_page %}
+              <div class="photo-item">
+                <div class="photo-media">
+                  <img src="{{ photo.url }}"
+                       alt="{{ photo.caption|default:photo.photo_type_display }}"
+                       onerror="this.parentElement.querySelector('.photo-placeholder').style.display='flex';this.style.display='none';">
+                  <div class="photo-placeholder" style="display:none;">🖼</div>
+                </div>
+                <div class="photo-caption">
+                  【{{ photo.photo_type_display }}】
+                  {% if photo.caption %}{{ photo.caption }}{% endif %}
+                  {% if photo.shot_at %}<br>{{ photo.shot_at|date:"Y-m-d H:i" }}{% endif %}
+                </div>
               </div>
+              {% endfor %}
             </div>
-            {% endfor %}
           </div>
+              {% if not forloop.last %}<div class="pdf-page-break"></div>{% endif %}
+            {% endfor %}
           {% endif %}
         {% else %}
           <div style="text-align:center;padding:20px;color:#aaa;font-size:9pt;">
@@ -602,36 +747,101 @@ body {
   <div class="sign-bar">
     <div class="sign-cell">
       <span class="sign-label">采 集 人</span>
-      <span class="sign-val">{{ heritage.collector.get_full_name|default:heritage.collector.username|default:"——" }}</span>
-      <span class="sign-val" style="color:#777;font-size:7.5pt;">
+      <span class="sign-val">{{ collector_display }}</span>
+      <span class="sign-val" style="color:#777;font-size:11pt;">
         {{ heritage.collected_at|date:"Y年m月d日 H:i"|default:"——" }}
       </span>
     </div>
     <div class="sign-cell">
       <span class="sign-label">录 入 人</span>
-      <span class="sign-val">{{ heritage.input_by.get_full_name|default:heritage.input_by.username|default:"——" }}</span>
+      <span class="sign-val">{{ input_by_display }}</span>
     </div>
     <div class="sign-cell">
       <span class="sign-label">审 核 人</span>
-      <span class="sign-val">{{ heritage.reviewer.get_full_name|default:heritage.reviewer.username|default:"——" }}</span>
-      <span class="sign-val" style="color:#777;font-size:7.5pt;">
+      <span class="sign-val">{{ reviewer_display }}</span>
+      <span class="sign-val" style="color:#777;font-size:11pt;">
         {% if heritage.reviewed_at %}{{ heritage.reviewed_at|date:"Y年m月d日" }}{% endif %}
       </span>
     </div>
     <div class="sign-cell">
-      <span class="sign-label">普查单位（盖章）</span>
-      <span class="sign-val" style="height:28px;"></span>
+      <span class="sign-label">采集单位（盖章）</span>
+      <span class="sign-val">{{ collect_unit }}</span>
     </div>
   </div>
 
   <!-- ── 说明文字 ── -->
   <div class="footer-note">
-    <strong>填表说明：</strong>本表依据《第四次全国文物普查不可移动文物登记表》格式制作，
+    <strong>填表说明：</strong>本表依据不可移动文物采集登记格式制作，
     经纬度采用 {{ heritage.get_coordinate_system_display }} 坐标系，精度保留8位小数。
-    现场照片由系统自动叠加采集水印（文物名称、坐标、时间）。
+    现场照片按采集系统规则保存展示。
     本预览页可直接打印或另存为PDF，请在浏览器打印对话框中选择"A4竖向"、无缩放。
   </div>
 
 </div><!-- .a4-wrap -->
+<script>
+async function downloadPdf() {
+  const button = document.getElementById('btn-download-pdf');
+  const target = document.querySelector('.a4-wrap');
+  if (!button || !target) return;
+
+  if (typeof html2pdf === 'undefined') {
+    window.alert('PDF 导出组件加载失败，请稍后重试。');
+    return;
+  }
+
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = '生成 PDF 中...';
+
+  try {
+    const exportWrapper = document.createElement('div');
+    const exportNode = target.cloneNode(true);
+    exportWrapper.style.position = 'fixed';
+    exportWrapper.style.left = '-100000px';
+    exportWrapper.style.top = '0';
+    exportWrapper.style.background = '#fff';
+    exportWrapper.style.padding = '0';
+    exportWrapper.style.margin = '0';
+    exportNode.classList.add('pdf-export-surface');
+    exportWrapper.appendChild(exportNode);
+    document.body.appendChild(exportWrapper);
+
+    const fileName = `不可移动文物采集登记表_${(document.title || 'preview').replace(/[\\/:*?"<>|\s]+/g, '_')}.pdf`;
+    await html2pdf()
+      .set({
+        margin: [0, 0, 0, 0],
+        filename: fileName,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: {
+          scale: 1.5,
+          useCORS: true,
+          backgroundColor: '#ffffff',
+          scrollY: 0,
+        },
+        jsPDF: {
+          unit: 'mm',
+          format: 'a4',
+          orientation: 'portrait',
+        },
+        pagebreak: {
+          mode: ['css', 'legacy'],
+          before: ['.pdf-page-break'],
+          avoid: ['tr', '.sign-bar', '.photo-section', '.photo-page'],
+        },
+      })
+      .from(exportNode)
+      .save();
+
+    document.body.removeChild(exportWrapper);
+  } catch (error) {
+    window.alert('PDF 导出失败，请重试或使用打印功能另存为 PDF。');
+  } finally {
+    const staleWrapper = document.querySelector('body > div[style*="-100000px"]');
+    if (staleWrapper) staleWrapper.remove();
+    button.disabled = false;
+    button.textContent = originalText;
+  }
+}
+</script>
 </body>
 </html>

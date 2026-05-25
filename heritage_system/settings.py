@@ -12,15 +12,62 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 
 from pathlib import Path
 import os
+import subprocess
+from datetime import datetime
+from zoneinfo import ZoneInfo
 import environ
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+SETTINGS_FILE = Path(__file__).resolve()
+PROJECT_TIME_ZONE = ZoneInfo('Asia/Shanghai')
 
 env = environ.Env()
 env_file = BASE_DIR / '.env'
 if env_file.exists():
     environ.Env.read_env(env_file)
+
+SYSTEM_VERSION_PREFIX = env('SYSTEM_VERSION_PREFIX', default='v1.2')
+
+
+def build_system_version():
+    """优先使用 Git 最后提交时间生成版本号，失败时自动降级。"""
+    try:
+        result = subprocess.run(
+            ['git', 'log', '-1', '--format=%ct'],
+            cwd=BASE_DIR,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        timestamp = int(result.stdout.strip())
+        updated_at = datetime.fromtimestamp(timestamp, tz=PROJECT_TIME_ZONE)
+        return (
+            f"{SYSTEM_VERSION_PREFIX}-{updated_at.strftime('%Y%m%d.%H%M')}",
+            'git_commit',
+            updated_at,
+        )
+    except (subprocess.SubprocessError, FileNotFoundError, ValueError, OSError):
+        pass
+
+    try:
+        updated_at = datetime.fromtimestamp(SETTINGS_FILE.stat().st_mtime, tz=PROJECT_TIME_ZONE)
+        return (
+            f"{SYSTEM_VERSION_PREFIX}-{updated_at.strftime('%Y%m%d.%H%M')}",
+            'settings_mtime',
+            updated_at,
+        )
+    except OSError:
+        updated_at = datetime.now(PROJECT_TIME_ZONE)
+        return (
+            f"{SYSTEM_VERSION_PREFIX}-Build{updated_at.strftime('%Y%m%d')}",
+            'system_time',
+            updated_at,
+        )
+
+
+SYS_VERSION, SYS_VERSION_SOURCE, SYS_VERSION_UPDATED_AT = build_system_version()
 
 
 # Quick-start development settings - unsuitable for production
@@ -86,6 +133,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'core.context_processors.system_version_context',
                 'core.context_processors.heritage_map_context',
             ],
         },
@@ -191,7 +239,7 @@ SIMPLEUI_CONFIG = {
             'icon': 'fas fa-clipboard-check',
             'models': [
                 {
-                    'name': '现场数据采集',
+                    'name': '鄯善县不可移动文物采集',
                     'icon': 'fas fa-mobile-alt',
                     'url': '/mobile/collect/'
                 },
@@ -204,11 +252,6 @@ SIMPLEUI_CONFIG = {
                     'name': '采集照片管理',
                     'icon': 'fas fa-images',
                     'url': 'core/heritagephoto/'
-                },
-                {
-                    'name': 'DOCX导出（批量）',
-                    'icon': 'fas fa-file-word',
-                    'url': '/admin/core/immovableheritage/'
                 },
             ]
         },
@@ -261,7 +304,7 @@ SIMPLEUI_CONFIG = {
 
 
 # 修改后台标题
-SIMPLEUI_HOME_TITLE = '鄯善县文物数字化管理平台'
+SIMPLEUI_HOME_TITLE = f'基层文物管理系统 ({SYS_VERSION})'
 SIMPLEUI_LOGO = '/static/img/logo.jpg' # 使用本地logo.jpg
 # 隐藏右侧的 Django 官方相关广告和链接（让界面更清爽）
 SIMPLEUI_HOME_INFO = False
@@ -272,7 +315,7 @@ SIMPLEUI_DEFAULT_THEME = 'purple.css'
 SIMPLEUI_CUSTOM_JS = '/static/admin/js/simpleui_custom.js'
 
 # 自定义登录页标题
-SIMPLEUI_LOGIN_TITLE = '文物管理系统 - 请登录'
+SIMPLEUI_LOGIN_TITLE = f'基层文物管理系统 ({SYS_VERSION}) - 请登录'
 # 配置自定义首页 URL 路径 - 显示统计仪表板
 SIMPLEUI_HOME_PAGE = '/admin/home/'
 
