@@ -2118,6 +2118,13 @@ def _display_user_name(user) -> str:
     return full_name or getattr(user, "username", "——") or "——"
 
 
+def _chunk_items(items, chunk_size):
+    """按固定大小切分列表，便于登记表照片分页。"""
+    if chunk_size <= 0:
+        return [items]
+    return [items[index:index + chunk_size] for index in range(0, len(items), chunk_size)]
+
+
 @login_required
 def heritage_detail_preview_view(request, pk):
     """
@@ -2156,6 +2163,7 @@ def heritage_detail_preview_view(request, pk):
         for photo in other_photos
         if _safe_file_url(photo.image)
     ]
+    other_photo_pages = _chunk_items(other_photo_items, 4)
 
     context = {
         "heritage":             heritage,
@@ -2163,6 +2171,7 @@ def heritage_detail_preview_view(request, pk):
         "cover_photo_url":      cover_photo_url,
         "other_photos":         other_photos,
         "other_photo_items":    other_photo_items,
+        "other_photo_pages":    other_photo_pages,
         "photos":               all_photos,
         "lon_dms":              lon_dms,
         "lat_dms":              lat_dms,
