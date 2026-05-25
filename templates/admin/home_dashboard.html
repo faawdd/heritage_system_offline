@@ -3,13 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>鄯善县文物数字化管理平台</title>
+    <title>{{ title }}</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
     <style>
         body { margin: 0; padding: 16px; background: linear-gradient(180deg, #eef3ff 0%, #f7f9fc 35%, #f5f7fa 100%); font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif; }
         .hero { background: linear-gradient(120deg, #3f7cf4, #5c89f7 55%, #7f67f8); color: #fff; border-radius: 12px; padding: 18px 20px; margin-bottom: 16px; box-shadow: 0 8px 24px rgba(63,124,244,.2); }
         .hero-title { margin: 0 0 6px; font-size: 20px; font-weight: 700; }
         .hero-sub { margin: 0; opacity: .92; font-size: 13px; }
+        .hero-version { margin-top: 10px; display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 999px; background: rgba(255,255,255,.16); font-size: 12px; font-weight: 600; }
+        .hero-version small { opacity: .84; font-weight: 500; }
         .dashboard-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px; margin-bottom: 18px; }
         .stat-card { background: #fff; border-radius: 10px; padding: 16px; border: 1px solid #ebeef5; box-shadow: 0 4px 12px rgba(0, 0, 0, .04); }
         .stat-title { color: #909399; font-size: 13px; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
@@ -67,6 +69,23 @@
             color: #fff;
             transform: translateY(-1px);
         }
+        .dashboard-version {
+            position: fixed;
+            right: 16px;
+            bottom: 64px;
+            z-index: 1190;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            padding: 9px 14px;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.96);
+            border: 1px solid #d8e0ec;
+            color: #4a5568;
+            box-shadow: 0 10px 24px rgba(31, 60, 136, 0.08);
+        }
+        .dashboard-version strong { color: #1f3c88; font-size: 13px; }
+        .dashboard-version span { font-size: 11px; color: #7b8794; }
         @media (max-width: 1100px) {
             .dashboard-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             .quick-entry-grid { grid-template-columns: 1fr; }
@@ -74,6 +93,11 @@
             .chart-grid { grid-template-columns: 1fr; }
         }
         @media (max-width: 768px) {
+            .dashboard-version {
+                right: 12px;
+                bottom: 64px;
+                padding: 8px 12px;
+            }
             .app-download-entry {
                 right: 12px;
                 bottom: 12px;
@@ -85,8 +109,12 @@
 </head>
 <body>
 <div class="hero">
-    <h2 class="hero-title">鄯善县文物数字化管理平台</h2>
+    <h2 class="hero-title">{{ dashboard_title }}</h2>
     <p class="hero-sub">一屏查看文物底数、项目审批进度和坐标核查情况</p>
+    <div class="hero-version">
+        <span>当前版本 {{ sys_version }}</span>
+        <small>最后更新 {{ sys_version_updated_at }}</small>
+    </div>
 </div>
 
 <div class="dashboard-grid">
@@ -219,6 +247,10 @@ Promise.all([
     renderCategoryChart({labels: [], data: []});
 });
 </script>
+<div class="dashboard-version">
+    <span>基层文物管理系统</span>
+    <strong>{{ sys_version }}</strong>
+</div>
 <a class="app-download-entry" href="https://beichenhome.top:9081/app-download/" target="_blank" rel="noopener noreferrer">APP下载页</a>
 </body>
 </html>
