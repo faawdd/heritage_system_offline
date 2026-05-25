@@ -18,11 +18,12 @@
   --photo-bg: #f8f8f8;
   --font: 'SimSun', '宋体', 'Times New Roman', serif;
   --font-hei: 'SimHei', '黑体', 'Arial', sans-serif;
-  --fs-base: 10pt;
-  --fs-sm: 8.8pt;
-  --fs-title: 18pt;
-  --fs-sub: 12.5pt;
-  --cell-pad: 4px 6px;
+  --fs-base: 14pt;
+  --fs-sm: 14pt;
+  --fs-title: 22pt;
+  --fs-sub: 14pt;
+  --fs-note: 11pt;
+  --cell-pad: 3px 5px;
 }
 
 body {
@@ -30,7 +31,7 @@ body {
   font-size: var(--fs-base);
   background: #d0d0d0;
   color: #111;
-  line-height: 1.55;
+  line-height: 1.35;
 }
 
 /* ── A4 纸张容器 ── */
@@ -42,6 +43,15 @@ body {
   padding: 12mm 14mm 14mm;
   box-shadow: 0 2px 20px rgba(0,0,0,.25);
   position: relative;
+}
+
+.pdf-export-surface {
+	width: 190mm;
+	min-height: auto;
+	margin: 0;
+	padding: 10mm 10mm 12mm;
+	box-shadow: none;
+	background: #fff;
 }
 
 /* ── 操作浮动栏（仅屏幕显示）── */
@@ -58,7 +68,7 @@ body {
   border-radius: 6px;
   cursor: pointer;
   font-size: 13px;
-  font-family: var(--font-hei);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 .toolbar button[disabled] {
   opacity: .7;
@@ -96,7 +106,7 @@ body {
   font-weight: bold;
   white-space: nowrap;
   text-align: center;
-  font-size: var(--fs-sm);
+  font-size: var(--fs-base);
   width: 14%;
 }
 .lbl-wide  { width: 18%; }
@@ -105,7 +115,7 @@ body {
 /* 填充格（右侧数据）*/
 .val { background: #fff; font-size: var(--fs-base); }
 .val-center { text-align: center; }
-.val-mono   { font-family: 'Courier New', monospace; font-size: var(--fs-sm); }
+.val-mono   { font-family: 'Courier New', monospace; font-size: 13pt; }
 
 /* 分区标题行 */
 .sec-head {
@@ -113,7 +123,7 @@ body {
   text-align: center;
   font-family: var(--font-hei);
   font-weight: bold;
-  font-size: var(--fs-sm);
+  font-size: var(--fs-sub);
   padding: 4px 6px;
   letter-spacing: .5px;
 }
@@ -121,13 +131,13 @@ body {
 /* 复选框样式 */
 .chk {
   display: inline-block;
-  width: 12px; height: 12px;
+  width: 14px; height: 14px;
   border: 1px solid #444;
   vertical-align: middle;
   margin-right: 3px;
   text-align: center;
-  line-height: 11px;
-  font-size: 9pt;
+  line-height: 13px;
+  font-size: 10pt;
 }
 .chk.yes { background: #1a3a6b; color: #fff; }
 
@@ -137,9 +147,19 @@ body {
 /* 照片容器 */
 .photo-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 6px;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
   padding: 4px;
+}
+.photo-page {
+  break-inside: avoid-page;
+  page-break-inside: avoid;
+}
+.photo-page + .photo-page {
+  margin-top: 8px;
+}
+.pdf-page-break {
+  display: none;
 }
 .photo-item {
   background: var(--photo-bg);
@@ -151,11 +171,11 @@ body {
 .photo-item img {
   display: block;
   width: 100%;
-  height: 52mm;
+  height: 40mm;
   object-fit: cover;
 }
 .photo-caption {
-  font-size: 7.8pt;
+  font-size: var(--fs-note);
   color: #555;
   padding: 2px 4px;
   white-space: nowrap;
@@ -164,7 +184,7 @@ body {
 }
 .photo-placeholder {
   width: 100%;
-  height: 52mm;
+  height: 40mm;
   background: #eee;
   display: flex;
   align-items: center;
@@ -174,7 +194,7 @@ body {
 }
 
 /* 大照片（封面）*/
-.cover-photo { width: 100%; max-height: 70mm; object-fit: cover; display: block; }
+.cover-photo { width: 100%; max-height: 42mm; object-fit: cover; display: block; }
 
 /* ══════════════════════════════════════════════════
    页眉
@@ -184,7 +204,7 @@ body {
   margin-bottom: 6px;
 }
 .page-header .org-line {
-  font-size: 10pt;
+  font-size: 12pt;
   color: #444;
   margin-bottom: 2px;
 }
@@ -212,12 +232,12 @@ body {
   border: var(--border);
   border-bottom: none;
   padding: 4px 8px;
-  font-size: var(--fs-sm);
+  font-size: var(--fs-base);
   background: var(--label-bg);
 }
 .code-bar .code-val {
   font-family: 'Courier New', monospace;
-  font-size: 10.5pt;
+  font-size: 14pt;
   font-weight: bold;
   color: #1a3a6b;
   letter-spacing: 1px;
@@ -230,7 +250,7 @@ body {
   display: flex;
   border: var(--border);
   border-top: none;
-  font-size: var(--fs-sm);
+  font-size: var(--fs-base);
 }
 .sign-cell {
   flex: 1;
@@ -250,7 +270,7 @@ body {
 ══════════════════════════════════════════════════ */
 .footer-note {
   margin-top: 6px;
-  font-size: 8.2pt;
+  font-size: var(--fs-note);
   color: #666;
   line-height: 1.6;
   padding: 0 2px;
@@ -298,6 +318,18 @@ body {
 
   /* 照片区域整体不断页 */
   .photo-section { page-break-inside: avoid; }
+  .photo-page { page-break-inside: avoid; }
+  .photo-page + .photo-page {
+    break-before: page;
+    page-break-before: always;
+    margin-top: 0;
+  }
+  .pdf-page-break {
+    display: block;
+    break-before: page;
+    page-break-before: always;
+    height: 0;
+  }
 
   /* 签章栏不断页 */
   .sign-bar { page-break-inside: avoid; }
@@ -577,12 +609,12 @@ body {
         {% if photos %}
             {% if cover_photo_url %}
           <!-- 封面大图 -->
-          <div style="padding:6px 6px 0;">
+                    <div style="padding:6px 6px 0; break-inside: avoid-page; page-break-inside: avoid;">
               <img src="{{ cover_photo_url }}"
                  alt="{{ cover_photo.caption|default:'封面照片' }}"
                  class="cover-photo"
                  onerror="this.style.display='none'">
-            <div style="font-size:7.5pt;color:#555;text-align:center;padding:2px 0 4px;">
+                    <div style="font-size:11pt;color:#555;text-align:center;padding:2px 0 4px;">
                 【封面·{{ cover_photo.get_photo_type_display }}】
               {% if cover_photo.caption %}{{ cover_photo.caption }}{% endif %}
               {% if cover_photo.shot_at %}&ensp;拍摄于 {{ cover_photo.shot_at|date:"Y-m-d H:i" }}{% endif %}
@@ -590,22 +622,27 @@ body {
           </div>
           {% endif %}
           <!-- 其余照片九宫格 -->
-          {% if other_photo_items %}
-          <div class="photo-grid">
-            {% for photo in other_photo_items %}
-            <div class="photo-item">
-              <img src="{{ photo.url }}"
-                   alt="{{ photo.caption|default:photo.photo_type_display }}"
-                   onerror="this.parentElement.querySelector('.photo-placeholder').style.display='flex';this.style.display='none';">
-              <div class="photo-placeholder" style="display:none;">🖼</div>
-              <div class="photo-caption">
-                【{{ photo.photo_type_display }}】
-                {% if photo.caption %}{{ photo.caption }}{% endif %}
-                {% if photo.shot_at %}<br>{{ photo.shot_at|date:"Y-m-d H:i" }}{% endif %}
+          {% if other_photo_pages %}
+            {% for photo_page in other_photo_pages %}
+          <div class="photo-page">
+            <div class="photo-grid">
+              {% for photo in photo_page %}
+              <div class="photo-item">
+                <img src="{{ photo.url }}"
+                     alt="{{ photo.caption|default:photo.photo_type_display }}"
+                     onerror="this.parentElement.querySelector('.photo-placeholder').style.display='flex';this.style.display='none';">
+                <div class="photo-placeholder" style="display:none;">🖼</div>
+                <div class="photo-caption">
+                  【{{ photo.photo_type_display }}】
+                  {% if photo.caption %}{{ photo.caption }}{% endif %}
+                  {% if photo.shot_at %}<br>{{ photo.shot_at|date:"Y-m-d H:i" }}{% endif %}
+                </div>
               </div>
+              {% endfor %}
             </div>
-            {% endfor %}
           </div>
+              {% if not forloop.last %}<div class="pdf-page-break"></div>{% endif %}
+            {% endfor %}
           {% endif %}
         {% else %}
           <div style="text-align:center;padding:20px;color:#aaa;font-size:9pt;">
@@ -623,7 +660,7 @@ body {
     <div class="sign-cell">
       <span class="sign-label">采 集 人</span>
       <span class="sign-val">{{ collector_display }}</span>
-      <span class="sign-val" style="color:#777;font-size:7.5pt;">
+      <span class="sign-val" style="color:#777;font-size:11pt;">
         {{ heritage.collected_at|date:"Y年m月d日 H:i"|default:"——" }}
       </span>
     </div>
@@ -634,7 +671,7 @@ body {
     <div class="sign-cell">
       <span class="sign-label">审 核 人</span>
       <span class="sign-val">{{ reviewer_display }}</span>
-      <span class="sign-val" style="color:#777;font-size:7.5pt;">
+      <span class="sign-val" style="color:#777;font-size:11pt;">
         {% if heritage.reviewed_at %}{{ heritage.reviewed_at|date:"Y年m月d日" }}{% endif %}
       </span>
     </div>
@@ -669,6 +706,18 @@ async function downloadPdf() {
   button.textContent = '生成 PDF 中...';
 
   try {
+    const exportWrapper = document.createElement('div');
+    const exportNode = target.cloneNode(true);
+    exportWrapper.style.position = 'fixed';
+    exportWrapper.style.left = '-100000px';
+    exportWrapper.style.top = '0';
+    exportWrapper.style.background = '#fff';
+    exportWrapper.style.padding = '0';
+    exportWrapper.style.margin = '0';
+    exportNode.classList.add('pdf-export-surface');
+    exportWrapper.appendChild(exportNode);
+    document.body.appendChild(exportWrapper);
+
     const fileName = `不可移动文物采集登记表_${(document.title || 'preview').replace(/[\\/:*?"<>|\s]+/g, '_')}.pdf`;
     await html2pdf()
       .set({
@@ -676,7 +725,7 @@ async function downloadPdf() {
         filename: fileName,
         image: { type: 'jpeg', quality: 0.98 },
         html2canvas: {
-          scale: 2,
+          scale: 1.5,
           useCORS: true,
           backgroundColor: '#ffffff',
           scrollY: 0,
@@ -688,14 +737,19 @@ async function downloadPdf() {
         },
         pagebreak: {
           mode: ['css', 'legacy'],
-          avoid: ['tr', '.sign-bar', '.photo-section'],
+          before: ['.pdf-page-break'],
+          avoid: ['tr', '.sign-bar', '.photo-section', '.photo-page'],
         },
       })
-      .from(target)
+      .from(exportNode)
       .save();
+
+    document.body.removeChild(exportWrapper);
   } catch (error) {
     window.alert('PDF 导出失败，请重试或使用打印功能另存为 PDF。');
   } finally {
+    const staleWrapper = document.querySelector('body > div[style*="-100000px"]');
+    if (staleWrapper) staleWrapper.remove();
     button.disabled = false;
     button.textContent = originalText;
   }
