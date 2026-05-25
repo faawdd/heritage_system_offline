@@ -665,6 +665,82 @@ class CollectCreateRequest(BaseModel):
     damage_cause: str = ""
     threat_factors: str = ""
     description: str = ""
+    coord_list: list[dict[str, Any]] = []
+
+
+def normalize_collect_coord_list(raw_points: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    if not isinstance(raw_points, list):
+        return normalized
+
+    for raw in raw_points:
+        if not isinstance(raw, dict):
+            continue
+
+        point_type = str(raw.get("type") or "boundary").strip() or "boundary"
+        if point_type not in {"boundary", "marker", "other"}:
+            point_type = "other"
+
+        try:
+            lon = float(raw.get("longitude"))
+            lat = float(raw.get("latitude"))
+        except (TypeError, ValueError):
+            continue
+
+        if not (-180 <= lon <= 180 and -90 <= lat <= 90):
+            continue
+
+        altitude_val = raw.get("altitude")
+        altitude = None
+        if altitude_val not in (None, ""):
+            try:
+                altitude = round(float(altitude_val), 2)
+            except (TypeError, ValueError):
+                altitude = None
+
+        normalized.append(
+            {
+                "type": point_type,
+                "longitude": round(lon, 8),
+                "latitude": round(lat, 8),
+                "altitude": altitude,
+                "sourceTag": str(raw.get("sourceTag") or "").strip(),
+                "description": str(raw.get("description") or "").strip(),
+                "remark": str(raw.get("remark") or "").strip(),
+            }
+        )
+
+    return normalized
+
+
+def format_coord_point_lines(points: list[dict[str, Any]] | None) -> list[str]:
+    if not points:
+        return ["无"]
+
+    type_map = {
+        "boundary": "边界点",
+        "marker": "标志点",
+        "other": "其他",
+    }
+    lines: list[str] = []
+    for idx, point in enumerate(points, start=1):
+        p_type = type_map.get(str(point.get("type") or ""), "其他")
+        lon = point.get("longitude", "")
+        lat = point.get("latitude", "")
+        alt = point.get("altitude")
+        desc = str(point.get("description") or "").strip() or "无"
+        src = str(point.get("sourceTag") or "").strip()
+        remark = str(point.get("remark") or "").strip()
+
+        alt_text = f"{alt:.2f}" if isinstance(alt, (int, float)) else "无"
+        line = f"{idx}. [{p_type}] 经度 {lon}，纬度 {lat}，海拔 {alt_text}m，说明：{desc}"
+        if src:
+            line = f"{line}，来源：{src}"
+        if remark:
+            line = f"{line}，备注：{remark}"
+        lines.append(line)
+
+    return lines
 
 
 @app.get("/api/collect/form-meta")
@@ -720,6 +796,7 @@ def collect_create(
     from django.utils import timezone
 
     now = timezone.now()
+    normalized_coord_list = normalize_collect_coord_list(payload.coord_list)
     try:
         heritage = ImmovableHeritage.objects.create(
             survey_code=manual_code,
@@ -745,6 +822,7 @@ def collect_create(
             damage_cause=payload.damage_cause.strip(),
             threat_factors=payload.threat_factors.strip(),
             description=payload.description.strip(),
+            coord_list=normalized_coord_list,
             collector=current_user,
             collected_at=now,
         )
@@ -1006,7 +1084,7 @@ def collect_export_docx(
     code_run.font.size = Pt(14)
     code_run.font.name = "宋体"
 
-    table = document.add_table(rows=17, cols=8)
+    table = document.add_table(rows=19, cols=8)
     table.style = "Table Grid"
     _set_table_widths_docx(table, [18, 24, 14, 24, 14, 24, 14, 27])
 
@@ -1055,25 +1133,36 @@ def collect_export_docx(
     _set_cell_text_docx(table.cell(8, 6), "纬度(度分秒)", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER, font_size=14)
     _set_cell_text_docx(table.cell(8, 7), _decimal_to_dms_docx(heritage.latitude, False), font_size=14)
 
-    _set_cell_text_docx(table.cell(9, 0).merge(table.cell(9, 7)), "三、现状与保护", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
-    _set_cell_text_docx(table.cell(10, 0), "保存现状", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
-    _set_cell_text_docx(table.cell(10, 1), heritage.preservation_status)
-    _set_cell_text_docx(table.cell(10, 2), "权属", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
-    _set_cell_text_docx(table.cell(10, 3), heritage.get_ownership_display())
-    _set_cell_text_docx(table.cell(10, 4), "保护级别", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
-    _set_cell_text_docx(table.cell(10, 5).merge(table.cell(10, 7)), heritage.get_protection_level_display())
+    point_lines = format_coord_point_lines(heritage.coord_list)
+    _set_cell_text_docx(table.cell(9, 0).merge(table.cell(9, 7)), "三、区块2坐标点", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    points_cell = table.cell(10, 0).merge(table.cell(10, 7))
+    points_cell.text = ""
+    for line in point_lines:
+        paragraph = points_cell.add_paragraph(line)
+        paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
+        for run in paragraph.runs:
+            run.font.size = Pt(12)
+            run.font.name = "宋体"
 
-    _set_cell_text_docx(table.cell(11, 0), "破坏原因", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
-    _set_cell_text_docx(table.cell(11, 1).merge(table.cell(11, 3)), heritage.damage_cause or "无")
-    _set_cell_text_docx(table.cell(11, 4), "威胁因素", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
-    _set_cell_text_docx(table.cell(11, 5).merge(table.cell(11, 7)), heritage.threat_factors or "无")
+    _set_cell_text_docx(table.cell(11, 0).merge(table.cell(11, 7)), "四、现状与保护", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    _set_cell_text_docx(table.cell(12, 0), "保存现状", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    _set_cell_text_docx(table.cell(12, 1), heritage.preservation_status)
+    _set_cell_text_docx(table.cell(12, 2), "权属", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    _set_cell_text_docx(table.cell(12, 3), heritage.get_ownership_display())
+    _set_cell_text_docx(table.cell(12, 4), "保护级别", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    _set_cell_text_docx(table.cell(12, 5).merge(table.cell(12, 7)), heritage.get_protection_level_display())
 
-    _set_cell_text_docx(table.cell(12, 0).merge(table.cell(12, 7)), "四、文物简介", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
-    _set_cell_text_docx(table.cell(13, 0).merge(table.cell(13, 7)), heritage.description or "（暂无简介）")
+    _set_cell_text_docx(table.cell(13, 0), "破坏原因", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    _set_cell_text_docx(table.cell(13, 1).merge(table.cell(13, 3)), heritage.damage_cause or "无")
+    _set_cell_text_docx(table.cell(13, 4), "威胁因素", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    _set_cell_text_docx(table.cell(13, 5).merge(table.cell(13, 7)), heritage.threat_factors or "无")
 
-    _set_cell_text_docx(table.cell(14, 0).merge(table.cell(14, 7)), "五、照片说明（现场采集照片）", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
-    _set_cell_text_docx(table.cell(15, 0).merge(table.cell(16, 1)), "照片说明", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
-    _insert_photos_docx(table.cell(15, 2).merge(table.cell(16, 7)), list(heritage.photos.all()))
+    _set_cell_text_docx(table.cell(14, 0).merge(table.cell(14, 7)), "五、文物简介", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    _set_cell_text_docx(table.cell(15, 0).merge(table.cell(15, 7)), heritage.description or "（暂无简介）")
+
+    _set_cell_text_docx(table.cell(16, 0).merge(table.cell(16, 7)), "六、照片说明（现场采集照片）", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    _set_cell_text_docx(table.cell(17, 0).merge(table.cell(18, 1)), "照片说明", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    _insert_photos_docx(table.cell(17, 2).merge(table.cell(18, 7)), list(heritage.photos.all()))
 
     output = io.BytesIO()
     document.save(output)

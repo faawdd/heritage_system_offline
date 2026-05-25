@@ -236,6 +236,27 @@ body {
   font-size: 20pt;
 }
 
+.coord-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.coord-table th,
+.coord-table td {
+  border: var(--border-light);
+  padding: 3px 4px;
+  font-size: 11pt;
+  text-align: center;
+  vertical-align: middle;
+  word-break: break-word;
+}
+
+.coord-table th {
+  background: #f5f7fa;
+  font-weight: bold;
+}
+
 /* 大照片（封面）*/
 .cover-photo-frame {
   display: flex;
@@ -528,6 +549,44 @@ body {
       <td class="val val-mono">{{ lon_dms }}</td>
       <td class="lbl">度分秒(纬)</td>
       <td class="val val-mono">{{ lat_dms }}</td>
+    </tr>
+
+    <tr>
+      <td class="lbl"><span class="lbl-text breakable">区块2<wbr>坐标点</span></td>
+      <td class="val" colspan="7" style="padding:4px;">
+        {% if coord_points %}
+        <table class="coord-table">
+          <thead>
+            <tr>
+              <th style="width:7%;">序号</th>
+              <th style="width:12%;">类型</th>
+              <th style="width:16%;">经度</th>
+              <th style="width:16%;">纬度</th>
+              <th style="width:10%;">海拔(m)</th>
+              <th style="width:19%;">点位说明</th>
+              <th style="width:10%;">高程来源</th>
+              <th style="width:10%;">备注</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for point in coord_points %}
+            <tr>
+              <td>{{ point.index }}</td>
+              <td>{{ point.type_label }}</td>
+              <td class="val-mono">{{ point.longitude }}</td>
+              <td class="val-mono">{{ point.latitude }}</td>
+              <td class="val-mono">{{ point.altitude }}</td>
+              <td>{{ point.description }}</td>
+              <td>{{ point.source_tag|default:'——' }}</td>
+              <td>{{ point.remark }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <span style="color:#777;">暂无区块2坐标点数据</span>
+        {% endif %}
+      </td>
     </tr>
 
     <!-- ┌─────────────────── 三、保存状况 ────────────────────┐ -->
