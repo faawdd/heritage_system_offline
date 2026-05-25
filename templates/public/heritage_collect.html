@@ -22,6 +22,24 @@
       grid-column: 1 / -1;
     }
 
+    .collect-section {
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-top: 0;
+      border-radius: 0;
+      box-shadow: none;
+      padding: 16px;
+    }
+    .collect-main section.collect-section:first-of-type {
+      border-top: 1px solid #e2e8f0;
+      border-top-left-radius: 14px;
+      border-top-right-radius: 14px;
+    }
+    .collect-main section.collect-section:last-of-type {
+      border-bottom-left-radius: 14px;
+      border-bottom-right-radius: 14px;
+    }
+
     /* ── 必填标记 ── */
     .required-mark::after { content: " *"; color: #ef4444; font-weight: 700; }
 
@@ -90,7 +108,7 @@
     </div>
   </header>
 
-  <main class="collect-main mx-auto px-4 pt-5 space-y-4">
+  <main class="collect-main mx-auto px-4 pt-5 space-y-0">
 
     <!-- ══ 进度提示 ══ -->
     <div id="progress-hint" data-layout-span="full" class="text-xs text-slate-500 flex items-center gap-1.5">
@@ -99,7 +117,7 @@
     </div>
 
     <!-- ══ 卡片：基础信息 ══ -->
-    <section class="bg-white rounded-2xl shadow-sm p-4 space-y-4">
+    <section class="collect-section space-y-4">
       <h2 class="text-sm font-semibold text-slate-700 border-b border-slate-100 pb-2 flex items-center gap-2">
         <span class="w-1 h-4 bg-blue-500 rounded-full"></span>基础信息
       </h2>
@@ -147,10 +165,21 @@
           <p id="err-category" class="text-red-500 text-xs mt-1 hidden"></p>
         </div>
       </div>
+
+      <div>
+        <label class="block text-sm text-slate-600 mb-1">文物类型</label>
+        <select id="heritage_type" name="heritage_type"
+                class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50">
+          <option value="">请选择（选填）</option>
+          {% for value, label in heritage_type_choices %}
+            <option value="{{ value }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
     </section>
 
     <!-- ══ 卡片：地理位置 ══ -->
-    <section class="bg-white rounded-2xl shadow-sm p-4 space-y-4">
+    <section class="collect-section space-y-4">
       <h2 class="text-sm font-semibold text-slate-700 border-b border-slate-100 pb-2 flex items-center gap-2">
         <span class="w-1 h-4 bg-green-500 rounded-full"></span>地理位置
       </h2>
@@ -185,6 +214,15 @@
       </div>
       <div class="grid grid-cols-2 gap-3">
         <div>
+          <label class="block text-xs text-slate-500 mb-1">坐标系</label>
+          <select id="coordinate_system" name="coordinate_system"
+                  class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50">
+            {% for value, label in coordinate_system_choices %}
+              <option value="{{ value }}" {% if value == "CGCS2000" %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
           <label class="block text-xs text-slate-500 mb-1">海拔高程（米）</label>
           <input id="altitude" name="altitude" type="number" step="0.01" placeholder="（选填）"
                  class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50" />
@@ -194,6 +232,13 @@
           <input id="accuracy" type="text" readonly placeholder="—"
                  class="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-slate-50 text-slate-500" />
         </div>
+      </div>
+
+      <div>
+        <label class="block text-sm text-slate-600 mb-1">占地面积（平方米）</label>
+        <input id="area" name="area" type="number" step="0.01" min="0" placeholder="（选填）"
+               class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50" />
+        <p id="err-area" class="text-red-500 text-xs mt-1 hidden"></p>
       </div>
 
       <!-- 行政区划 -->
@@ -234,7 +279,7 @@
     </section>
 
     <!-- ══ 卡片：保存状况与权属 ══ -->
-    <section class="bg-white rounded-2xl shadow-sm p-4 space-y-4">
+    <section class="collect-section space-y-4">
       <h2 class="text-sm font-semibold text-slate-700 border-b border-slate-100 pb-2 flex items-center gap-2">
         <span class="w-1 h-4 bg-amber-500 rounded-full"></span>保存状况与权属
       </h2>
@@ -272,17 +317,27 @@
     </section>
 
     <!-- ══ 卡片：文物简介 ══ -->
-    <section class="bg-white rounded-2xl shadow-sm p-4 space-y-3">
+    <section class="collect-section space-y-3">
       <h2 class="text-sm font-semibold text-slate-700 border-b border-slate-100 pb-2 flex items-center gap-2">
         <span class="w-1 h-4 bg-purple-500 rounded-full"></span>文物简介
       </h2>
+      <div>
+        <label class="block text-sm text-slate-600 mb-1">破坏原因</label>
+        <textarea id="damage_cause" name="damage_cause" rows="2" placeholder="（选填）"
+                  class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50 resize-none"></textarea>
+      </div>
+      <div>
+        <label class="block text-sm text-slate-600 mb-1">威胁因素</label>
+        <textarea id="threat_factors" name="threat_factors" rows="2" placeholder="（选填）"
+                  class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50 resize-none"></textarea>
+      </div>
       <textarea id="description" name="description" rows="4"
                 placeholder="对文物的历史背景、形制特征及现状进行描述（建议 100 字以上）"
                 class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50 resize-none leading-relaxed"></textarea>
     </section>
 
     <!-- ══ 卡片：现场照片 ══ -->
-    <section class="bg-white rounded-2xl shadow-sm p-4 space-y-3">
+    <section class="collect-section space-y-3">
       <h2 class="text-sm font-semibold text-slate-700 border-b border-slate-100 pb-2 flex items-center gap-2">
         <span class="w-1 h-4 bg-rose-500 rounded-full"></span>现场照片
         <span class="ml-auto text-xs font-normal text-slate-400">最多 10 张，按巡查上报同规则处理</span>
@@ -513,10 +568,11 @@ async function submitForm() {
   // 构建 FormData
   const fd = new FormData();
   const fields = [
-    'survey_code', 'name', 'former_name', 'era', 'category',
-    'longitude', 'latitude', 'altitude',
+    'survey_code', 'name', 'former_name', 'era', 'category', 'heritage_type',
+    'longitude', 'latitude', 'coordinate_system', 'altitude', 'area',
     'province', 'city', 'county', 'township', 'village', 'address',
-    'protection_level', 'ownership', 'preservation_status', 'description',
+    'protection_level', 'ownership', 'preservation_status',
+    'damage_cause', 'threat_factors', 'description',
   ];
   for (const id of fields) {
     const el = document.getElementById(id);
@@ -573,6 +629,15 @@ function resetForm() {
   allInputs.forEach(el => {
     if (!keepFields.includes(el.id)) el.value = '';
   });
+
+  const coordinateSystem = document.getElementById('coordinate_system');
+  if (coordinateSystem) coordinateSystem.value = 'CGCS2000';
+  const protectionLevel = document.getElementById('protection_level');
+  if (protectionLevel) protectionLevel.value = 'DS';
+  const ownership = document.getElementById('ownership');
+  if (ownership) ownership.value = 'state';
+  const preservationStatus = document.getElementById('preservation_status');
+  if (preservationStatus) preservationStatus.value = '一般';
 
   // 重置 GPS 状态
   document.getElementById('gps-status').className = 'gps-badge idle';

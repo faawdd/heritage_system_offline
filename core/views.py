@@ -1889,6 +1889,7 @@ def heritage_collect_view(request):
             survey_code  = p.get("survey_code", "").strip()
             era          = p.get("era", "").strip()
             category     = p.get("category", "").strip()
+            heritage_type = p.get("heritage_type", "").strip()
             lon_raw      = p.get("longitude", "").strip()
             lat_raw      = p.get("latitude", "").strip()
 
@@ -1899,11 +1900,15 @@ def heritage_collect_view(request):
             township            = p.get("township", "").strip()
             village             = p.get("village", "").strip()
             address             = p.get("address", "").strip()
+            coordinate_system   = p.get("coordinate_system", "CGCS2000").strip()
             altitude_raw        = p.get("altitude", "").strip()
+            area_raw            = p.get("area", "").strip()
             protection_level    = p.get("protection_level", "DS")
             ownership           = p.get("ownership", "state")
             preservation_status = p.get("preservation_status", "一般")
             description         = p.get("description", "").strip()
+            damage_cause        = p.get("damage_cause", "").strip()
+            threat_factors      = p.get("threat_factors", "").strip()
             former_name         = p.get("former_name", "").strip()
 
             # ── 字段验证 ────────────────────────────────────────
@@ -1940,6 +1945,24 @@ def heritage_collect_view(request):
                 except DecimalInvalidOperation:
                     pass
 
+            area = None
+            if area_raw:
+                try:
+                    area = Decimal(area_raw)
+                except DecimalInvalidOperation:
+                    errors["area"] = "占地面积格式不合法"
+
+            if errors:
+                return JsonResponse({"success": False, "errors": errors}, status=400)
+
+            valid_coordinate_systems = {v for v, _ in ImmovableHeritage.COORDINATE_SYSTEM_CHOICES}
+            if coordinate_system not in valid_coordinate_systems:
+                coordinate_system = "CGCS2000"
+
+            valid_heritage_types = {v for v, _ in ImmovableHeritage.HERITAGE_TYPE_CHOICES}
+            if heritage_type and heritage_type not in valid_heritage_types:
+                heritage_type = ""
+
             # ── 采集编号唯一性校验（手工填写时） ─────────────────
             if survey_code and ImmovableHeritage.objects.filter(survey_code=survey_code).exists():
                 return JsonResponse(
@@ -1956,18 +1979,23 @@ def heritage_collect_view(request):
                 name=name,
                 era=era,
                 category=category,
+                heritage_type=heritage_type,
                 province=province,
                 city=city,
                 county=county,
                 township=township,
                 village=village,
                 address=address,
+                coordinate_system=coordinate_system,
                 longitude=longitude,
                 latitude=latitude,
                 altitude=altitude,
+                area=area,
                 protection_level=protection_level,
                 ownership=ownership,
                 preservation_status=preservation_status,
+                damage_cause=damage_cause,
+                threat_factors=threat_factors,
                 description=description,
                 collector=request.user,
                 collected_at=collected_at,
@@ -2031,6 +2059,8 @@ def heritage_collect_view(request):
     from .models import ImmovableHeritage  # noqa: F811 — 保证在 GET 路径也可用
     context = {
         "category_choices":           ImmovableHeritage.CATEGORY_CHOICES,
+        "heritage_type_choices":      ImmovableHeritage.HERITAGE_TYPE_CHOICES,
+        "coordinate_system_choices":  ImmovableHeritage.COORDINATE_SYSTEM_CHOICES,
         "protection_level_choices":   ImmovableHeritage.PROTECTION_LEVEL_CHOICES,
         "ownership_choices":          ImmovableHeritage.OWNERSHIP_CHOICES,
         "preservation_status_choices": ImmovableHeritage.PRESERVATION_STATUS_CHOICES,
@@ -2112,7 +2142,7 @@ def heritage_detail_preview_view(request, pk):
     return render(request, "public/detail_preview.html", context)
 
 
-def _set_cell_text(cell, text, *, bold=False, align=WD_PARAGRAPH_ALIGNMENT.LEFT, font_size=10.5):
+def _set_cell_text(cell, text, *, bold=False, align=WD_PARAGRAPH_ALIGNMENT.LEFT, font_size=14):
     """统一设置表格单元格文本样式。"""
     cell.text = ""
     paragraph = cell.paragraphs[0]
@@ -2153,7 +2183,7 @@ def _insert_photos_into_cell(cell, photos):
     """
     cell.text = ""
     if not photos:
-        _set_cell_text(cell, "暂无现场照片", align=WD_PARAGRAPH_ALIGNMENT.CENTER, font_size=10)
+        _set_cell_text(cell, "暂无现场照片", align=WD_PARAGRAPH_ALIGNMENT.CENTER, font_size=14)
         return
 
     ordered = sorted(photos, key=lambda p: (not p.is_cover, p.uploaded_at or timezone.now()))
@@ -2182,7 +2212,7 @@ def _insert_photos_into_cell(cell, photos):
         if photo.caption:
             caption = f"{caption}：{photo.caption}"
         run_caption = p_caption.add_run(caption)
-        run_caption.font.size = Pt(9)
+        run_caption.font.size = Pt(14)
         run_caption.font.name = "宋体"
 
 
@@ -2210,13 +2240,14 @@ def _build_immovable_heritage_docx_stream(heritage):
     p_title.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
     run_title = p_title.add_run("鄯善县不可移动文物采集登记表")
     run_title.bold = True
-    run_title.font.size = Pt(18)
+    run_title.font.size = Pt(22)
     run_title.font.name = "黑体"
 
     p_code = document.add_paragraph()
     p_code.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
     run_code = p_code.add_run(f"采集编号：{heritage.survey_code}")
-    run_code.font.size = Pt(12)
+    run_code.bold = True
+    run_code.font.size = Pt(14)
     run_code.font.name = "宋体"
 
     table = document.add_table(rows=17, cols=8)
@@ -2255,18 +2286,18 @@ def _build_immovable_heritage_docx_stream(heritage):
     _set_cell_text(table.cell(7, 0), "坐标系", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
     _set_cell_text(table.cell(7, 1), heritage.get_coordinate_system_display())
     _set_cell_text(table.cell(7, 2), "经度", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
-    _set_cell_text(table.cell(7, 3), f"{heritage.longitude:.8f}", font_size=9)
+    _set_cell_text(table.cell(7, 3), f"{heritage.longitude:.8f}", font_size=14)
     _set_cell_text(table.cell(7, 4), "纬度", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
-    _set_cell_text(table.cell(7, 5), f"{heritage.latitude:.8f}", font_size=9)
+    _set_cell_text(table.cell(7, 5), f"{heritage.latitude:.8f}", font_size=14)
     _set_cell_text(table.cell(7, 6), "海拔(m)", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
-    _set_cell_text(table.cell(7, 7), f"{heritage.altitude:.2f}" if heritage.altitude is not None else "——", font_size=9)
+    _set_cell_text(table.cell(7, 7), f"{heritage.altitude:.2f}" if heritage.altitude is not None else "——", font_size=14)
 
     _set_cell_text(table.cell(8, 0), "占地面积", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
     _set_cell_text(table.cell(8, 1).merge(table.cell(8, 3)), f"{heritage.area:.2f} 平方米" if heritage.area else "——")
-    _set_cell_text(table.cell(8, 4), "经度(度分秒)", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER, font_size=9)
-    _set_cell_text(table.cell(8, 5), _decimal_to_dms(heritage.longitude, True), font_size=9)
-    _set_cell_text(table.cell(8, 6), "纬度(度分秒)", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER, font_size=9)
-    _set_cell_text(table.cell(8, 7), _decimal_to_dms(heritage.latitude, False), font_size=9)
+    _set_cell_text(table.cell(8, 4), "经度(度分秒)", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER, font_size=14)
+    _set_cell_text(table.cell(8, 5), _decimal_to_dms(heritage.longitude, True), font_size=14)
+    _set_cell_text(table.cell(8, 6), "纬度(度分秒)", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER, font_size=14)
+    _set_cell_text(table.cell(8, 7), _decimal_to_dms(heritage.latitude, False), font_size=14)
 
     _set_cell_text(table.cell(9, 0).merge(table.cell(9, 7)), "三、现状与保护", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
     _set_cell_text(table.cell(10, 0), "保存现状", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
@@ -2299,7 +2330,7 @@ def _build_immovable_heritage_docx_stream(heritage):
     )
     sign.alignment = WD_PARAGRAPH_ALIGNMENT.RIGHT
     for run in sign.runs:
-        run.font.size = Pt(11)
+        run.font.size = Pt(14)
         run.font.name = "宋体"
 
     output = io.BytesIO()
