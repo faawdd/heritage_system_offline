@@ -1974,6 +1974,119 @@ from decimal import Decimal, InvalidOperation as DecimalInvalidOperation
 from django.contrib.auth.decorators import login_required
 
 
+def _normalize_collect_coord_list(raw_points):
+    normalized = []
+    if not isinstance(raw_points, list):
+        return normalized
+
+    for raw in raw_points:
+        if not isinstance(raw, dict):
+            continue
+
+        point_type = str(raw.get('type') or 'boundary').strip() or 'boundary'
+        if point_type not in {'boundary', 'marker', 'other'}:
+            point_type = 'other'
+
+        try:
+            lon = float(raw.get('longitude'))
+            lat = float(raw.get('latitude'))
+        except (TypeError, ValueError):
+            continue
+
+        if not (-180 <= lon <= 180 and -90 <= lat <= 90):
+            continue
+
+        altitude = None
+        raw_alt = raw.get('altitude')
+        if raw_alt not in (None, ''):
+            try:
+                altitude = round(float(raw_alt), 2)
+            except (TypeError, ValueError):
+                altitude = None
+
+        normalized.append({
+            'type': point_type,
+            'longitude': round(lon, 8),
+            'latitude': round(lat, 8),
+            'altitude': altitude,
+            'sourceTag': str(raw.get('sourceTag') or '').strip(),
+            'description': str(raw.get('description') or '').strip(),
+            'remark': str(raw.get('remark') or '').strip(),
+        })
+
+    return normalized
+
+
+def _format_coord_point_lines(points):
+    if not points:
+        return ['无']
+
+    type_map = {
+        'boundary': '边界点',
+        'marker': '标志点',
+        'other': '其他',
+    }
+    lines = []
+    for idx, point in enumerate(points, start=1):
+        p_type = type_map.get(str(point.get('type') or ''), '其他')
+        lon = point.get('longitude', '')
+        lat = point.get('latitude', '')
+        alt = point.get('altitude')
+        desc = str(point.get('description') or '').strip() or '无'
+        src = str(point.get('sourceTag') or '').strip()
+        remark = str(point.get('remark') or '').strip()
+
+        alt_text = f"{alt:.2f}" if isinstance(alt, (int, float)) else '无'
+        line = f"{idx}. [{p_type}] 经度 {lon}，纬度 {lat}，海拔 {alt_text}m，说明：{desc}"
+        if src:
+            line = f"{line}，来源：{src}"
+        if remark:
+            line = f"{line}，备注：{remark}"
+        lines.append(line)
+
+    return lines
+
+
+def _build_coord_points_display(points):
+    type_map = {
+        'boundary': '边界点',
+        'marker': '标志点',
+        'other': '其他',
+    }
+    rows = []
+    if not isinstance(points, list):
+        return rows
+
+    for idx, point in enumerate(points, start=1):
+        if not isinstance(point, dict):
+            continue
+        try:
+            lon = float(point.get('longitude'))
+            lat = float(point.get('latitude'))
+        except (TypeError, ValueError):
+            continue
+
+        alt = point.get('altitude')
+        alt_text = '——'
+        if alt not in (None, ''):
+            try:
+                alt_text = f"{float(alt):.2f}"
+            except (TypeError, ValueError):
+                alt_text = '——'
+
+        rows.append({
+            'index': idx,
+            'type_label': type_map.get(str(point.get('type') or ''), '其他'),
+            'longitude': f"{lon:.8f}",
+            'latitude': f"{lat:.8f}",
+            'altitude': alt_text,
+            'description': str(point.get('description') or '').strip() or '——',
+            'source_tag': str(point.get('sourceTag') or '').strip(),
+            'remark': str(point.get('remark') or '').strip() or '——',
+        })
+    return rows
+
+
 @login_required
 def heritage_collect_view(request):
     """
@@ -2026,9 +2139,18 @@ def heritage_collect_view(request):
             damage_cause        = p.get("damage_cause", "").strip()
             threat_factors      = p.get("threat_factors", "").strip()
             former_name         = p.get("former_name", "").strip()
+            coord_list_raw      = p.get("coord_list", "").strip()
 
             # ── 字段验证 ────────────────────────────────────────
             errors: dict[str, str] = {}
+
+            coord_list = []
+            if coord_list_raw:
+                try:
+                    parsed = json.loads(coord_list_raw)
+                    coord_list = _normalize_collect_coord_list(parsed)
+                except (TypeError, ValueError):
+                    errors["coord_list"] = "区块2坐标点数据格式不合法"
             if not name:
                 errors["name"] = "文物名称不能为空"
             if not era:
@@ -2113,6 +2235,7 @@ def heritage_collect_view(request):
                 damage_cause=damage_cause,
                 threat_factors=threat_factors,
                 description=description,
+                coord_list=coord_list,
                 collector=request.user,
                 collected_at=collected_at,
             )
@@ -2268,6 +2391,7 @@ def heritage_detail_preview_view(request, pk):
     # 度分秒在视图层计算，保持模板简洁
     lon_dms = _decimal_to_dms(heritage.longitude, is_longitude=True)
     lat_dms = _decimal_to_dms(heritage.latitude,  is_longitude=False)
+    coord_points = _build_coord_points_display(heritage.coord_list)
     cover_photo_url = _safe_file_url(cover_photo.image if cover_photo else None)
     other_photo_items = [
         {
@@ -2292,6 +2416,7 @@ def heritage_detail_preview_view(request, pk):
         "photos":               all_photos,
         "lon_dms":              lon_dms,
         "lat_dms":              lat_dms,
+        "coord_points":         coord_points,
         "collector_display":    _display_user_name(heritage.collector),
         "input_by_display":     _display_user_name(heritage.input_by),
         "reviewer_display":     _display_user_name(heritage.reviewer),
@@ -2480,6 +2605,21 @@ def _build_immovable_heritage_docx_stream(heritage):
     _set_cell_text(table.cell(15, 0).merge(table.cell(16, 1)), "照片说明", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
     photo_cell = table.cell(15, 2).merge(table.cell(16, 7))
     _insert_photos_into_cell(photo_cell, list(heritage.photos.all()))
+
+    document.add_paragraph("")
+    p_coord_title = document.add_paragraph("区块2坐标点信息")
+    p_coord_title.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
+    for run in p_coord_title.runs:
+        run.bold = True
+        run.font.size = Pt(14)
+        run.font.name = "宋体"
+
+    for line in _format_coord_point_lines(heritage.coord_list):
+        p_coord_line = document.add_paragraph(line)
+        p_coord_line.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
+        for run in p_coord_line.runs:
+            run.font.size = Pt(12)
+            run.font.name = "宋体"
 
     document.add_paragraph("")
     sign = document.add_paragraph(

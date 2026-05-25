@@ -590,6 +590,12 @@ class ImmovableHeritage(models.Model):
         blank=True,
         help_text='文物点主体所在位置的绝对海拔高度，单位：米',
     )
+    coord_list = models.JSONField(
+        verbose_name='区块2坐标点列表',
+        default=list,
+        blank=True,
+        help_text='区块2采集的多点坐标信息，含类型、经纬高、说明与备注',
+    )
     # 方案B（GeoDjango + PostGIS）：取消下方注释并注释掉上方 longitude/latitude/altitude 三个字段
     # 同时在 settings.py 的 INSTALLED_APPS 中加入 'django.contrib.gis'
     # from django.contrib.gis.db import models as gis_models
