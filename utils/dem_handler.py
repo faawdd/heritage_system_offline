@@ -15,6 +15,7 @@ import math
 import threading
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 
 import requests
 from django.conf import settings
@@ -92,6 +93,56 @@ def _build_tile_path(tile_spec: DemTileSpec, dem_type: str = DEFAULT_DEM_TYPE) -
     return _dem_root_dir() / dem_type / f"{tile_spec.tile_name}.tif"
 
 
+def _build_request_proxies(request_url: str) -> Optional[dict[str, str]]:
+    """构造当前请求使用的局部代理配置（不污染全局环境）。
+
+    说明：
+    1) 仅在本次 requests.get 生命周期内通过 proxies 参数生效；
+    2) 默认仅对 OpenTopography 域名生效，避免影响其他业务请求；
+    3) 兼容 SOCKS5 与 HTTP 代理协议。
+
+    常用 settings 配置建议：
+        DEM_DOWNLOAD_PROXY_ENABLED = True
+        DEM_DOWNLOAD_PROXY_SCHEME = 'socks5'   # 可切换为 'http'
+        DEM_DOWNLOAD_PROXY_HOST = '127.0.0.1'
+        DEM_DOWNLOAD_PROXY_PORT = 10808
+        DEM_DOWNLOAD_PROXY_ONLY_DOMAINS = ('portal.opentopography.org',)
+
+    SOCKS5 注意：
+        若使用 socks5://，需要安装依赖：pip install "requests[socks]"
+    """
+    enabled = bool(getattr(settings, "DEM_DOWNLOAD_PROXY_ENABLED", False))
+    if not enabled:
+        return None
+
+    parsed = urlparse(request_url)
+    target_host = (parsed.hostname or "").lower()
+    only_domains = tuple(
+        str(item).strip().lower()
+        for item in getattr(settings, "DEM_DOWNLOAD_PROXY_ONLY_DOMAINS", ("portal.opentopography.org",))
+        if str(item).strip()
+    )
+
+    if only_domains and not any(target_host == d or target_host.endswith(f".{d}") for d in only_domains):
+        return None
+
+    scheme = str(getattr(settings, "DEM_DOWNLOAD_PROXY_SCHEME", "socks5")).strip().lower() or "socks5"
+    host = str(getattr(settings, "DEM_DOWNLOAD_PROXY_HOST", "127.0.0.1")).strip() or "127.0.0.1"
+    port = int(getattr(settings, "DEM_DOWNLOAD_PROXY_PORT", 10808))
+
+    # 示例（SOCKS5）：
+    # proxies = {
+    #     'http': 'socks5://127.0.0.1:10808',
+    #     'https': 'socks5://127.0.0.1:10808'
+    # }
+    # 若本地代理是 HTTP 端口，则将 scheme 改为 'http' 即可。
+    proxy_url = f"{scheme}://{host}:{port}"
+    return {
+        "http": proxy_url,
+        "https": proxy_url,
+    }
+
+
 def _download_tile(tile_spec: DemTileSpec, destination: Path, dem_type: str = DEFAULT_DEM_TYPE) -> bool:
     """通过 OpenTopography 按 1° 网格下载 GeoTIFF 并落盘缓存。"""
     api_key = str(getattr(settings, "OPENTOPO_API_KEY", "")).strip()
@@ -112,12 +163,15 @@ def _download_tile(tile_spec: DemTileSpec, destination: Path, dem_type: str = DE
         "API_Key": api_key,
     }
 
-    try:
+    proxies = _build_request_proxies(OPENTOPO_GLOBAL_DEM_API)
+
+    def _stream_download(active_proxies: Optional[dict[str, str]]) -> None:
         with requests.get(
             OPENTOPO_GLOBAL_DEM_API,
             params=params,
             stream=True,
             timeout=REQUEST_TIMEOUT_SECONDS,
+            proxies=active_proxies,
         ) as response:
             response.raise_for_status()
 
@@ -125,6 +179,22 @@ def _download_tile(tile_spec: DemTileSpec, destination: Path, dem_type: str = DE
                 for chunk in response.iter_content(chunk_size=1024 * 1024):
                     if chunk:
                         file_obj.write(chunk)
+
+    try:
+        # 先走局部代理，若代理不可用再自动回退一次直连，提升可用性。
+        try:
+            _stream_download(proxies)
+        except requests.RequestException as proxy_exc:
+            if proxies:
+                logger.warning(
+                    "DEM 代理下载失败，回退直连重试。tile=%s, proxy=%s, err=%s",
+                    tile_spec.tile_name,
+                    proxies.get("https"),
+                    proxy_exc,
+                )
+                _stream_download(None)
+            else:
+                raise
 
         if not temp_path.exists() or temp_path.stat().st_size == 0:
             logger.error("DEM 瓦片下载结果为空: %s", tile_spec.tile_name)
