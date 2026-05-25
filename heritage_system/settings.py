@@ -338,3 +338,16 @@ CORS_ALLOW_CREDENTIALS = True
 
 # 未登录访问受保护页面时统一跳转到 Django Admin 登录页，避免默认 /accounts/login/ 404
 LOGIN_URL = '/admin/login/'
+
+
+# DEM（SRTM 30m）按需下载缓存配置
+# 生产建议在 .env 中覆盖 OPENTOPO_API_KEY，避免直接写在代码库里。
+OPENTOPO_API_KEY = env(
+    'OPENTOPO_API_KEY',
+    default='9c353db50ec8ebc18d076ce1a85e4fcc',
+)
+# 必须是绝对路径，默认放在项目目录下 dem_tiles。
+DEM_TILES_DIR = env(
+    'DEM_TILES_DIR',
+    default=str((BASE_DIR / 'dem_tiles').resolve()),
+)
