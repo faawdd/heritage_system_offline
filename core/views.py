@@ -27,6 +27,7 @@ import math
 import xml.etree.ElementTree as ET
 from django.shortcuts import get_object_or_404
 from django.contrib import messages
+from heritage_system.version import VERSION, VERSION_HISTORY
 
 User = get_user_model()
 
@@ -86,12 +87,10 @@ def mobile_kml_entry_view(request):
 @staff_member_required
 def system_version_api(request):
     """获取系统版本号信息 API"""
-    updated_at = getattr(settings, 'SYS_VERSION_UPDATED_AT', None)
     return JsonResponse({
         'status': 'success',
-        'version': getattr(settings, 'SYS_VERSION', 'BuildUnknown'),
-        'version_source': getattr(settings, 'SYS_VERSION_SOURCE', 'unknown'),
-        'updated_at': updated_at.strftime('%Y-%m-%d %H:%M') if updated_at else '',
+        'version': VERSION,
+        'version_history': VERSION_HISTORY,
     })
 
 TOWNSHIP_NORMALIZATION_RULES = [
@@ -192,8 +191,6 @@ def heritage_boundary_export_view(request, pk):
 def admin_index_view(request):
     """自定义管理后台首页 - 显示统计仪表板"""
     current_year = timezone.now().year
-    sys_version = getattr(settings, 'SYS_VERSION', 'BuildUnknown')
-    version_updated_at = getattr(settings, 'SYS_VERSION_UPDATED_AT', None)
     total_sites = HeritageSite.objects.count()
     kanerjing_count = HeritageSite.filter_kanerjing().count()
     reviewed_project_count = ProjectAudit.objects.filter(received_date__year=current_year).count()
@@ -213,10 +210,7 @@ def admin_index_view(request):
         'kml_upload_count': kml_upload_count,
         'pending_projects': pending_projects,
         'heatmap_points_json': json.dumps(heatmap_points, ensure_ascii=False),
-        'title': f'基层文物管理系统 ({sys_version})',
-        'dashboard_title': '基层文物管理系统',
-        'sys_version': sys_version,
-        'sys_version_updated_at': version_updated_at.strftime('%Y-%m-%d %H:%M') if version_updated_at else '未知',
+        'title': '鄯善县文物数字化管理平台',
     }
     return render(request, 'admin/home_dashboard.html', context)
 
