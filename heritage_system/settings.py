@@ -12,15 +12,62 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 
 from pathlib import Path
 import os
+import subprocess
+from datetime import datetime
+from zoneinfo import ZoneInfo
 import environ
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+SETTINGS_FILE = Path(__file__).resolve()
+PROJECT_TIME_ZONE = ZoneInfo('Asia/Shanghai')
 
 env = environ.Env()
 env_file = BASE_DIR / '.env'
 if env_file.exists():
     environ.Env.read_env(env_file)
+
+SYSTEM_VERSION_PREFIX = env('SYSTEM_VERSION_PREFIX', default='v1.2')
+
+
+def build_system_version():
+    """优先使用 Git 最后提交时间生成版本号，失败时自动降级。"""
+    try:
+        result = subprocess.run(
+            ['git', 'log', '-1', '--format=%ct'],
+            cwd=BASE_DIR,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        timestamp = int(result.stdout.strip())
+        updated_at = datetime.fromtimestamp(timestamp, tz=PROJECT_TIME_ZONE)
+        return (
+            f"{SYSTEM_VERSION_PREFIX}-{updated_at.strftime('%Y%m%d.%H%M')}",
+            'git_commit',
+            updated_at,
+        )
+    except (subprocess.SubprocessError, FileNotFoundError, ValueError, OSError):
+        pass
+
+    try:
+        updated_at = datetime.fromtimestamp(SETTINGS_FILE.stat().st_mtime, tz=PROJECT_TIME_ZONE)
+        return (
+            f"{SYSTEM_VERSION_PREFIX}-{updated_at.strftime('%Y%m%d.%H%M')}",
+            'settings_mtime',
+            updated_at,
+        )
+    except OSError:
+        updated_at = datetime.now(PROJECT_TIME_ZONE)
+        return (
+            f"{SYSTEM_VERSION_PREFIX}-Build{updated_at.strftime('%Y%m%d')}",
+            'system_time',
+            updated_at,
+        )
+
+
+SYS_VERSION, SYS_VERSION_SOURCE, SYS_VERSION_UPDATED_AT = build_system_version()
 
 
 # Quick-start development settings - unsuitable for production
@@ -86,6 +133,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'core.context_processors.system_version_context',
                 'core.context_processors.heritage_map_context',
             ],
         },
