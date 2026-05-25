@@ -108,15 +108,27 @@ def get_user_role(user: Any) -> str:
         return "超级管理员"
     if user.groups.filter(name="管理员").exists():
         return "管理员"
+    if user.groups.filter(name="管理员用户组").exists():
+        return "管理员用户组"
     if user.groups.filter(name="文物看护员").exists():
         return "文物看护员"
     return "普通用户"
 
 
+def has_management_access(user: Any) -> bool:
+    role = get_user_role(user)
+    return role in {"超级管理员", "管理员", "管理员用户组"}
+
+
+def can_modify_core_data(user: Any) -> bool:
+    role = get_user_role(user)
+    return role in {"超级管理员", "管理员"}
+
+
 def serialize_user(user: Any) -> dict:
     groups = list(user.groups.values_list("name", flat=True))
     role = get_user_role(user)
-    is_admin = role in {"超级管理员", "管理员"}
+    is_admin = role in {"超级管理员", "管理员", "管理员用户组"}
     return {
         "id": user.id,
         "username": user.username,
@@ -130,6 +142,7 @@ def serialize_user(user: Any) -> dict:
             "can_view_all_heritages": is_admin,
             "can_manage_projects": is_admin,
             "can_use_kml_overlay": is_admin,
+            "can_modify_core_data": can_modify_core_data(user),
         },
     }
 
@@ -182,7 +195,7 @@ def get_current_user(
 
 
 def require_admin(current_user: Any = Depends(get_current_user)) -> Any:
-    if get_user_role(current_user) not in {"超级管理员", "管理员"}:
+    if not has_management_access(current_user):
         raise HTTPException(status_code=403, detail="Admin permission required")
     return current_user
 
@@ -457,6 +470,8 @@ def upload_inspection(
     current_user: Any = Depends(get_current_user),
 ) -> dict:
     role = get_user_role(current_user)
+    if role == "管理员用户组":
+        raise HTTPException(status_code=403, detail="管理员用户组不允许新增巡查记录")
     if role not in {"超级管理员", "管理员", "文物看护员"}:
         raise HTTPException(status_code=403, detail="No patrol permission")
 
@@ -627,23 +642,28 @@ def collect_entry(current_user: Any = Depends(require_admin)) -> dict:
 
 class CollectCreateRequest(BaseModel):
     """第一步：提交文字表单，创建 ImmovableHeritage 记录"""
-    survey_code: str
+    survey_code: str = ""
     name: str
     former_name: str = ""
     era: str
     category: str
+    heritage_type: str = ""
     province: str = ""
     city: str = ""
     county: str = ""
     township: str = ""
     village: str = ""
     address: str = ""
+    coordinate_system: str = "CGCS2000"
     longitude: float
     latitude: float
     altitude: float | None = None
+    area: float | None = None
     protection_level: str = "DS"
     ownership: str = "state"
     preservation_status: str = "一般"
+    damage_cause: str = ""
+    threat_factors: str = ""
     description: str = ""
 
 
@@ -683,9 +703,13 @@ def collect_create(
     """
     from decimal import Decimal, InvalidOperation
 
-    # ── 普查编号唯一性 ──────────────────────────────────────
-    if ImmovableHeritage.objects.filter(survey_code=payload.survey_code.strip()).exists():
-        raise HTTPException(status_code=409, detail="该普查编号已存在，请确认后重新输入")
+    if not can_modify_core_data(current_user):
+        raise HTTPException(status_code=403, detail="管理员用户组仅支持采集数据查看，不允许创建记录")
+
+    # ── 采集编号唯一性（手工填写时）──────────────────────────
+    manual_code = (payload.survey_code or "").strip()
+    if manual_code and ImmovableHeritage.objects.filter(survey_code=manual_code).exists():
+        raise HTTPException(status_code=409, detail="该采集编号已存在，请确认后重新输入")
 
     # ── 经纬度范围校验 ──────────────────────────────────────
     if not (-180 <= payload.longitude <= 180):
@@ -698,23 +722,28 @@ def collect_create(
     now = timezone.now()
     try:
         heritage = ImmovableHeritage.objects.create(
-            survey_code=payload.survey_code.strip(),
+            survey_code=manual_code,
             former_name=payload.former_name.strip(),
             name=payload.name.strip(),
             era=payload.era.strip(),
             category=payload.category,
+            heritage_type=payload.heritage_type.strip(),
             province=payload.province.strip(),
             city=payload.city.strip(),
             county=payload.county.strip(),
             township=payload.township.strip(),
             village=payload.village.strip(),
             address=payload.address.strip(),
+            coordinate_system=payload.coordinate_system,
             longitude=Decimal(str(payload.longitude)),
             latitude=Decimal(str(payload.latitude)),
             altitude=Decimal(str(payload.altitude)) if payload.altitude is not None else None,
+            area=Decimal(str(payload.area)) if payload.area is not None else None,
             protection_level=payload.protection_level,
             ownership=payload.ownership,
             preservation_status=payload.preservation_status,
+            damage_cause=payload.damage_cause.strip(),
+            threat_factors=payload.threat_factors.strip(),
             description=payload.description.strip(),
             collector=current_user,
             collected_at=now,
@@ -752,6 +781,9 @@ def collect_upload_photo(
     heritage = ImmovableHeritage.objects.filter(id=heritage_id).first()
     if heritage is None:
         raise HTTPException(status_code=404, detail="文物记录不存在")
+
+    if not can_modify_core_data(current_user):
+        raise HTTPException(status_code=403, detail="管理员用户组仅支持采集数据查看，不允许上传照片")
 
     # 权限：只有采集人本人或管理员可上传
     role = get_user_role(current_user)
@@ -857,7 +889,7 @@ def collect_my_records(
     }
 
 
-def _set_cell_text_docx(cell, text, *, bold=False, align=WD_PARAGRAPH_ALIGNMENT.LEFT, font_size=10):
+def _set_cell_text_docx(cell, text, *, bold=False, align=WD_PARAGRAPH_ALIGNMENT.LEFT, font_size=14):
     cell.text = ""
     paragraph = cell.paragraphs[0]
     paragraph.alignment = align
@@ -931,7 +963,7 @@ def _insert_photos_docx(cell, photos):
         if photo.caption:
             caption += f"：{photo.caption}"
         cap_run = p_caption.add_run(caption)
-        cap_run.font.size = Pt(8)
+        cap_run.font.size = Pt(14)
         cap_run.font.name = "宋体"
 
 
@@ -940,7 +972,7 @@ def collect_export_docx(
     heritage_id: int,
     current_user: Any = Depends(get_current_user),
 ):
-    """导出当前记录的四普登记表 DOCX（Bearer 鉴权，适配 UniApp 一键下载）。"""
+    """导出当前记录的不可移动文物采集登记表 DOCX（Bearer 鉴权，适配 UniApp 一键下载）。"""
     heritage = ImmovableHeritage.objects.filter(id=heritage_id).prefetch_related("photos").select_related(
         "collector", "reviewer"
     ).first()
@@ -962,15 +994,16 @@ def collect_export_docx(
 
     p_title = document.add_paragraph()
     p_title.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-    title_run = p_title.add_run("第四次全国文物普查不可移动文物登记表")
+    title_run = p_title.add_run("鄯善县不可移动文物采集登记表")
     title_run.bold = True
-    title_run.font.size = Pt(16)
+    title_run.font.size = Pt(22)
     title_run.font.name = "黑体"
 
     p_code = document.add_paragraph()
     p_code.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-    code_run = p_code.add_run(f"普查编号：{heritage.survey_code}")
-    code_run.font.size = Pt(11)
+    code_run = p_code.add_run(f"采集编号：{heritage.survey_code}")
+    code_run.bold = True
+    code_run.font.size = Pt(14)
     code_run.font.name = "宋体"
 
     table = document.add_table(rows=17, cols=8)
@@ -1009,18 +1042,18 @@ def collect_export_docx(
     _set_cell_text_docx(table.cell(7, 0), "坐标系", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
     _set_cell_text_docx(table.cell(7, 1), heritage.get_coordinate_system_display())
     _set_cell_text_docx(table.cell(7, 2), "经度", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
-    _set_cell_text_docx(table.cell(7, 3), f"{heritage.longitude:.8f}", font_size=9)
+    _set_cell_text_docx(table.cell(7, 3), f"{heritage.longitude:.8f}", font_size=14)
     _set_cell_text_docx(table.cell(7, 4), "纬度", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
-    _set_cell_text_docx(table.cell(7, 5), f"{heritage.latitude:.8f}", font_size=9)
+    _set_cell_text_docx(table.cell(7, 5), f"{heritage.latitude:.8f}", font_size=14)
     _set_cell_text_docx(table.cell(7, 6), "海拔(m)", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
-    _set_cell_text_docx(table.cell(7, 7), f"{heritage.altitude:.2f}" if heritage.altitude is not None else "——", font_size=9)
+    _set_cell_text_docx(table.cell(7, 7), f"{heritage.altitude:.2f}" if heritage.altitude is not None else "——", font_size=14)
 
     _set_cell_text_docx(table.cell(8, 0), "占地面积", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
     _set_cell_text_docx(table.cell(8, 1).merge(table.cell(8, 3)), f"{heritage.area:.2f} 平方米" if heritage.area else "——")
-    _set_cell_text_docx(table.cell(8, 4), "经度(度分秒)", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER, font_size=9)
-    _set_cell_text_docx(table.cell(8, 5), _decimal_to_dms_docx(heritage.longitude, True), font_size=8)
-    _set_cell_text_docx(table.cell(8, 6), "纬度(度分秒)", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER, font_size=9)
-    _set_cell_text_docx(table.cell(8, 7), _decimal_to_dms_docx(heritage.latitude, False), font_size=8)
+    _set_cell_text_docx(table.cell(8, 4), "经度(度分秒)", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER, font_size=14)
+    _set_cell_text_docx(table.cell(8, 5), _decimal_to_dms_docx(heritage.longitude, True), font_size=14)
+    _set_cell_text_docx(table.cell(8, 6), "纬度(度分秒)", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER, font_size=14)
+    _set_cell_text_docx(table.cell(8, 7), _decimal_to_dms_docx(heritage.latitude, False), font_size=14)
 
     _set_cell_text_docx(table.cell(9, 0).merge(table.cell(9, 7)), "三、现状与保护", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
     _set_cell_text_docx(table.cell(10, 0), "保存现状", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
@@ -1038,7 +1071,7 @@ def collect_export_docx(
     _set_cell_text_docx(table.cell(12, 0).merge(table.cell(12, 7)), "四、文物简介", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
     _set_cell_text_docx(table.cell(13, 0).merge(table.cell(13, 7)), heritage.description or "（暂无简介）")
 
-    _set_cell_text_docx(table.cell(14, 0).merge(table.cell(14, 7)), "五、照片说明（现场采集水印照片）", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    _set_cell_text_docx(table.cell(14, 0).merge(table.cell(14, 7)), "五、照片说明（现场采集照片）", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
     _set_cell_text_docx(table.cell(15, 0).merge(table.cell(16, 1)), "照片说明", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
     _insert_photos_docx(table.cell(15, 2).merge(table.cell(16, 7)), list(heritage.photos.all()))
 
@@ -1047,7 +1080,7 @@ def collect_export_docx(
     file_bytes = output.getvalue()
 
     safe_name = ''.join(ch if ch.isalnum() or ch in ('-', '_') else '_' for ch in f"{heritage.survey_code}_{heritage.name}")
-    filename = f"四普登记表_{safe_name}.docx"
+    filename = f"不可移动文物采集登记表_{safe_name}.docx"
     headers = {
         "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}",
     }

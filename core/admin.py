@@ -26,11 +26,12 @@ import io
 from .utils import generate_word_log
 import json
 from django.shortcuts import render
+from django.urls import reverse
 import re
 from django.conf import settings
 from django.utils import timezone
 from docxtpl import DocxTemplate
-from .permission_decorators import is_admin, is_inspector
+from .permission_decorators import is_admin, is_inspector, is_management_admin
 
 
 
@@ -340,13 +341,13 @@ class InspectionAdmin(admin.ModelAdmin):
     def get_queryset(self, request):
         """
         根据用户权限过滤查询集
-        - 超级管理员和管理员：查看所有巡查记录
+        - 超级管理员、管理员、管理员用户组：查看所有巡查记录
         - 文物看护员：只能查看自己的巡查记录
         """
         qs = super().get_queryset(request)
         
         # 检查用户权限
-        is_admin = request.user.is_superuser or request.user.groups.filter(name='管理员').exists()
+        is_admin = is_management_admin(request.user)
         is_inspector = request.user.groups.filter(name='文物看护员').exists()
         
         if is_admin:
@@ -356,7 +357,7 @@ class InspectionAdmin(admin.ModelAdmin):
             # 看护员只能看自己的记录
             return qs.filter(inspector=request.user)
         
-        return qs
+        return qs.none()
 
     def save_model(self, request, obj, form, change):
         """
@@ -543,23 +544,23 @@ class ProjectAdmin(admin.ModelAdmin):
 
     def has_module_permission(self, request):
         """权限检查：看护员无权访问项目管理模块"""
-        return is_admin(request.user)
+        return is_management_admin(request.user)
     
     def has_view_permission(self, request, obj=None):
         """权限检查：仅管理员及以上可以查看"""
-        return is_admin(request.user)
+        return is_management_admin(request.user)
     
     def has_add_permission(self, request):
         """权限检查：仅管理员及以上可以添加"""
-        return is_admin(request.user)
+        return is_management_admin(request.user)
     
     def has_change_permission(self, request, obj=None):
         """权限检查：仅管理员及以上可以编辑"""
-        return is_admin(request.user)
+        return is_management_admin(request.user)
     
     def has_delete_permission(self, request, obj=None):
         """权限检查：仅管理员及以上可以删除"""
-        return is_admin(request.user)
+        return is_management_admin(request.user)
 
     def export_standard_request_doc(self, request, queryset):
         if queryset.count() != 1:
@@ -659,14 +660,11 @@ class CoordinateAdmin(admin.ModelAdmin):
 
 
 
-# 修改后台左上角显示的文字
-admin.site.site_header = '鄯善县文物数字化管理平台'
-
-# 修改浏览器标签页显示的文字
-admin.site.site_title = '基层文物管理系统'
-
-# 修改后台首页的欢迎提示文字
-admin.site.index_title = '欢迎使用文物安全巡查与项目管理系统'
+# 修改后台标题，确保 SimpleUI 与 Django Admin 同步显示动态版本号
+sys_version = getattr(settings, 'SYS_VERSION', 'BuildUnknown')
+admin.site.site_header = f'基层文物管理系统 ({sys_version})'
+admin.site.site_title = f'基层文物管理系统 ({sys_version})'
+admin.site.index_title = f'欢迎使用基层文物管理系统，当前版本 {sys_version}'
 
 
 # ============ 用户和组权限管理 ============
@@ -790,7 +788,7 @@ class CustomUserAdmin(BaseUserAdmin):
 
     def has_view_permission(self, request, obj=None):
         """只有超级管理员和管理员可以查看用户列表"""
-        return request.user.is_superuser or request.user.groups.filter(name='管理员').exists()
+        return is_management_admin(request.user)
 
     def get_queryset(self, request):
         """超级管理员可以看到所有用户，管理员只能看到非超级管理员的用户"""
@@ -867,6 +865,7 @@ class CustomGroupAdmin(BaseGroupAdmin):
         descriptions = {
             '超级管理员': '🔑 最高权限',
             '管理员': '🔧 系统管理',
+            '管理员用户组': '🧭 受限管理',
             '文物看护员': '👷 巡查员工',
         }
         return descriptions.get(obj.name, '用户组')
@@ -913,7 +912,7 @@ class CustomGroupAdmin(BaseGroupAdmin):
 
     def has_view_permission(self, request, obj=None):
         """只有超级管理员和管理员可以查看用户组列表"""
-        return request.user.is_superuser or request.user.groups.filter(name='管理员').exists()
+        return is_management_admin(request.user)
 
     def save_model(self, request, obj, form, change):
         """保存用户组时记录操作"""
@@ -1081,7 +1080,7 @@ class UserManagementAuditAdmin(admin.ModelAdmin):
 
     def has_view_permission(self, request, obj=None):
         """只有超级管理员和管理员可以查看审计日志"""
-        return request.user.is_superuser or request.user.groups.filter(name='管理员').exists()
+        return is_management_admin(request.user)
 
 
 # 注册或重新注册 User 和 Group
@@ -1107,13 +1106,14 @@ class ImmovableHeritageAdmin(admin.ModelAdmin):
     """四普不可移动文物采集数据管理。"""
     list_display = (
         'survey_code',
-        'name',
+        'name_preview_link',
         'category',
         'era',
         'protection_level',
         'preservation_status',
         'collector',
         'collected_at',
+        'export_docx_button',
     )
     list_filter = (
         'category',
@@ -1134,6 +1134,20 @@ class ImmovableHeritageAdmin(admin.ModelAdmin):
     )
     readonly_fields = ('created_at', 'updated_at')
     ordering = ('-collected_at', '-id')
+
+    def name_preview_link(self, obj):
+        url = reverse('heritage_detail_preview', kwargs={'pk': obj.pk})
+        return format_html('<a href="{}" target="_blank">{}</a>', url, obj.name)
+    name_preview_link.short_description = '文物名称'
+    name_preview_link.admin_order_field = 'name'
+
+    def export_docx_button(self, obj):
+        url = reverse('export_immovable_heritage_docx', kwargs={'pk': obj.pk})
+        return format_html(
+            '<a class="button" href="{}" target="_blank" style="padding:2px 8px;">导出DOCX</a>',
+            url,
+        )
+    export_docx_button.short_description = 'DOCX导出'
 
 
 @admin.register(HeritagePhoto)

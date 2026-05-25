@@ -1,7 +1,9 @@
-from django.db import models
+from django.db import models, IntegrityError, transaction
 from django.db.models import Q
 from django.contrib.auth.models import User
+from django.utils import timezone
 import json
+import re
 
 # 1. 不可移动文物基础表（结合四普字段）
 class HeritageSite(models.Model):
@@ -470,10 +472,12 @@ class ImmovableHeritage(models.Model):
     # 二、基础信息
     # ------------------------------------------------------------------
     survey_code = models.CharField(
-        verbose_name='普查编号',
+        verbose_name='采集编号',
         max_length=50,
         unique=True,
-        help_text='第四次全国文物普查统一编号，格式示例：650000-0001',
+        blank=True,
+        default='',
+        help_text='系统自动生成，格式：SS-CJ-YYYY-NNNN（如 SS-CJ-2026-0001）',
     )
     previous_survey_code = models.CharField(
         verbose_name='原三普编号',
@@ -796,6 +800,47 @@ class ImmovableHeritage(models.Model):
 
     def __str__(self):
         return f'[{self.survey_code}] {self.name}（{self.era}）'
+
+    def _generate_next_collection_code(self) -> str:
+        """生成年度顺序采集编号：SS-CJ-YYYY-NNNN。"""
+        year = (self.collected_at or timezone.now()).year
+        prefix = f"SS-CJ-{year}-"
+
+        latest_code = (
+            self.__class__.objects
+            .filter(survey_code__startswith=prefix)
+            .order_by('-survey_code')
+            .values_list('survey_code', flat=True)
+            .first()
+        )
+
+        seq = 1
+        if latest_code:
+            match = re.match(rf"^{re.escape(prefix)}(\d{{4}})$", latest_code)
+            if match:
+                seq = int(match.group(1)) + 1
+
+        return f"{prefix}{seq:04d}"
+
+    def save(self, *args, **kwargs):
+        # 手工填写时沿用手工值；为空时自动生成并发安全的顺序编号。
+        self.survey_code = (self.survey_code or '').strip()
+        if self.survey_code:
+            return super().save(*args, **kwargs)
+
+        last_error = None
+        for _ in range(8):
+            self.survey_code = self._generate_next_collection_code()
+            try:
+                with transaction.atomic():
+                    return super().save(*args, **kwargs)
+            except IntegrityError as exc:
+                last_error = exc
+                self.survey_code = ''
+
+        if last_error:
+            raise last_error
+        return super().save(*args, **kwargs)
 
     class Meta:
         verbose_name = '不可移动文物登记表（四普）'
