@@ -6,7 +6,8 @@
 
 权限体系说明：
     看护员    → 仅巡查上报功能 (最小化权限)
-    管理员    → 大部分管理功能 (不影响底层数据安全)
+    管理员    → 大部分管理功能 (可修改核心业务数据)
+    管理员用户组 → 大部分管理功能 (仅查看核心业务数据)
     超级管理员 → 完全访问权限
 """
 from django.core.management.base import BaseCommand
@@ -16,7 +17,7 @@ from core.models import InspectionRecord, HeritageSite, ProjectAudit, UserProfil
 
 
 class Command(BaseCommand):
-    help = '初始化用户组和权限配置 - 三层权限体系'
+    help = '初始化用户组和权限配置 - 四层权限体系'
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -56,7 +57,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.HTTP_INFO('📋 初始化用户组和权限配置\n'))
 
         # ============================================================================
-        # 权限配置定义：三层权限体系
+        # 权限配置定义：四层权限体系
         # ============================================================================
         groups_config = {
             # 🔵 第一层：文物看护员（巡查人员）
@@ -109,6 +110,40 @@ class Command(BaseCommand):
                     'add_userprofile',
                     'change_userprofile',
                     'view_userprofile',
+                ],
+            },
+            # 🟢 第二层：管理员用户组（受限管理）
+            '管理员用户组': {
+                'description': '可执行大部分管理操作，但仅能查看文物点和巡查底层数据，不能修改',
+                'permissions': [
+                    # 不可移动文物档案：仅查看
+                    'view_heritagesite',
+                    # 巡查记录：仅查看
+                    'view_inspectionrecord',
+                    # 项目建设审批：完整权限
+                    'add_projectaudit',
+                    'change_projectaudit',
+                    'view_projectaudit',
+                    'delete_projectaudit',
+                    # 坐标数据：完整权限
+                    'add_coordinate',
+                    'change_coordinate',
+                    'view_coordinate',
+                    'delete_coordinate',
+                    # KML 上传记录：完整权限
+                    'add_kmluploadrecord',
+                    'change_kmluploadrecord',
+                    'view_kmluploadrecord',
+                    'delete_kmluploadrecord',
+                    # 采集数据：仅查看
+                    'view_immovableheritage',
+                    'view_heritagephoto',
+                    # 用户与用户组：仅查看
+                    'view_user',
+                    'view_group',
+                    # 用户资料和审计：仅查看
+                    'view_userprofile',
+                    'view_usermanagementaudit',
                 ],
             },
             # 🔴 第三层：超级管理员（系统最高权限）
@@ -206,15 +241,18 @@ class Command(BaseCommand):
         # 检查权限记录
         all_perms = Permission.objects.all().count()
         admin_group = Group.objects.filter(name='管理员').first()
+        limited_admin_group = Group.objects.filter(name='管理员用户组').first()
         inspector_group = Group.objects.filter(name='文物看护员').first()
         
         if admin_group and inspector_group:
             admin_perms = admin_group.permissions.count()
+            limited_admin_perms = limited_admin_group.permissions.count() if limited_admin_group else 0
             inspector_perms = inspector_group.permissions.count()
             
             self.stdout.write(
                 f'  系统总权限数: {all_perms}\n'
                 f'  管理员权限数: {admin_perms}\n'
+                f'  管理员用户组权限数: {limited_admin_perms}\n'
                 f'  看护员权限数: {inspector_perms}\n'
             )
 
@@ -256,7 +294,14 @@ class Command(BaseCommand):
             users_count = group.user_set.count()
             
             # 显示用户组信息
-            group_icon = '🟡' if group.name == '管理员' else ('🔵' if group.name == '文物看护员' else '🔴')
+            if group.name == '管理员':
+                group_icon = '🟡'
+            elif group.name == '管理员用户组':
+                group_icon = '🟢'
+            elif group.name == '文物看护员':
+                group_icon = '🔵'
+            else:
+                group_icon = '🔴'
             self.stdout.write(
                 f'  {group_icon} {group.name}'
                 f'\n     · 权限数: {perm_count}'
