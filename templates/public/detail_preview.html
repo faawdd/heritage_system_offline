@@ -18,11 +18,11 @@
   --photo-bg: #f8f8f8;
   --font: 'SimSun', '宋体', 'Times New Roman', serif;
   --font-hei: 'SimHei', '黑体', 'Arial', sans-serif;
-  --fs-base: 9pt;
-  --fs-sm: 8pt;
-  --fs-title: 15pt;
-  --fs-sub: 11pt;
-  --cell-pad: 3px 6px;
+  --fs-base: 10pt;
+  --fs-sm: 8.8pt;
+  --fs-title: 18pt;
+  --fs-sub: 12.5pt;
+  --cell-pad: 4px 6px;
 }
 
 body {
@@ -30,7 +30,7 @@ body {
   font-size: var(--fs-base);
   background: #d0d0d0;
   color: #111;
-  line-height: 1.45;
+  line-height: 1.55;
 }
 
 /* ── A4 纸张容器 ── */
@@ -60,9 +60,15 @@ body {
   font-size: 13px;
   font-family: var(--font-hei);
 }
+.toolbar button[disabled] {
+  opacity: .7;
+  cursor: wait;
+}
 .btn-print  { background: #1a3a6b; color: #fff; }
+.btn-pdf    { background: #0f766e; color: #fff; }
 .btn-back   { background: #555;    color: #fff; }
 .btn-print:hover { background: #122d54; }
+.btn-pdf:hover   { background: #115e59; }
 .btn-back:hover  { background: #333; }
 
 /* ══════════════════════════════════════════════════
@@ -149,7 +155,7 @@ body {
   object-fit: cover;
 }
 .photo-caption {
-  font-size: 7pt;
+  font-size: 7.8pt;
   color: #555;
   padding: 2px 4px;
   white-space: nowrap;
@@ -178,7 +184,7 @@ body {
   margin-bottom: 6px;
 }
 .page-header .org-line {
-  font-size: 9pt;
+  font-size: 10pt;
   color: #444;
   margin-bottom: 2px;
 }
@@ -205,13 +211,13 @@ body {
   align-items: center;
   border: var(--border);
   border-bottom: none;
-  padding: 3px 8px;
+  padding: 4px 8px;
   font-size: var(--fs-sm);
   background: var(--label-bg);
 }
 .code-bar .code-val {
   font-family: 'Courier New', monospace;
-  font-size: 10pt;
+  font-size: 10.5pt;
   font-weight: bold;
   color: #1a3a6b;
   letter-spacing: 1px;
@@ -229,11 +235,11 @@ body {
 .sign-cell {
   flex: 1;
   border-right: var(--border);
-  padding: 4px 8px;
+  padding: 5px 8px;
   display: flex;
   flex-direction: column;
   gap: 3px;
-  min-height: 40px;
+  min-height: 48px;
 }
 .sign-cell:last-child { border-right: none; }
 .sign-label { font-weight: bold; color: #555; }
@@ -244,10 +250,21 @@ body {
 ══════════════════════════════════════════════════ */
 .footer-note {
   margin-top: 6px;
-  font-size: 7.5pt;
+  font-size: 8.2pt;
   color: #666;
   line-height: 1.6;
   padding: 0 2px;
+}
+
+.reg-table tr,
+.reg-table td,
+.reg-table th,
+.sign-bar,
+.photo-section,
+.page-header,
+.code-bar,
+.footer-note {
+  break-inside: avoid-page;
 }
 
 /* ══════════════════════════════════════════════════
@@ -277,6 +294,7 @@ body {
 
   /* 避免表格行在分页时被截断 */
   .reg-table tr { page-break-inside: avoid; }
+  .reg-table td, .reg-table th { break-inside: avoid-page; }
 
   /* 照片区域整体不断页 */
   .photo-section { page-break-inside: avoid; }
@@ -285,12 +303,14 @@ body {
   .sign-bar { page-break-inside: avoid; }
 }
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 </head>
 <body>
 
 <!-- ══════ 操作浮动栏 ══════ -->
 <div class="toolbar">
   <button class="btn-back"  onclick="history.back()">← 返回</button>
+  <button id="btn-download-pdf" class="btn-pdf" onclick="downloadPdf()">⬇ 下载 PDF</button>
   <button class="btn-print" onclick="window.print()">🖨 打印 / 另存 PDF</button>
 </div>
 
@@ -633,5 +653,53 @@ body {
   </div>
 
 </div><!-- .a4-wrap -->
+<script>
+async function downloadPdf() {
+  const button = document.getElementById('btn-download-pdf');
+  const target = document.querySelector('.a4-wrap');
+  if (!button || !target) return;
+
+  if (typeof html2pdf === 'undefined') {
+    window.alert('PDF 导出组件加载失败，请稍后重试。');
+    return;
+  }
+
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = '生成 PDF 中...';
+
+  try {
+    const fileName = `不可移动文物采集登记表_${(document.title || 'preview').replace(/[\\/:*?"<>|\s]+/g, '_')}.pdf`;
+    await html2pdf()
+      .set({
+        margin: [10, 10, 10, 10],
+        filename: fileName,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: {
+          scale: 2,
+          useCORS: true,
+          backgroundColor: '#ffffff',
+          scrollY: 0,
+        },
+        jsPDF: {
+          unit: 'mm',
+          format: 'a4',
+          orientation: 'portrait',
+        },
+        pagebreak: {
+          mode: ['css', 'legacy'],
+          avoid: ['tr', '.sign-bar', '.photo-section'],
+        },
+      })
+      .from(target)
+      .save();
+  } catch (error) {
+    window.alert('PDF 导出失败，请重试或使用打印功能另存为 PDF。');
+  } finally {
+    button.disabled = false;
+    button.textContent = originalText;
+  }
+}
+</script>
 </body>
 </html>
