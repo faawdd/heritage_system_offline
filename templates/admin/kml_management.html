@@ -446,6 +446,62 @@
 
         .legend-row:last-child { margin-bottom: 0; }
 
+        .loading-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 980;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            background: rgba(15, 23, 42, 0.35);
+            backdrop-filter: blur(2px);
+        }
+
+        .loading-overlay.is-visible {
+            display: flex;
+        }
+
+        .loading-card {
+            min-width: 240px;
+            max-width: min(88vw, 420px);
+            padding: 14px 16px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.98);
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 14px 32px rgba(15, 23, 42, 0.26);
+            color: #0f172a;
+            text-align: left;
+        }
+
+        .loading-main {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .loading-spinner {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            border: 2px solid #dbeafe;
+            border-top-color: #2563eb;
+            animation: kml-spin 0.7s linear infinite;
+            flex-shrink: 0;
+        }
+
+        .loading-detail {
+            margin-top: 7px;
+            color: #475569;
+            font-size: 12px;
+            line-height: 1.45;
+        }
+
+        @keyframes kml-spin {
+            to { transform: rotate(360deg); }
+        }
+
         .dot {
             width: 10px;
             height: 10px;
@@ -560,6 +616,16 @@
 </head>
 <body>
     <div id="map"></div>
+
+    <div class="loading-overlay" id="loadingOverlay" aria-live="polite" aria-busy="true">
+        <div class="loading-card" role="status">
+            <div class="loading-main">
+                <span class="loading-spinner" aria-hidden="true"></span>
+                <span id="loadingText">正在准备...</span>
+            </div>
+            <div class="loading-detail" id="loadingDetail">请稍候</div>
+        </div>
+    </div>
 
     <div class="map-status-pill" id="mapStatus">地图已就绪，默认显示全部文物点。</div>
 
@@ -737,6 +803,9 @@
         const toggleSipuBtn = document.getElementById('toggleSipuPanel');
         const kmlBubbleToggleEl = document.getElementById('kmlBubbleToggle');
         const returnPanoramaBtn = document.getElementById('returnPanoramaBtn');
+        const loadingOverlayEl = document.getElementById('loadingOverlay');
+        const loadingTextEl = document.getElementById('loadingText');
+        const loadingDetailEl = document.getElementById('loadingDetail');
         const tk = '424ac2af85564078477428c1a2b72018';
         const COLORS = ['#ff5a36', '#e6a23c', '#409eff', '#85ce61', '#f78989', '#b37feb', '#41d7d7'];
         const OVERLAP_STYLES = {
@@ -745,6 +814,77 @@
             polygon: { color: '#dc2626', weight: 2, fillColor: '#ef4444', fillOpacity: 0.28 },
         };
         const POINT_OVERLAP_TOLERANCE_M = 1;
+        const MAX_CONCURRENT_LOADS = 4;
+        const kmlGeoJsonCache = new Map();
+        const kmlLoadPromiseCache = new Map();
+        const siteEntries = [];
+        let renderTaskId = 0;
+
+        function setLoadingState(visible, text, detail) {
+            if (!loadingOverlayEl) {
+                return;
+            }
+            loadingOverlayEl.classList.toggle('is-visible', Boolean(visible));
+            if (loadingTextEl && typeof text === 'string') {
+                loadingTextEl.textContent = text;
+            }
+            if (loadingDetailEl && typeof detail === 'string') {
+                loadingDetailEl.textContent = detail;
+            }
+        }
+
+        function debounce(fn, wait) {
+            let timer = null;
+            return function debounced() {
+                const args = arguments;
+                clearTimeout(timer);
+                timer = setTimeout(function() {
+                    fn.apply(null, args);
+                }, wait);
+            };
+        }
+
+        function yieldToUI() {
+            return new Promise(function(resolve) {
+                requestAnimationFrame(function() {
+                    resolve();
+                });
+            });
+        }
+
+        async function mapWithConcurrency(items, concurrency, mapper, onProgress) {
+            const total = items.length;
+            const output = new Array(total);
+            if (!total) {
+                return output;
+            }
+
+            const workerCount = Math.max(1, Math.min(concurrency, total));
+            let cursor = 0;
+            let done = 0;
+
+            async function worker() {
+                while (true) {
+                    const index = cursor;
+                    cursor += 1;
+                    if (index >= total) {
+                        return;
+                    }
+                    output[index] = await mapper(items[index], index);
+                    done += 1;
+                    if (typeof onProgress === 'function') {
+                        onProgress(done, total, items[index], index);
+                    }
+                }
+            }
+
+            const workers = [];
+            for (let i = 0; i < workerCount; i++) {
+                workers.push(worker());
+            }
+            await Promise.all(workers);
+            return output;
+        }
 
         function escapeHtml(text) {
             return String(text || '')
@@ -778,7 +918,7 @@
         if (kmlBubbleToggleEl) {
             kmlBubbleToggleEl.addEventListener('change', function() {
                 syncKmlBubbleVisible();
-                renderSelectedKmlLayers();
+                scheduleRenderSelectedKmlLayers();
             });
         }
 
@@ -1240,6 +1380,31 @@
             };
         }
 
+        function getFeatureBBox(feature) {
+            if (!feature || !feature.geometry) {
+                return null;
+            }
+            if (feature.properties && Array.isArray(feature.properties.__bbox)) {
+                return feature.properties.__bbox;
+            }
+            try {
+                const bbox = turf.bbox(feature);
+                if (feature.properties) {
+                    feature.properties.__bbox = bbox;
+                }
+                return bbox;
+            } catch (err) {
+                return null;
+            }
+        }
+
+        function isBboxOverlap(b1, b2) {
+            if (!Array.isArray(b1) || !Array.isArray(b2) || b1.length < 4 || b2.length < 4) {
+                return true;
+            }
+            return !(b1[0] > b2[2] || b1[2] < b2[0] || b1[1] > b2[3] || b1[3] < b2[1]);
+        }
+
         function collectPointOverlap(featureA, featureB) {
             const coordsA = featureA.geometry.coordinates || [];
             const coordsB = featureB.geometry.coordinates || [];
@@ -1415,6 +1580,7 @@
                 splitFeatureToSimpleGeometries(feature).forEach(function(item) {
                     const family = getGeometryFamily(item.geometry && item.geometry.type);
                     if (family) {
+                        item.properties.__bbox = getFeatureBBox(item);
                         simpleFeatures.push(item);
                     }
                 });
@@ -1427,6 +1593,12 @@
                 for (let j = i + 1; j < simpleFeatures.length; j++) {
                     const featureB = simpleFeatures[j];
                     if ((featureA.properties && featureA.properties.__featureUid) === (featureB.properties && featureB.properties.__featureUid)) {
+                        continue;
+                    }
+                    if ((featureA.properties && featureA.properties.__sourceFileKey) === (featureB.properties && featureB.properties.__sourceFileKey)) {
+                        continue;
+                    }
+                    if (!isBboxOverlap(featureA.properties.__bbox, featureB.properties.__bbox)) {
                         continue;
                     }
 
@@ -1485,7 +1657,7 @@
 
             features.forEach(feature => {
                 const featureName = feature.properties && feature.properties.name ? feature.properties.name : 'KML要素';
-                siteData.forEach(site => {
+                siteEntries.forEach(site => {
                     const result = isSiteConflictWithFeature(site, feature, threshold);
                     if (!result) {
                         return;
@@ -1538,6 +1710,11 @@
             if (!isFinite(lat) || !isFinite(lon)) {
                 return;
             }
+            const normalizedSite = Object.assign({}, site, {
+                latitude: lat,
+                longitude: lon,
+            });
+            siteEntries.push(normalizedSite);
             L.circleMarker([lat, lon], {
                 radius: 4,
                 color: '#2a9d8f',
@@ -1545,7 +1722,7 @@
                 fillColor: '#2a9d8f',
                 fillOpacity: 0.85,
             })
-                .bindPopup('<strong>' + (site.name || '文物点') + '</strong><br>级别: ' + (site.level || '-'))
+                .bindPopup('<strong>' + (normalizedSite.name || '文物点') + '</strong><br>级别: ' + (normalizedSite.level || '-'))
                 .addTo(heritageLayer);
         });
 
@@ -1729,7 +1906,61 @@
             return toGeoJSON.kml(xml);
         }
 
+        function cloneGeoJson(geojson) {
+            return JSON.parse(JSON.stringify(geojson || { type: 'FeatureCollection', features: [] }));
+        }
+
+        async function loadGeoJsonByUrl(fileUrl, fileName) {
+            if (kmlGeoJsonCache.has(fileUrl)) {
+                return cloneGeoJson(kmlGeoJsonCache.get(fileUrl));
+            }
+            if (!kmlLoadPromiseCache.has(fileUrl)) {
+                const loadPromise = (async function() {
+                    const resp = await fetch(fileUrl, { credentials: 'same-origin' });
+                    if (!resp.ok) {
+                        throw new Error('文件访问失败');
+                    }
+                    const buffer = await resp.arrayBuffer();
+                    const parsed = normalizeClosedLines(await parseKmlFromBuffer(fileName, buffer));
+                    const normalized = {
+                        type: parsed && parsed.type ? parsed.type : 'FeatureCollection',
+                        features: Array.isArray(parsed && parsed.features) ? parsed.features : [],
+                    };
+                    kmlGeoJsonCache.set(fileUrl, normalized);
+                    return normalized;
+                })();
+                kmlLoadPromiseCache.set(fileUrl, loadPromise);
+            }
+
+            try {
+                const geojson = await kmlLoadPromiseCache.get(fileUrl);
+                return cloneGeoJson(geojson);
+            } finally {
+                kmlLoadPromiseCache.delete(fileUrl);
+            }
+        }
+
+        function decorateGeoJsonForRender(rawGeoJson, fileMeta) {
+            const sourceFeatures = Array.isArray(rawGeoJson && rawGeoJson.features) ? rawGeoJson.features : [];
+            const decoratedFeatures = sourceFeatures.map(function(feature, featureIndex) {
+                return Object.assign({}, feature, {
+                    properties: Object.assign({}, feature.properties || {}, {
+                        __sourceFile: fileMeta.fileName,
+                        __sourceColor: fileMeta.color,
+                        __sourceIndex: fileMeta.index,
+                        __sourceFileKey: fileMeta.fileUrl,
+                        __featureUid: fileMeta.fileUrl + ':' + featureIndex,
+                    }),
+                });
+            });
+            return {
+                type: 'FeatureCollection',
+                features: decoratedFeatures,
+            };
+        }
+
         async function renderSelectedKmlLayers() {
+            const currentTaskId = ++renderTaskId;
             overlayLayer.clearLayers();
             overlapLayer.clearLayers();
             conflictLayer.clearLayers();
@@ -1739,86 +1970,135 @@
             const threshold = getThresholdValue();
 
             if (!selected.length) {
+                setLoadingState(false);
                 mapStatusEl.textContent = '地图已就绪，默认显示全部文物点。';
                 return;
             }
 
-            mapStatusEl.textContent = '正在加载 ' + selected.length + ' 个 KML 文件...';
-            let renderedCount = 0;
-            const allFeatures = [];
-            for (let i = 0; i < selected.length; i++) {
-                const checkbox = selected[i];
-                const fileUrl = checkbox.dataset.fileUrl;
-                const fileName = checkbox.dataset.fileName || ('文件' + (i + 1));
-                const color = COLORS[i % COLORS.length];
+            try {
+                setLoadingState(true, '正在加载 KML 文件...', '已完成 0/' + selected.length);
+                mapStatusEl.textContent = '正在加载 ' + selected.length + ' 个 KML 文件...';
 
-                try {
-                    const resp = await fetch(fileUrl, { credentials: 'same-origin' });
-                    if (!resp.ok) {
-                        throw new Error('文件访问失败');
+                await yieldToUI();
+
+                const loadResults = await mapWithConcurrency(
+                    selected,
+                    MAX_CONCURRENT_LOADS,
+                    async function(checkbox, index) {
+                        const fileUrl = checkbox.dataset.fileUrl;
+                        const fileName = checkbox.dataset.fileName || ('文件' + (index + 1));
+                        const color = COLORS[index % COLORS.length];
+                        if (!fileUrl) {
+                            return { ok: false, fileName: fileName, color: color, index: index, fileUrl: fileUrl, error: '缺少文件地址' };
+                        }
+                        try {
+                            const rawGeoJson = await loadGeoJsonByUrl(fileUrl, fileName);
+                            return {
+                                ok: true,
+                                fileName: fileName,
+                                color: color,
+                                index: index,
+                                fileUrl: fileUrl,
+                                rawGeoJson: rawGeoJson,
+                            };
+                        } catch (error) {
+                            return {
+                                ok: false,
+                                fileName: fileName,
+                                color: color,
+                                index: index,
+                                fileUrl: fileUrl,
+                                error: error && error.message ? error.message : '加载失败',
+                            };
+                        }
+                    },
+                    function(done, total, checkbox, index) {
+                        const name = (checkbox && checkbox.dataset && checkbox.dataset.fileName) ? checkbox.dataset.fileName : ('文件' + (index + 1));
+                        setLoadingState(true, '正在加载 KML 文件...', '已完成 ' + done + '/' + total + '，最近: ' + name);
                     }
-                    const buffer = await resp.arrayBuffer();
-                    const geojson = normalizeClosedLines(await parseKmlFromBuffer(fileName, buffer));
-                    if (Array.isArray(geojson.features)) {
-                        geojson.features = geojson.features.map(function(feature, featureIndex) {
-                            return Object.assign({}, feature, {
-                                properties: Object.assign({}, feature.properties || {}, {
-                                    __sourceFile: fileName,
-                                    __sourceColor: color,
-                                    __sourceIndex: i,
-                                    __featureUid: fileName + ':' + i + ':' + featureIndex,
-                                }),
-                            });
-                        });
-                        allFeatures.push(...geojson.features);
+                );
+
+                if (currentTaskId !== renderTaskId) {
+                    return;
+                }
+
+                const allFeatures = [];
+                let renderedCount = 0;
+                let failedCount = 0;
+
+                loadResults.forEach(function(item) {
+                    if (!item || !item.ok || !item.rawGeoJson) {
+                        failedCount += 1;
+                        return;
                     }
-                    const layer = L.geoJSON(geojson, {
-                        style: (feature) => featureStyle(feature, color),
+                    const decoratedGeoJson = decorateGeoJsonForRender(item.rawGeoJson, item);
+                    allFeatures.push.apply(allFeatures, decoratedGeoJson.features || []);
+                    const layer = L.geoJSON(decoratedGeoJson, {
+                        style: function(feature) {
+                            return featureStyle(feature, item.color);
+                        },
                         pointToLayer: function(feature, latlng) {
                             return L.circleMarker(latlng, {
                                 radius: 5,
-                                color: color,
-                                fillColor: color,
+                                color: item.color,
+                                fillColor: item.color,
                                 fillOpacity: 0.8,
                                 weight: 1,
                             });
                         },
-                        onEachFeature: function(feature, item) {
-                            const name = feature.properties && feature.properties.name ? feature.properties.name : fileName;
+                        onEachFeature: function(feature, itemLayer) {
+                            const name = feature.properties && feature.properties.name ? feature.properties.name : item.fileName;
                             const statsHtml = buildFeatureStatsHtml(feature);
-                            item.bindPopup(
+                            itemLayer.bindPopup(
                                 '<strong>' + escapeHtml(name) + '</strong>' +
-                                '<br>来源: ' + escapeHtml(fileName) +
+                                '<br>来源: ' + escapeHtml(item.fileName) +
                                 statsHtml
                             );
                         },
                     });
                     overlayLayer.addLayer(layer);
-                    addKmlRangeBadge(layer, fileName, color, i);
+                    addKmlRangeBadge(layer, item.fileName, item.color, item.index);
                     renderedCount += 1;
-                } catch (err) {
-                    mapStatusEl.textContent = '部分文件加载失败，请检查文件格式或权限。';
-                }
-            }
+                });
 
-            if (overlayLayer.getLayers().length > 0) {
-                try {
-                    map.fitBounds(overlayLayer.getBounds().pad(0.18));
-                } catch (e) {
-                    // ignore invalid bounds
+                setLoadingState(true, '正在分析重叠与冲突...', '请稍候，正在计算地图结果');
+                await yieldToUI();
+
+                if (overlayLayer.getLayers().length > 0) {
+                    try {
+                        map.fitBounds(overlayLayer.getBounds().pad(0.18));
+                    } catch (e) {
+                        // ignore invalid bounds
+                    }
+                }
+                const overlapCounts = renderOverlapLayer(allFeatures);
+                const conflictCount = renderConflictPoints(allFeatures, threshold);
+                if (failedCount > 0) {
+                    mapStatusEl.textContent = '已叠加 ' + renderedCount + ' 个 KML 文件，失败 ' + failedCount + ' 个；文物冲突点位 ' + conflictCount + ' 个，KML重叠 ' + overlapCounts.total + ' 处（点 ' + overlapCounts.point + ' / 线 ' + overlapCounts.line + ' / 面 ' + overlapCounts.polygon + '），阈值 ' + threshold + 'm。';
+                } else {
+                    mapStatusEl.textContent = '已叠加 ' + renderedCount + ' 个 KML 文件，文物冲突点位 ' + conflictCount + ' 个，KML重叠 ' + overlapCounts.total + ' 处（点 ' + overlapCounts.point + ' / 线 ' + overlapCounts.line + ' / 面 ' + overlapCounts.polygon + '），阈值 ' + threshold + 'm。';
+                }
+            } catch (error) {
+                if (currentTaskId === renderTaskId) {
+                    mapStatusEl.textContent = '批量加载失败：' + (error && error.message ? error.message : '未知错误');
+                }
+            } finally {
+                if (currentTaskId === renderTaskId) {
+                    setLoadingState(false);
                 }
             }
-            const overlapCounts = renderOverlapLayer(allFeatures);
-            const conflictCount = renderConflictPoints(allFeatures, threshold);
-            mapStatusEl.textContent = '已叠加 ' + renderedCount + ' 个 KML 文件，文物冲突点位 ' + conflictCount + ' 个，KML重叠 ' + overlapCounts.total + ' 处（点 ' + overlapCounts.point + ' / 线 ' + overlapCounts.line + ' / 面 ' + overlapCounts.polygon + '），阈值 ' + threshold + 'm。';
         }
+
+        const scheduleRenderSelectedKmlLayers = debounce(function() {
+            renderSelectedKmlLayers();
+        }, 180);
 
         if (checkAll) {
             checkAll.addEventListener('change', function() {
                 rowChecks.forEach(item => {
                     item.checked = checkAll.checked;
                 });
-                renderSelectedKmlLayers();
+                scheduleRenderSelectedKmlLayers();
             });
         }
 
@@ -1827,7 +2107,7 @@
                 if (!this.checked && checkAll && checkAll.checked) {
                     checkAll.checked = false;
                 }
-                renderSelectedKmlLayers();
+                scheduleRenderSelectedKmlLayers();
             });
         });
 
@@ -1841,7 +2121,7 @@
 
         if (thresholdBatchEl) {
             thresholdBatchEl.addEventListener('change', function() {
-                renderSelectedKmlLayers();
+                scheduleRenderSelectedKmlLayers();
             });
         }
 
