@@ -2164,6 +2164,7 @@ def heritage_detail_preview_view(request, pk):
         if _safe_file_url(photo.image)
     ]
     other_photo_pages = _chunk_items(other_photo_items, 4)
+    collect_unit = "鄯善县文化体育广播电视和旅游局（文物局）"
 
     context = {
         "heritage":             heritage,
@@ -2178,6 +2179,7 @@ def heritage_detail_preview_view(request, pk):
         "collector_display":    _display_user_name(heritage.collector),
         "input_by_display":     _display_user_name(heritage.input_by),
         "reviewer_display":     _display_user_name(heritage.reviewer),
+        "collect_unit":         collect_unit,
         "preservation_choices": ImmovableHeritage.PRESERVATION_STATUS_CHOICES,
         "protection_choices":   ImmovableHeritage.PROTECTION_LEVEL_CHOICES,
         "ownership_choices":    ImmovableHeritage.OWNERSHIP_CHOICES,
