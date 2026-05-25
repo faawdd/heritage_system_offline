@@ -135,9 +135,9 @@
 {% block footer %}
 {{ block.super }}
 <div id="footer-version">
-    {{ APP_VERSION_STRING }}
+    {{ SYS_VERSION }}
     <div id="footer-version-tooltip">
-        {{ APP_VERSION_NAME }} ({{ APP_RELEASE_DATE }})
+        最后更新时间：{{ SYS_VERSION_UPDATED_AT|default:"未知" }}
     </div>
 </div>
 <a id="app-download-entry" href="https://beichenhome.top:9081/app-download/" target="_blank" rel="noopener noreferrer">

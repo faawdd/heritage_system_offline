@@ -1,0 +1,108 @@
+/* ── 全局基础 ── */
+* { -webkit-tap-highlight-color: transparent; }
+body { background: #f0f4f8; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+
+.collect-main { max-width: 42rem; }
+body[data-device='desktop'] .collect-main {
+  max-width: 960px;
+}
+body[data-device='desktop'] .collect-main > * + * {
+  margin-top: 12px;
+}
+
+.collect-section {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-top: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 16px;
+}
+.collect-main section.collect-section:first-of-type {
+  border-top: 1px solid #e2e8f0;
+  border-top-left-radius: 14px;
+  border-top-right-radius: 14px;
+}
+.collect-main section.collect-section:last-of-type {
+  border-bottom-left-radius: 14px;
+  border-bottom-right-radius: 14px;
+}
+body[data-device='desktop'] .collect-main .collect-section {
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 18px;
+}
+body[data-device='desktop'] .collect-main section.collect-section:first-of-type {
+  border-top: 1px solid #e2e8f0;
+  border-top-left-radius: 14px;
+  border-top-right-radius: 14px;
+}
+body[data-device='desktop'] .collect-main section.collect-section:last-of-type {
+  border-bottom-left-radius: 14px;
+  border-bottom-right-radius: 14px;
+}
+
+/* ── 必填标记 ── */
+.required-mark::after { content: " *"; color: #ef4444; font-weight: 700; }
+
+/* ── 照片预览区 ── */
+#photo-preview-area { display: flex; flex-wrap: wrap; gap: 10px; }
+.preview-wrapper { position: relative; width: 88px; height: 88px; border-radius: 10px; overflow: hidden;
+                   border: 2px solid #cbd5e1; box-shadow: 0 1px 4px rgba(0,0,0,.12); }
+.preview-wrapper img { width: 100%; height: 100%; object-fit: cover; }
+.remove-photo { position: absolute; top: 2px; right: 2px; background: rgba(0,0,0,.55);
+                color: #fff; border: none; border-radius: 50%; width: 20px; height: 20px;
+                font-size: 13px; line-height: 20px; text-align: center; cursor: pointer; }
+.add-photo-btn { width: 88px; height: 88px; border-radius: 10px; border: 2px dashed #94a3b8;
+                 background: #f8fafc; display: flex; flex-direction: column; align-items: center;
+                 justify-content: center; cursor: pointer; color: #64748b; gap: 4px;
+                 font-size: 12px; transition: border-color .2s, background .2s; }
+.add-photo-btn:hover { border-color: #3b82f6; background: #eff6ff; color: #3b82f6; }
+.add-photo-btn svg { width: 28px; height: 28px; }
+
+/* ── GPS 状态 ── */
+.gps-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;
+             border-radius: 9999px; font-size: 12px; font-weight: 500; }
+.gps-badge.idle    { background: #f1f5f9; color: #64748b; }
+.gps-badge.loading { background: #fef9c3; color: #854d0e; }
+.gps-badge.ok      { background: #dcfce7; color: #166534; }
+.gps-badge.error   { background: #fee2e2; color: #991b1b; }
+
+/* ── 提交按钮加载动画 ── */
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner { animation: spin .8s linear infinite; display: inline-block; }
+
+/* ── Toast 通知 ── */
+#toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px);
+         padding: 12px 24px; border-radius: 12px; font-size: 14px; font-weight: 500;
+         box-shadow: 0 4px 20px rgba(0,0,0,.18); transition: transform .3s ease, opacity .3s ease;
+         opacity: 0; pointer-events: none; z-index: 9999; white-space: pre-line; max-width: 88vw;
+         text-align: center; }
+#toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+#toast.success { background: #166534; color: #fff; }
+#toast.error   { background: #991b1b; color: #fff; }
+#toast.info    { background: #1e40af; color: #fff; }
+
+.collect-version {
+  max-width: 42rem;
+  margin: 12px auto 0;
+  padding: 0 16px;
+  font-size: 12px;
+  color: #64748b;
+  text-align: right;
+}
+body[data-device='desktop'] .collect-version {
+  max-width: 960px;
+  padding: 0;
+}
+
+@media (max-width: 420px) {
+  .grid.grid-cols-3,
+  .grid.grid-cols-2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+body[data-device='mobile'][data-orientation='landscape'] .collect-main {
+  max-width: 860px;
+}
