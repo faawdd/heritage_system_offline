@@ -616,7 +616,7 @@ def kml_overlay_entry(current_user: Any = Depends(require_admin)) -> dict:
 
 class CollectCreateRequest(BaseModel):
     """第一步：提交文字表单，创建 ImmovableHeritage 记录"""
-    survey_code: str
+    survey_code: str = ""
     name: str
     former_name: str = ""
     era: str
@@ -672,9 +672,10 @@ def collect_create(
     """
     from decimal import Decimal, InvalidOperation
 
-    # ── 普查编号唯一性 ──────────────────────────────────────
-    if ImmovableHeritage.objects.filter(survey_code=payload.survey_code.strip()).exists():
-        raise HTTPException(status_code=409, detail="该普查编号已存在，请确认后重新输入")
+    # ── 采集编号唯一性（手工填写时）──────────────────────────
+    manual_code = (payload.survey_code or "").strip()
+    if manual_code and ImmovableHeritage.objects.filter(survey_code=manual_code).exists():
+        raise HTTPException(status_code=409, detail="该采集编号已存在，请确认后重新输入")
 
     # ── 经纬度范围校验 ──────────────────────────────────────
     if not (-180 <= payload.longitude <= 180):
@@ -687,7 +688,7 @@ def collect_create(
     now = timezone.now()
     try:
         heritage = ImmovableHeritage.objects.create(
-            survey_code=payload.survey_code.strip(),
+            survey_code=manual_code,
             former_name=payload.former_name.strip(),
             name=payload.name.strip(),
             era=payload.era.strip(),
@@ -846,7 +847,7 @@ def collect_my_records(
     }
 
 
-def _set_cell_text_docx(cell, text, *, bold=False, align=WD_PARAGRAPH_ALIGNMENT.LEFT, font_size=10):
+def _set_cell_text_docx(cell, text, *, bold=False, align=WD_PARAGRAPH_ALIGNMENT.LEFT, font_size=10.5):
     cell.text = ""
     paragraph = cell.paragraphs[0]
     paragraph.alignment = align
@@ -920,7 +921,7 @@ def _insert_photos_docx(cell, photos):
         if photo.caption:
             caption += f"：{photo.caption}"
         cap_run = p_caption.add_run(caption)
-        cap_run.font.size = Pt(8)
+        cap_run.font.size = Pt(9)
         cap_run.font.name = "宋体"
 
 
@@ -929,7 +930,7 @@ def collect_export_docx(
     heritage_id: int,
     current_user: Any = Depends(get_current_user),
 ):
-    """导出当前记录的四普登记表 DOCX（Bearer 鉴权，适配 UniApp 一键下载）。"""
+    """导出当前记录的不可移动文物采集登记表 DOCX（Bearer 鉴权，适配 UniApp 一键下载）。"""
     heritage = ImmovableHeritage.objects.filter(id=heritage_id).prefetch_related("photos").select_related(
         "collector", "reviewer"
     ).first()
@@ -951,15 +952,15 @@ def collect_export_docx(
 
     p_title = document.add_paragraph()
     p_title.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-    title_run = p_title.add_run("第四次全国文物普查不可移动文物登记表")
+    title_run = p_title.add_run("鄯善县不可移动文物采集登记表")
     title_run.bold = True
-    title_run.font.size = Pt(16)
+    title_run.font.size = Pt(18)
     title_run.font.name = "黑体"
 
     p_code = document.add_paragraph()
     p_code.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-    code_run = p_code.add_run(f"普查编号：{heritage.survey_code}")
-    code_run.font.size = Pt(11)
+    code_run = p_code.add_run(f"采集编号：{heritage.survey_code}")
+    code_run.font.size = Pt(12)
     code_run.font.name = "宋体"
 
     table = document.add_table(rows=17, cols=8)
@@ -1007,9 +1008,9 @@ def collect_export_docx(
     _set_cell_text_docx(table.cell(8, 0), "占地面积", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
     _set_cell_text_docx(table.cell(8, 1).merge(table.cell(8, 3)), f"{heritage.area:.2f} 平方米" if heritage.area else "——")
     _set_cell_text_docx(table.cell(8, 4), "经度(度分秒)", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER, font_size=9)
-    _set_cell_text_docx(table.cell(8, 5), _decimal_to_dms_docx(heritage.longitude, True), font_size=8)
+    _set_cell_text_docx(table.cell(8, 5), _decimal_to_dms_docx(heritage.longitude, True), font_size=9)
     _set_cell_text_docx(table.cell(8, 6), "纬度(度分秒)", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER, font_size=9)
-    _set_cell_text_docx(table.cell(8, 7), _decimal_to_dms_docx(heritage.latitude, False), font_size=8)
+    _set_cell_text_docx(table.cell(8, 7), _decimal_to_dms_docx(heritage.latitude, False), font_size=9)
 
     _set_cell_text_docx(table.cell(9, 0).merge(table.cell(9, 7)), "三、现状与保护", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
     _set_cell_text_docx(table.cell(10, 0), "保存现状", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
@@ -1027,7 +1028,7 @@ def collect_export_docx(
     _set_cell_text_docx(table.cell(12, 0).merge(table.cell(12, 7)), "四、文物简介", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
     _set_cell_text_docx(table.cell(13, 0).merge(table.cell(13, 7)), heritage.description or "（暂无简介）")
 
-    _set_cell_text_docx(table.cell(14, 0).merge(table.cell(14, 7)), "五、照片说明（现场采集水印照片）", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
+    _set_cell_text_docx(table.cell(14, 0).merge(table.cell(14, 7)), "五、照片说明（现场采集照片）", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
     _set_cell_text_docx(table.cell(15, 0).merge(table.cell(16, 1)), "照片说明", bold=True, align=WD_PARAGRAPH_ALIGNMENT.CENTER)
     _insert_photos_docx(table.cell(15, 2).merge(table.cell(16, 7)), list(heritage.photos.all()))
 
@@ -1036,7 +1037,7 @@ def collect_export_docx(
     file_bytes = output.getvalue()
 
     safe_name = ''.join(ch if ch.isalnum() or ch in ('-', '_') else '_' for ch in f"{heritage.survey_code}_{heritage.name}")
-    filename = f"四普登记表_{safe_name}.docx"
+    filename = f"不可移动文物采集登记表_{safe_name}.docx"
     headers = {
         "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}",
     }

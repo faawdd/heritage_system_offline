@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>文物现场数据采集</title>
+  <title>鄯善县不可移动文物采集</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     /* ── 全局基础 ── */
@@ -85,7 +85,7 @@
           <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
         </svg>
       </button>
-      <h1 class="text-base font-semibold tracking-wide">不可移动文物现场采集</h1>
+      <h1 class="text-base font-semibold tracking-wide">鄯善县不可移动文物采集</h1>
       <div class="w-8"></div>
     </div>
   </header>
@@ -104,10 +104,10 @@
         <span class="w-1 h-4 bg-blue-500 rounded-full"></span>基础信息
       </h2>
 
-      <!-- 普查编号 -->
+      <!-- 采集编号 -->
       <div>
-        <label class="block text-sm text-slate-600 mb-1 required-mark">普查编号</label>
-        <input id="survey_code" name="survey_code" type="text" placeholder="如：650000-0001"
+        <label class="block text-sm text-slate-600 mb-1">采集编号（可留空自动生成）</label>
+        <input id="survey_code" name="survey_code" type="text" placeholder="留空自动生成，如：SS-CJ-2026-0001"
                class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50" />
         <p id="err-survey_code" class="text-red-500 text-xs mt-1 hidden"></p>
       </div>
