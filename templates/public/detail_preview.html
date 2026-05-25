@@ -96,18 +96,22 @@ body {
   border: var(--border);
   padding: var(--cell-pad);
   vertical-align: middle;
-  word-break: break-all;
-  overflow-wrap: break-word;
+  word-break: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
 }
 
 /* 标签格（左侧说明文字） */
 .lbl {
   background: var(--label-bg);
   font-weight: bold;
-  white-space: nowrap;
+  white-space: normal;
   text-align: center;
   font-size: var(--fs-base);
+  line-height: 1.15;
   width: 14%;
+  word-break: keep-all;
+  overflow-wrap: break-word;
 }
 .lbl-wide  { width: 18%; }
 .lbl-xwide { width: 22%; }
@@ -172,7 +176,8 @@ body {
   display: block;
   width: 100%;
   height: 40mm;
-  object-fit: cover;
+  object-fit: contain;
+  background: #fff;
 }
 .photo-caption {
   font-size: var(--fs-note);
@@ -194,7 +199,7 @@ body {
 }
 
 /* 大照片（封面）*/
-.cover-photo { width: 100%; max-height: 42mm; object-fit: cover; display: block; }
+.cover-photo { width: 100%; max-height: 42mm; object-fit: contain; display: block; background: #fff; }
 
 /* ══════════════════════════════════════════════════
    页眉
@@ -229,11 +234,16 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 12px;
   border: var(--border);
   border-bottom: none;
   padding: 4px 8px;
   font-size: var(--fs-base);
   background: var(--label-bg);
+}
+.code-bar > span {
+  min-width: 0;
 }
 .code-bar .code-val {
   font-family: 'Courier New', monospace;
@@ -260,10 +270,11 @@ body {
   flex-direction: column;
   gap: 3px;
   min-height: 48px;
+  min-width: 0;
 }
 .sign-cell:last-child { border-right: none; }
 .sign-label { font-weight: bold; color: #555; }
-.sign-val   { color: #111; }
+.sign-val   { color: #111; overflow-wrap: anywhere; }
 
 /* ══════════════════════════════════════════════════
    说明文字
@@ -274,6 +285,13 @@ body {
   color: #666;
   line-height: 1.6;
   padding: 0 2px;
+}
+
+@media screen {
+  .reg-table td[style*='width:10%'],
+  .reg-table td[style*='width:12%'] {
+    min-width: 0;
+  }
 }
 
 .reg-table tr,
