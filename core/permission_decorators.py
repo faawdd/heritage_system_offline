@@ -29,6 +29,12 @@ from django import template
 register = template.Library()
 
 
+GROUP_ADMIN = '管理员'
+GROUP_LIMITED_ADMIN = '管理员用户组'
+GROUP_SUPER_ADMIN = '超级管理员'
+GROUP_INSPECTOR = '文物看护员'
+
+
 # ============================================================================
 # 视图装饰器
 # ============================================================================
@@ -75,8 +81,8 @@ def inspector_required(view_func):
     @wraps(view_func)
     @login_required
     def wrapper(request, *args, **kwargs):
-        is_inspector = request.user.groups.filter(name='文物看护员').exists()
-        is_admin = request.user.groups.filter(name='管理员').exists()
+        is_inspector = request.user.groups.filter(name=GROUP_INSPECTOR).exists()
+        is_admin = request.user.groups.filter(name=GROUP_ADMIN).exists()
         
         if request.user.is_superuser or is_inspector or is_admin:
             return view_func(request, *args, **kwargs)
@@ -102,9 +108,10 @@ def admin_required(view_func):
     @wraps(view_func)
     @login_required
     def wrapper(request, *args, **kwargs):
-        is_admin = request.user.groups.filter(name='管理员').exists()
+        is_admin = request.user.groups.filter(name=GROUP_ADMIN).exists()
+        is_limited_admin = request.user.groups.filter(name=GROUP_LIMITED_ADMIN).exists()
         
-        if request.user.is_superuser or is_admin:
+        if request.user.is_superuser or is_admin or is_limited_admin:
             return view_func(request, *args, **kwargs)
         
         return render(request, '403.html', {
@@ -176,7 +183,43 @@ def is_admin(user):
         - 超级管理员 (Django is_superuser)
         - 管理员 (Group name='管理员')
     """
-    return user.is_superuser or user.groups.filter(name='管理员').exists()
+    return user.is_superuser or user.groups.filter(name=GROUP_ADMIN).exists()
+
+
+def is_limited_admin(user):
+    """
+    检查用户是否为“管理员用户组”（受限管理角色）
+
+    返回：True/False
+    """
+    return user.groups.filter(name=GROUP_LIMITED_ADMIN).exists()
+
+
+def is_management_admin(user):
+    """
+    检查用户是否具备管理入口权限
+
+    包含：
+        - 超级管理员
+        - 管理员
+        - 管理员用户组
+    """
+    return is_admin(user) or is_limited_admin(user)
+
+
+def can_modify_core_data(user):
+    """
+    检查用户是否允许修改底层核心数据
+
+    允许：
+        - 超级管理员
+        - 管理员
+
+    不允许：
+        - 管理员用户组
+        - 文物看护员
+    """
+    return is_admin(user)
 
 
 def is_inspector(user):
@@ -187,7 +230,7 @@ def is_inspector(user):
     
     仅检查：文物看护员 (Group name='文物看护员')
     """
-    return user.groups.filter(name='文物看护员').exists()
+    return user.groups.filter(name=GROUP_INSPECTOR).exists()
 
 
 def get_user_role(user):
@@ -202,9 +245,11 @@ def get_user_role(user):
     """
     if user.is_superuser:
         return '超级管理员'
-    elif user.groups.filter(name='管理员').exists():
+    elif user.groups.filter(name=GROUP_ADMIN).exists():
         return '管理员'
-    elif user.groups.filter(name='文物看护员').exists():
+    elif user.groups.filter(name=GROUP_LIMITED_ADMIN).exists():
+        return '管理员用户组'
+    elif user.groups.filter(name=GROUP_INSPECTOR).exists():
         return '看护员'
     else:
         return '普通用户'
@@ -227,7 +272,10 @@ def get_permissions_summary(user):
         'role': get_user_role(user),
         'is_superuser': is_super_admin(user),
         'is_admin': is_admin(user),
+        'is_limited_admin': is_limited_admin(user),
+        'is_management_admin': is_management_admin(user),
         'is_inspector': is_inspector(user),
+        'can_modify_core_data': can_modify_core_data(user),
         'groups': list(user.groups.values_list('name', flat=True)),
         'permission_count': user.user_permissions.count() if hasattr(user, 'user_permissions') else 0,
     }
@@ -270,7 +318,7 @@ def can_manage_projects(user):
         {% can_manage_projects user as can_manage %}
         {% if can_manage %}...{% endif %}
     """
-    return is_admin(user)
+    return is_management_admin(user)
 
 
 @register.simple_tag

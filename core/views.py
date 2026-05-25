@@ -28,6 +28,7 @@ import xml.etree.ElementTree as ET
 from django.shortcuts import get_object_or_404
 from django.contrib import messages
 from heritage_system.version import VERSION, VERSION_HISTORY
+from .permission_decorators import is_management_admin, is_limited_admin
 
 User = get_user_model()
 
@@ -75,8 +76,7 @@ def mobile_kml_entry_view(request):
     if not user:
         return HttpResponseForbidden('用户不存在或已禁用')
 
-    is_admin = user.is_superuser or user.groups.filter(name='管理员').exists() or user.groups.filter(name='超级管理员').exists()
-    if not is_admin:
+    if not is_management_admin(user):
         return HttpResponseForbidden('当前账号无权使用KML叠加检查')
 
     auth_login(request, user, backend='django.contrib.auth.backends.ModelBackend')
@@ -243,8 +243,7 @@ def kml_overlay_check_view(request):
             payload = _decode_fastapi_token(token)
             user = User.objects.filter(id=payload.get('user_id'), is_active=True).first() if payload else None
             if user:
-                is_admin = user.is_superuser or user.groups.filter(name='管理员').exists() or user.groups.filter(name='超级管理员').exists()
-                if is_admin:
+                if is_management_admin(user):
                     auth_login(request, user, backend='django.contrib.auth.backends.ModelBackend')
     return kml_management_view(request)
 
@@ -722,11 +721,7 @@ def _reanalyze_kml_records(records, threshold):
 
 
 def _is_admin_user(user):
-    return user.is_authenticated and (
-        user.is_superuser
-        or user.groups.filter(name='管理员').exists()
-        or user.groups.filter(name='超级管理员').exists()
-    )
+    return user.is_authenticated and is_management_admin(user)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1699,6 +1694,12 @@ def inspection_mobile_add_view(request):
     
     # 检查用户是否属于"文物看护员"用户组
     is_inspector = request.user.groups.filter(name='文物看护员').exists()
+
+    if request.method == 'POST' and is_limited_admin(request.user):
+        return JsonResponse({
+            'success': False,
+            'message': '管理员用户组仅支持查看，不允许新增或修改巡查记录'
+        }, status=403)
     
     if request.method == 'POST':
         # 处理AJAX POST请求
@@ -1879,6 +1880,15 @@ def heritage_collect_view(request):
     from django.core.files.base import ContentFile
 
     collect_unit = getattr(settings, "HERITAGE_COLLECT_UNIT", "文物管理部门")
+
+    if request.method == "POST" and is_limited_admin(request.user):
+        return JsonResponse(
+            {
+                "success": False,
+                "message": "管理员用户组仅支持查看采集数据，不允许创建或修改采集记录",
+            },
+            status=403,
+        )
 
     if request.method == "POST":
         try:

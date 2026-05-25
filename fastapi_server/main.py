@@ -108,15 +108,27 @@ def get_user_role(user: Any) -> str:
         return "超级管理员"
     if user.groups.filter(name="管理员").exists():
         return "管理员"
+    if user.groups.filter(name="管理员用户组").exists():
+        return "管理员用户组"
     if user.groups.filter(name="文物看护员").exists():
         return "文物看护员"
     return "普通用户"
 
 
+def has_management_access(user: Any) -> bool:
+    role = get_user_role(user)
+    return role in {"超级管理员", "管理员", "管理员用户组"}
+
+
+def can_modify_core_data(user: Any) -> bool:
+    role = get_user_role(user)
+    return role in {"超级管理员", "管理员"}
+
+
 def serialize_user(user: Any) -> dict:
     groups = list(user.groups.values_list("name", flat=True))
     role = get_user_role(user)
-    is_admin = role in {"超级管理员", "管理员"}
+    is_admin = role in {"超级管理员", "管理员", "管理员用户组"}
     return {
         "id": user.id,
         "username": user.username,
@@ -130,6 +142,7 @@ def serialize_user(user: Any) -> dict:
             "can_view_all_heritages": is_admin,
             "can_manage_projects": is_admin,
             "can_use_kml_overlay": is_admin,
+            "can_modify_core_data": can_modify_core_data(user),
         },
     }
 
@@ -182,7 +195,7 @@ def get_current_user(
 
 
 def require_admin(current_user: Any = Depends(get_current_user)) -> Any:
-    if get_user_role(current_user) not in {"超级管理员", "管理员"}:
+    if not has_management_access(current_user):
         raise HTTPException(status_code=403, detail="Admin permission required")
     return current_user
 
@@ -457,6 +470,8 @@ def upload_inspection(
     current_user: Any = Depends(get_current_user),
 ) -> dict:
     role = get_user_role(current_user)
+    if role == "管理员用户组":
+        raise HTTPException(status_code=403, detail="管理员用户组不允许新增巡查记录")
     if role not in {"超级管理员", "管理员", "文物看护员"}:
         raise HTTPException(status_code=403, detail="No patrol permission")
 
@@ -677,6 +692,9 @@ def collect_create(
     """
     from decimal import Decimal, InvalidOperation
 
+    if not can_modify_core_data(current_user):
+        raise HTTPException(status_code=403, detail="管理员用户组仅支持采集数据查看，不允许创建记录")
+
     # ── 采集编号唯一性（手工填写时）──────────────────────────
     manual_code = (payload.survey_code or "").strip()
     if manual_code and ImmovableHeritage.objects.filter(survey_code=manual_code).exists():
@@ -752,6 +770,9 @@ def collect_upload_photo(
     heritage = ImmovableHeritage.objects.filter(id=heritage_id).first()
     if heritage is None:
         raise HTTPException(status_code=404, detail="文物记录不存在")
+
+    if not can_modify_core_data(current_user):
+        raise HTTPException(status_code=403, detail="管理员用户组仅支持采集数据查看，不允许上传照片")
 
     # 权限：只有采集人本人或管理员可上传
     role = get_user_role(current_user)
