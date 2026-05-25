@@ -304,7 +304,7 @@ SIMPLEUI_CONFIG = {
 
 
 # 修改后台标题
-SIMPLEUI_HOME_TITLE = '鄯善县文物数字化管理平台'
+SIMPLEUI_HOME_TITLE = f'基层文物管理系统 ({SYS_VERSION})'
 SIMPLEUI_LOGO = '/static/img/logo.jpg' # 使用本地logo.jpg
 # 隐藏右侧的 Django 官方相关广告和链接（让界面更清爽）
 SIMPLEUI_HOME_INFO = False
@@ -315,7 +315,7 @@ SIMPLEUI_DEFAULT_THEME = 'purple.css'
 SIMPLEUI_CUSTOM_JS = '/static/admin/js/simpleui_custom.js'
 
 # 自定义登录页标题
-SIMPLEUI_LOGIN_TITLE = '文物管理系统 - 请登录'
+SIMPLEUI_LOGIN_TITLE = f'基层文物管理系统 ({SYS_VERSION}) - 请登录'
 # 配置自定义首页 URL 路径 - 显示统计仪表板
 SIMPLEUI_HOME_PAGE = '/admin/home/'
 

@@ -660,14 +660,11 @@ class CoordinateAdmin(admin.ModelAdmin):
 
 
 
-# 修改后台左上角显示的文字
-admin.site.site_header = '鄯善县文物数字化管理平台'
-
-# 修改浏览器标签页显示的文字
-admin.site.site_title = '基层文物管理系统'
-
-# 修改后台首页的欢迎提示文字
-admin.site.index_title = '欢迎使用文物安全巡查与项目管理系统'
+# 修改后台标题，确保 SimpleUI 与 Django Admin 同步显示动态版本号
+sys_version = getattr(settings, 'SYS_VERSION', 'BuildUnknown')
+admin.site.site_header = f'基层文物管理系统 ({sys_version})'
+admin.site.site_title = f'基层文物管理系统 ({sys_version})'
+admin.site.index_title = f'欢迎使用基层文物管理系统，当前版本 {sys_version}'
 
 
 # ============ 用户和组权限管理 ============
