@@ -18,10 +18,10 @@
   --photo-bg: #f8f8f8;
   --font: 'SimSun', '宋体', 'Times New Roman', serif;
   --font-hei: 'SimHei', '黑体', 'Arial', sans-serif;
-  --fs-base: 14pt;
-  --fs-sm: 14pt;
+  --fs-base: 12pt;
+  --fs-sm: 12pt;
   --fs-title: 22pt;
-  --fs-sub: 14pt;
+  --fs-sub: 12pt;
   --fs-note: 11pt;
   --cell-pad: 3px 5px;
 }
@@ -105,11 +105,22 @@ body {
 .lbl {
   background: var(--label-bg);
   font-weight: bold;
-  white-space: normal;
+  white-space: nowrap;
   text-align: center;
   font-size: var(--fs-base);
   line-height: 1.15;
   width: 14%;
+  word-break: normal;
+  overflow-wrap: normal;
+  line-break: strict;
+}
+.lbl-text {
+  display: inline-block;
+  max-width: 100%;
+  white-space: nowrap;
+}
+.lbl-text.breakable {
+  white-space: normal;
   word-break: keep-all;
   overflow-wrap: break-word;
 }
@@ -397,7 +408,7 @@ body {
     <tr>
       <td class="lbl" style="width:12%">名&emsp;&emsp;称</td>
       <td class="val" colspan="3" style="width:38%">{{ heritage.name }}</td>
-      <td class="lbl" style="width:12%">曾用名/别名</td>
+      <td class="lbl" style="width:12%"><span class="lbl-text breakable">曾用名<wbr>/别名</span></td>
       <td class="val" colspan="3" style="width:38%">{{ heritage.former_name|default:"——" }}</td>
     </tr>
 
@@ -418,25 +429,25 @@ body {
 
     <!-- 省市县 -->
     <tr>
-      <td class="lbl">省/自治区</td>
+      <td class="lbl"><span class="lbl-text breakable">省<wbr>/自治区</span></td>
       <td class="val">{{ heritage.province|default:"——" }}</td>
-      <td class="lbl">市/州</td>
+      <td class="lbl"><span class="lbl-text breakable">市<wbr>/州</span></td>
       <td class="val">{{ heritage.city|default:"——" }}</td>
-      <td class="lbl">县/区</td>
+      <td class="lbl"><span class="lbl-text breakable">县<wbr>/区</span></td>
       <td class="val" colspan="3">{{ heritage.county|default:"——" }}</td>
     </tr>
 
     <!-- 乡镇 / 村 -->
     <tr>
-      <td class="lbl">乡镇/街道</td>
+      <td class="lbl"><span class="lbl-text breakable">乡镇<wbr>/街道</span></td>
       <td class="val" colspan="3">{{ heritage.township|default:"——" }}</td>
-      <td class="lbl">村/社区</td>
+      <td class="lbl"><span class="lbl-text breakable">村<wbr>/社区</span></td>
       <td class="val" colspan="3">{{ heritage.village|default:"——" }}</td>
     </tr>
 
     <!-- 详细地址 -->
     <tr>
-      <td class="lbl">详细地址</td>
+      <td class="lbl"><span class="lbl-text breakable">详细<wbr>地址</span></td>
       <td class="val" colspan="7">{{ heritage.address|default:"——" }}</td>
     </tr>
 
@@ -454,7 +465,7 @@ body {
 
     <!-- 占地面积 -->
     <tr>
-      <td class="lbl">占地面积</td>
+      <td class="lbl"><span class="lbl-text breakable">占地<wbr>面积</span></td>
       <td class="val" colspan="3">
         {% if heritage.area %}{{ heritage.area|floatformat:2 }} 平方米{% else %}——{% endif %}
       </td>
@@ -471,7 +482,7 @@ body {
 
     <!-- 保存现状评级（五格勾选） -->
     <tr>
-      <td class="lbl">保存现状</td>
+      <td class="lbl"><span class="lbl-text breakable">保存<wbr>现状</span></td>
       <td class="val" colspan="7">
         {% for choice in preservation_choices %}
           <span class="chk {% if choice.0 == heritage.preservation_status %}yes{% endif %}">
@@ -488,9 +499,9 @@ body {
         <span class="chk {% if heritage.is_disappeared %}yes{% endif %}">{% if heritage.is_disappeared %}✓{% endif %}</span>是&ensp;
         <span class="chk {% if not heritage.is_disappeared %}yes{% endif %}">{% if not heritage.is_disappeared %}✓{% endif %}</span>否
       </td>
-      <td class="lbl" style="width:10%">消失原因</td>
+      <td class="lbl" style="width:10%"><span class="lbl-text breakable">消失<wbr>原因</span></td>
       <td class="val" colspan="2">{{ heritage.disappear_reason|default:"——" }}</td>
-      <td class="lbl" style="width:10%">是否迁移</td>
+      <td class="lbl" style="width:10%"><span class="lbl-text breakable">是否<wbr>迁移</span></td>
       <td class="val" colspan="2">
         <span class="chk {% if heritage.is_relocated %}yes{% endif %}">{% if heritage.is_relocated %}✓{% endif %}</span>是&ensp;
         <span class="chk {% if not heritage.is_relocated %}yes{% endif %}">{% if not heritage.is_relocated %}✓{% endif %}</span>否
@@ -500,20 +511,20 @@ body {
     <!-- 迁移说明（仅迁移时才填） -->
     {% if heritage.is_relocated %}
     <tr>
-      <td class="lbl">迁移情况</td>
+      <td class="lbl"><span class="lbl-text breakable">迁移<wbr>情况</span></td>
       <td class="val" colspan="7">{{ heritage.relocation_note|default:"——" }}</td>
     </tr>
     {% endif %}
 
     <!-- 破坏原因 -->
     <tr>
-      <td class="lbl">破坏原因</td>
+      <td class="lbl"><span class="lbl-text breakable">破坏<wbr>原因</span></td>
       <td class="val" colspan="7" style="min-height:28px;">{{ heritage.damage_cause|default:"无" }}</td>
     </tr>
 
     <!-- 现存威胁因素 -->
     <tr>
-      <td class="lbl">威胁因素</td>
+      <td class="lbl"><span class="lbl-text breakable">威胁<wbr>因素</span></td>
       <td class="val" colspan="7" style="min-height:28px;">{{ heritage.threat_factors|default:"无" }}</td>
     </tr>
 
@@ -532,21 +543,21 @@ body {
           </span>{{ choice.1 }}&ensp;
         {% endfor %}
       </td>
-      <td class="lbl">权属单位/人</td>
+      <td class="lbl"><span class="lbl-text breakable">权属单位<wbr>/人</span></td>
       <td class="val" colspan="3">{{ heritage.ownership_detail|default:"——" }}</td>
     </tr>
 
     <!-- 使用单位 / 管理单位 -->
     <tr>
-      <td class="lbl">使用单位</td>
+      <td class="lbl"><span class="lbl-text breakable">使用<wbr>单位</span></td>
       <td class="val" colspan="3">{{ heritage.user_unit|default:"——" }}</td>
-      <td class="lbl">管理单位</td>
+      <td class="lbl"><span class="lbl-text breakable">管理<wbr>单位</span></td>
       <td class="val" colspan="3">{{ heritage.management_unit|default:"——" }}</td>
     </tr>
 
     <!-- 管理责任人 -->
     <tr>
-      <td class="lbl">管理责任人</td>
+      <td class="lbl"><span class="lbl-text breakable">管理<wbr>责任人</span></td>
       <td class="val" colspan="7">{{ heritage.manager|default:"——" }}</td>
     </tr>
 
@@ -557,7 +568,7 @@ body {
 
     <!-- 保护级别（四级勾选） -->
     <tr>
-      <td class="lbl">保护级别</td>
+      <td class="lbl"><span class="lbl-text breakable">保护<wbr>级别</span></td>
       <td class="val" colspan="7">
         {% for choice in protection_choices %}
           <span class="chk {% if choice.0 == heritage.protection_level %}yes{% endif %}">
@@ -569,9 +580,9 @@ body {
 
     <!-- 公布批次 / 公布日期 -->
     <tr>
-      <td class="lbl">公布批次</td>
+      <td class="lbl"><span class="lbl-text breakable">公布<wbr>批次</span></td>
       <td class="val" colspan="3">{{ heritage.protection_announced_batch|default:"——" }}</td>
-      <td class="lbl">公布日期</td>
+      <td class="lbl"><span class="lbl-text breakable">公布<wbr>日期</span></td>
       <td class="val" colspan="3">
         {% if heritage.protection_announced_date %}{{ heritage.protection_announced_date|date:"Y年m月d日" }}{% else %}——{% endif %}
       </td>
@@ -579,17 +590,17 @@ body {
 
     <!-- 三项保护设施 -->
     <tr>
-      <td class="lbl">保护标志碑</td>
+      <td class="lbl"><span class="lbl-text breakable">保护<wbr>标志碑</span></td>
       <td class="val val-center">
         <span class="chk {% if heritage.has_marker_stele %}yes{% endif %}">{% if heritage.has_marker_stele %}✓{% endif %}</span>已设立&ensp;
         <span class="chk {% if not heritage.has_marker_stele %}yes{% endif %}">{% if not heritage.has_marker_stele %}✓{% endif %}</span>未设立
       </td>
-      <td class="lbl">保护范围</td>
+      <td class="lbl"><span class="lbl-text breakable">保护<wbr>范围</span></td>
       <td class="val val-center">
         <span class="chk {% if heritage.has_protection_zone_announced %}yes{% endif %}">{% if heritage.has_protection_zone_announced %}✓{% endif %}</span>已公布&ensp;
         <span class="chk {% if not heritage.has_protection_zone_announced %}yes{% endif %}">{% if not heritage.has_protection_zone_announced %}✓{% endif %}</span>未公布
       </td>
-      <td class="lbl">建设控制<br>地带</td>
+      <td class="lbl"><span class="lbl-text breakable">建设控制<wbr>地带</span></td>
       <td class="val val-center" colspan="3">
         <span class="chk {% if heritage.has_construction_control_zone_announced %}yes{% endif %}">{% if heritage.has_construction_control_zone_announced %}✓{% endif %}</span>已公布&ensp;
         <span class="chk {% if not heritage.has_construction_control_zone_announced %}yes{% endif %}">{% if not heritage.has_construction_control_zone_announced %}✓{% endif %}</span>未公布
