@@ -345,6 +345,125 @@
             border: 1px solid #e2e8f0;
         }
 
+        .overlap-popup {
+            position: fixed;
+            top: 60px;
+            right: 14px;
+            z-index: 735;
+            width: min(360px, calc(100vw - 28px));
+            max-height: min(62vh, 560px);
+            display: none;
+            flex-direction: column;
+            background: rgba(255, 255, 255, 0.97);
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.2);
+            overflow: hidden;
+        }
+
+        .overlap-popup.is-visible {
+            display: flex;
+        }
+
+        .overlap-popup-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 12px;
+            background: #f8fafc;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .overlap-popup-title {
+            margin: 0;
+            font-size: 13px;
+            font-weight: 700;
+            color: #0f172a;
+        }
+
+        .overlap-popup-count {
+            margin-top: 2px;
+            font-size: 11px;
+            color: #475569;
+        }
+
+        .overlap-popup-close {
+            border: 1px solid #cbd5e1;
+            background: #fff;
+            color: #334155;
+            border-radius: 6px;
+            font-size: 11px;
+            line-height: 1;
+            padding: 5px 8px;
+            cursor: pointer;
+        }
+
+        .overlap-popup-close:hover {
+            background: #f1f5f9;
+        }
+
+        .overlap-popup-body {
+            overflow: auto;
+            padding: 10px;
+        }
+
+        .overlap-item {
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 8px;
+            margin-bottom: 8px;
+            background: #fff;
+            cursor: pointer;
+            transition: border-color 0.16s ease, box-shadow 0.16s ease;
+        }
+
+        .overlap-item:hover {
+            border-color: #93c5fd;
+            box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+        }
+
+        .overlap-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .overlap-item-type {
+            display: inline-block;
+            border-radius: 999px;
+            padding: 2px 8px;
+            font-size: 11px;
+            font-weight: 700;
+            margin-bottom: 6px;
+        }
+
+        .overlap-item-type.point {
+            background: #ede9fe;
+            color: #6d28d9;
+        }
+
+        .overlap-item-type.line {
+            background: #ffedd5;
+            color: #c2410c;
+        }
+
+        .overlap-item-type.polygon {
+            background: #fee2e2;
+            color: #b91c1c;
+        }
+
+        .overlap-item-meta {
+            font-size: 12px;
+            color: #0f172a;
+            margin-bottom: 4px;
+            font-weight: 600;
+        }
+
+        .overlap-item-pair {
+            font-size: 12px;
+            line-height: 1.45;
+            color: #334155;
+            margin-bottom: 3px;
+        }
+
         .bubble-switch {
             position: fixed;
             top: 14px;
@@ -606,6 +725,12 @@
                 bottom: 10px;
             }
 
+            .overlap-popup {
+                top: 52px;
+                right: 10px;
+                max-height: min(58vh, 520px);
+            }
+
             .bubble-switch {
                 top: 10px;
                 right: 10px;
@@ -791,6 +916,17 @@
         <div class="legend-row"><span class="poly-overlap"></span>KML重叠面</div>
     </div>
 
+    <aside id="overlapPopup" class="overlap-popup" aria-live="polite">
+        <div class="overlap-popup-head">
+            <div>
+                <h3 class="overlap-popup-title">检测到 KML 重叠</h3>
+                <div class="overlap-popup-count" id="overlapPopupCount">0 条</div>
+            </div>
+            <button type="button" class="overlap-popup-close" id="overlapPopupClose">关闭</button>
+        </div>
+        <div class="overlap-popup-body" id="overlapPopupBody"></div>
+    </aside>
+
     <script>
         const checkAll = document.getElementById('checkAll');
         const rowChecks = Array.from(document.querySelectorAll('.record-check'));
@@ -803,6 +939,10 @@
         const toggleSipuBtn = document.getElementById('toggleSipuPanel');
         const kmlBubbleToggleEl = document.getElementById('kmlBubbleToggle');
         const returnPanoramaBtn = document.getElementById('returnPanoramaBtn');
+        const overlapPopupEl = document.getElementById('overlapPopup');
+        const overlapPopupBodyEl = document.getElementById('overlapPopupBody');
+        const overlapPopupCountEl = document.getElementById('overlapPopupCount');
+        const overlapPopupCloseEl = document.getElementById('overlapPopupClose');
         const loadingOverlayEl = document.getElementById('loadingOverlay');
         const loadingTextEl = document.getElementById('loadingText');
         const loadingDetailEl = document.getElementById('loadingDetail');
@@ -818,6 +958,7 @@
         const kmlGeoJsonCache = new Map();
         const kmlLoadPromiseCache = new Map();
         const siteEntries = [];
+        let currentOverlapEntries = [];
         let renderTaskId = 0;
 
         function setLoadingState(visible, text, detail) {
@@ -831,6 +972,132 @@
             if (loadingDetailEl && typeof detail === 'string') {
                 loadingDetailEl.textContent = detail;
             }
+        }
+
+        function getOverlapTypeLabel(kind) {
+            if (kind === 'point') {
+                return '点重叠';
+            }
+            if (kind === 'line') {
+                return '线重叠';
+            }
+            return '面重叠';
+        }
+
+        function hideOverlapPopup() {
+            if (!overlapPopupEl) {
+                return;
+            }
+            overlapPopupEl.classList.remove('is-visible');
+            currentOverlapEntries = [];
+            if (overlapPopupBodyEl) {
+                overlapPopupBodyEl.innerHTML = '';
+            }
+            if (overlapPopupCountEl) {
+                overlapPopupCountEl.textContent = '0 条';
+            }
+        }
+
+        function getGeometryBounds(geometry) {
+            if (!geometry) {
+                return null;
+            }
+            if (geometry.type === 'Point') {
+                const coords = geometry.coordinates || [];
+                if (coords.length < 2) {
+                    return null;
+                }
+                const latlng = L.latLng(coords[1], coords[0]);
+                return L.latLngBounds(latlng, latlng);
+            }
+            try {
+                const layer = L.geoJSON({ type: 'Feature', geometry: geometry, properties: {} });
+                if (layer && typeof layer.getBounds === 'function') {
+                    const bounds = layer.getBounds();
+                    if (bounds && bounds.isValid()) {
+                        return bounds;
+                    }
+                }
+            } catch (err) {
+                return null;
+            }
+            return null;
+        }
+
+        function findFirstLayerByOverlapKey(overlapKey) {
+            let matchedLayer = null;
+            overlapLayer.eachLayer(function(layer) {
+                if (matchedLayer) {
+                    return;
+                }
+                if (layer && layer._overlapKey === overlapKey) {
+                    matchedLayer = layer;
+                    return;
+                }
+                if (layer && typeof layer.eachLayer === 'function') {
+                    layer.eachLayer(function(child) {
+                        if (!matchedLayer && child && child._overlapKey === overlapKey) {
+                            matchedLayer = child;
+                        }
+                    });
+                }
+            });
+            return matchedLayer;
+        }
+
+        function focusOverlapEntryByIndex(index) {
+            const entry = currentOverlapEntries[index];
+            if (!entry || !entry.geometry) {
+                return;
+            }
+
+            const bounds = getGeometryBounds(entry.geometry);
+            if (bounds && bounds.isValid()) {
+                if (bounds.getSouthWest().equals(bounds.getNorthEast())) {
+                    map.setView(bounds.getCenter(), Math.max(map.getZoom(), 18), { animate: true });
+                } else {
+                    map.fitBounds(bounds.pad(0.45), { animate: true, maxZoom: 19 });
+                }
+            }
+
+            const layer = findFirstLayerByOverlapKey(entry.overlapKey);
+            if (layer && typeof layer.openPopup === 'function') {
+                layer.openPopup();
+            }
+        }
+
+        function renderOverlapPopup(summary) {
+            if (!overlapPopupEl || !overlapPopupBodyEl || !overlapPopupCountEl) {
+                return;
+            }
+            if (!summary || !summary.total) {
+                hideOverlapPopup();
+                return;
+            }
+
+            const entries = Array.isArray(summary.entries) ? summary.entries : [];
+            currentOverlapEntries = entries.slice(0, 30);
+            overlapPopupCountEl.textContent = '共 ' + summary.total + ' 处，显示前 ' + Math.min(entries.length, 30) + ' 条';
+
+            const html = entries.slice(0, 30).map(function(entry) {
+                const entryIndex = currentOverlapEntries.indexOf(entry);
+                const pairs = (entry.details || []).slice(0, 4).map(function(detail) {
+                    return '<div class="overlap-item-pair">'
+                        + escapeHtml(detail.sourceA) + ' / ' + escapeHtml(detail.featureA)
+                        + ' <strong>↔</strong> '
+                        + escapeHtml(detail.sourceB) + ' / ' + escapeHtml(detail.featureB)
+                        + '</div>';
+                }).join('');
+
+                return '<div class="overlap-item" data-entry-index="' + entryIndex + '">'
+                    + '<span class="overlap-item-type ' + escapeHtml(entry.kind) + '">' + getOverlapTypeLabel(entry.kind) + '</span>'
+                    + '<div class="overlap-item-meta">关联组数：' + entry.relationCount + '</div>'
+                    + pairs
+                    + '</div>';
+            }).join('');
+
+            overlapPopupBodyEl.innerHTML = html || '<div class="overlap-item">暂无重叠详情</div>';
+            overlapPopupEl.classList.add('is-visible');
         }
 
         function debounce(fn, wait) {
@@ -919,6 +1186,26 @@
             kmlBubbleToggleEl.addEventListener('change', function() {
                 syncKmlBubbleVisible();
                 scheduleRenderSelectedKmlLayers();
+            });
+        }
+
+        if (overlapPopupCloseEl) {
+            overlapPopupCloseEl.addEventListener('click', function() {
+                hideOverlapPopup();
+            });
+        }
+
+        if (overlapPopupBodyEl) {
+            overlapPopupBodyEl.addEventListener('click', function(event) {
+                const item = event.target.closest('.overlap-item');
+                if (!item) {
+                    return;
+                }
+                const index = Number(item.getAttribute('data-entry-index'));
+                if (!Number.isInteger(index) || index < 0) {
+                    return;
+                }
+                focusOverlapEntryByIndex(index);
             });
         }
 
@@ -1418,26 +1705,101 @@
             return [{ kind: 'point', geometry: { type: 'Point', coordinates: coordsA } }];
         }
 
+        function isPointOnLineWithinTolerance(pointCoords, lineFeature, toleranceDeg) {
+            if (!Array.isArray(pointCoords) || pointCoords.length < 2 || !lineFeature) {
+                return false;
+            }
+            try {
+                return turf.booleanPointOnLine(turf.point(pointCoords), lineFeature, {
+                    ignoreEndVertices: false,
+                    epsilon: toleranceDeg,
+                });
+            } catch (err) {
+                return false;
+            }
+        }
+
+        function collectContainedLineSegments(baseLineFeature, targetLineFeature, toleranceDeg) {
+            const overlaps = [];
+            if (!baseLineFeature || !targetLineFeature) {
+                return overlaps;
+            }
+
+            let segments = null;
+            try {
+                segments = turf.lineSegment(baseLineFeature);
+            } catch (err) {
+                return overlaps;
+            }
+
+            if (!segments || !Array.isArray(segments.features)) {
+                return overlaps;
+            }
+
+            segments.features.forEach(function(segment) {
+                if (!segment || !segment.geometry || !Array.isArray(segment.geometry.coordinates) || segment.geometry.coordinates.length < 2) {
+                    return;
+                }
+                const start = segment.geometry.coordinates[0];
+                const end = segment.geometry.coordinates[segment.geometry.coordinates.length - 1];
+                const mid = [
+                    (start[0] + end[0]) / 2,
+                    (start[1] + end[1]) / 2,
+                ];
+
+                const startOn = isPointOnLineWithinTolerance(start, targetLineFeature, toleranceDeg);
+                const endOn = isPointOnLineWithinTolerance(end, targetLineFeature, toleranceDeg);
+                const midOn = isPointOnLineWithinTolerance(mid, targetLineFeature, toleranceDeg);
+
+                if ((startOn && endOn) || (midOn && (startOn || endOn))) {
+                    overlaps.push({ kind: 'line', geometry: segment.geometry });
+                }
+            });
+
+            return overlaps;
+        }
+
         function collectLineOverlap(featureA, featureB) {
             const results = [];
+            const seen = new Set();
+
+            function pushUnique(item) {
+                if (!item || !item.geometry) {
+                    return;
+                }
+                const key = buildOverlapGeometryKey(item.kind, item.geometry);
+                if (seen.has(key)) {
+                    return;
+                }
+                seen.add(key);
+                results.push(item);
+            }
+
             try {
-                const overlap = turf.lineOverlap(featureA, featureB, { tolerance: 0.000001 });
+                const overlap = turf.lineOverlap(featureA, featureB, { tolerance: 0.00003 });
                 if (overlap && Array.isArray(overlap.features)) {
                     overlap.features.forEach(function(item) {
                         if (item && item.geometry) {
-                            results.push({ kind: 'line', geometry: item.geometry });
+                            pushUnique({ kind: 'line', geometry: item.geometry });
                         }
                     });
                 }
             } catch (err) {
                 // ignore turf line overlap failures and continue with point intersections
             }
+
+            // lineOverlap 在顶点不完全对齐时可能只返回部分片段，这里补一轮线段级判定
+            if (results.length <= 1) {
+                collectContainedLineSegments(featureA, featureB, 0.00003).forEach(pushUnique);
+                collectContainedLineSegments(featureB, featureA, 0.00003).forEach(pushUnique);
+            }
+
             try {
                 const intersections = turf.lineIntersect(featureA, featureB);
                 if (intersections && Array.isArray(intersections.features)) {
                     intersections.features.forEach(function(item) {
                         if (item && item.geometry) {
-                            results.push({ kind: 'point', geometry: item.geometry });
+                            pushUnique({ kind: 'point', geometry: item.geometry });
                         }
                     });
                 }
@@ -1572,7 +1934,7 @@
         function renderOverlapLayer(features) {
             overlapLayer.clearLayers();
             if (typeof turf === 'undefined') {
-                return { total: 0, point: 0, line: 0, polygon: 0 };
+                return { total: 0, point: 0, line: 0, polygon: 0, entries: [] };
             }
 
             const simpleFeatures = [];
@@ -1612,9 +1974,17 @@
             }
 
             const counts = { total: 0, point: 0, line: 0, polygon: 0 };
-            overlapStore.forEach(function(entry) {
+            const entries = [];
+            overlapStore.forEach(function(entry, overlapKey) {
                 counts.total += 1;
                 counts[entry.kind] += 1;
+                entries.push({
+                    overlapKey: overlapKey,
+                    kind: entry.kind,
+                    relationCount: entry.details.length,
+                    details: entry.details.slice(0, 6),
+                    geometry: cloneFeatureGeometry(entry.geometry),
+                });
                 const detailsHtml = entry.details.slice(0, 6).map(function(detail) {
                     return escapeHtml(detail.sourceA) + ' / ' + escapeHtml(detail.featureA)
                         + '<br>'
@@ -1628,14 +1998,15 @@
                 if (entry.kind === 'point') {
                     const coords = entry.geometry.coordinates || [];
                     if (coords.length >= 2) {
-                        L.circleMarker([coords[1], coords[0]], OVERLAP_STYLES.point)
+                        const overlapMarker = L.circleMarker([coords[1], coords[0]], OVERLAP_STYLES.point)
                             .bindPopup(popupHtml)
                             .addTo(overlapLayer);
+                        overlapMarker._overlapKey = overlapKey;
                     }
                     return;
                 }
 
-                L.geoJSON({ type: 'Feature', geometry: entry.geometry, properties: {} }, {
+                const overlapGeoLayer = L.geoJSON({ type: 'Feature', geometry: entry.geometry, properties: {} }, {
                     style: function() {
                         return OVERLAP_STYLES[entry.kind];
                     },
@@ -1643,12 +2014,24 @@
                         return L.circleMarker(latlng, OVERLAP_STYLES.point);
                     },
                     onEachFeature: function(itemFeature, layer) {
+                        layer._overlapKey = overlapKey;
                         layer.bindPopup(popupHtml);
                     },
                 }).addTo(overlapLayer);
+                overlapGeoLayer._overlapKey = overlapKey;
             });
 
-            return counts;
+            entries.sort(function(a, b) {
+                return b.relationCount - a.relationCount;
+            });
+
+            return {
+                total: counts.total,
+                point: counts.point,
+                line: counts.line,
+                polygon: counts.polygon,
+                entries: entries,
+            };
         }
 
         function renderConflictPoints(features, threshold) {
@@ -1971,6 +2354,7 @@
 
             if (!selected.length) {
                 setLoadingState(false);
+                hideOverlapPopup();
                 mapStatusEl.textContent = '地图已就绪，默认显示全部文物点。';
                 return;
             }
@@ -2072,6 +2456,7 @@
                     }
                 }
                 const overlapCounts = renderOverlapLayer(allFeatures);
+                renderOverlapPopup(overlapCounts);
                 const conflictCount = renderConflictPoints(allFeatures, threshold);
                 if (failedCount > 0) {
                     mapStatusEl.textContent = '已叠加 ' + renderedCount + ' 个 KML 文件，失败 ' + failedCount + ' 个；文物冲突点位 ' + conflictCount + ' 个，KML重叠 ' + overlapCounts.total + ' 处（点 ' + overlapCounts.point + ' / 线 ' + overlapCounts.line + ' / 面 ' + overlapCounts.polygon + '），阈值 ' + threshold + 'm。';
