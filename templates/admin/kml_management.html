@@ -407,6 +407,60 @@
             padding: 10px;
         }
 
+        .overlap-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .overlap-back-btn {
+            border: 1px solid #cbd5e1;
+            background: #fff;
+            color: #1e293b;
+            border-radius: 6px;
+            font-size: 11px;
+            padding: 4px 8px;
+            cursor: pointer;
+        }
+
+        .overlap-back-btn:hover {
+            background: #f8fafc;
+        }
+
+        .overlap-toolbar-note {
+            font-size: 11px;
+            color: #64748b;
+        }
+
+        .overlap-group-item {
+            border: 1px solid #dbeafe;
+            border-radius: 8px;
+            padding: 8px;
+            margin-bottom: 8px;
+            background: #f8fbff;
+            cursor: pointer;
+            transition: border-color 0.16s ease, box-shadow 0.16s ease;
+        }
+
+        .overlap-group-item:hover {
+            border-color: #60a5fa;
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+        }
+
+        .overlap-group-title {
+            font-size: 12px;
+            color: #0f172a;
+            font-weight: 700;
+            line-height: 1.4;
+            margin-bottom: 5px;
+        }
+
+        .overlap-group-meta {
+            font-size: 11px;
+            color: #475569;
+        }
+
         .overlap-item {
             border: 1px solid #e2e8f0;
             border-radius: 8px;
@@ -435,17 +489,17 @@
             margin-bottom: 6px;
         }
 
-        .overlap-item-type.point {
+        .overlap-item-type.kind-point {
             background: #ede9fe;
             color: #6d28d9;
         }
 
-        .overlap-item-type.line {
+        .overlap-item-type.kind-line {
             background: #ffedd5;
             color: #c2410c;
         }
 
-        .overlap-item-type.polygon {
+        .overlap-item-type.kind-polygon {
             background: #fee2e2;
             color: #b91c1c;
         }
@@ -922,7 +976,7 @@
                 <h3 class="overlap-popup-title">检测到 KML 重叠</h3>
                 <div class="overlap-popup-count" id="overlapPopupCount">0 条</div>
             </div>
-            <button type="button" class="overlap-popup-close" id="overlapPopupClose">关闭</button>
+            <button type="button" class="overlap-popup-close" id="overlapPopupClose">收起</button>
         </div>
         <div class="overlap-popup-body" id="overlapPopupBody"></div>
     </aside>
@@ -959,6 +1013,8 @@
         const kmlLoadPromiseCache = new Map();
         const siteEntries = [];
         let currentOverlapEntries = [];
+        let currentOverlapGroups = [];
+        let currentOverlapView = 'group';
         let renderTaskId = 0;
 
         function setLoadingState(visible, text, detail) {
@@ -990,6 +1046,8 @@
             }
             overlapPopupEl.classList.remove('is-visible');
             currentOverlapEntries = [];
+            currentOverlapGroups = [];
+            currentOverlapView = 'group';
             if (overlapPopupBodyEl) {
                 overlapPopupBodyEl.innerHTML = '';
             }
@@ -1066,6 +1124,68 @@
             }
         }
 
+        function renderOverlapGroupView() {
+            if (!overlapPopupBodyEl) {
+                return;
+            }
+            currentOverlapView = 'group';
+            const html = currentOverlapGroups.map(function(group, index) {
+                return '<div class="overlap-group-item" data-group-index="' + index + '">'
+                    + '<div class="overlap-group-title">'
+                    + escapeHtml(group.sourceA) + ' <strong>↔</strong> ' + escapeHtml(group.sourceB)
+                    + '</div>'
+                    + '<div class="overlap-group-meta">重叠要素 ' + group.overlapCount + ' 处，关联组数 ' + group.relationTotal + '</div>'
+                    + '</div>';
+            }).join('');
+            overlapPopupBodyEl.innerHTML = html || '<div class="overlap-item">暂无重叠详情</div>';
+        }
+
+        function renderOverlapDetailView(groupIndex) {
+            if (!overlapPopupBodyEl) {
+                return;
+            }
+            const group = currentOverlapGroups[groupIndex];
+            if (!group) {
+                renderOverlapGroupView();
+                return;
+            }
+            currentOverlapView = 'detail';
+
+            const details = group.entryIndexes.map(function(entryIndex) {
+                return {
+                    entry: currentOverlapEntries[entryIndex],
+                    entryIndex: entryIndex,
+                };
+            }).filter(function(item) {
+                return item.entry;
+            });
+
+            const detailHtml = details.slice(0, 30).map(function(item) {
+                const entry = item.entry;
+                const pairs = (entry.details || []).slice(0, 4).map(function(detail) {
+                    return '<div class="overlap-item-pair">'
+                        + escapeHtml(detail.sourceA) + ' / ' + escapeHtml(detail.featureA)
+                        + ' <strong>↔</strong> '
+                        + escapeHtml(detail.sourceB) + ' / ' + escapeHtml(detail.featureB)
+                        + '</div>';
+                }).join('');
+
+                return '<div class="overlap-item" data-entry-index="' + item.entryIndex + '">'
+                    + '<span class="overlap-item-type kind-' + escapeHtml(entry.kind) + '">' + getOverlapTypeLabel(entry.kind) + '</span>'
+                    + '<div class="overlap-item-meta">关联组数：' + entry.relationCount + '</div>'
+                    + pairs
+                    + '</div>';
+            }).join('');
+
+            overlapPopupBodyEl.innerHTML = '<div class="overlap-toolbar">'
+                + '<button type="button" class="overlap-back-btn" data-action="back-to-group">返回文件重叠列表</button>'
+                + '<span class="overlap-toolbar-note">'
+                + escapeHtml(group.sourceA) + ' ↔ ' + escapeHtml(group.sourceB)
+                + '</span>'
+                + '</div>'
+                + (detailHtml || '<div class="overlap-item">暂无重叠详情</div>');
+        }
+
         function renderOverlapPopup(summary) {
             if (!overlapPopupEl || !overlapPopupBodyEl || !overlapPopupCountEl) {
                 return;
@@ -1076,27 +1196,41 @@
             }
 
             const entries = Array.isArray(summary.entries) ? summary.entries : [];
-            currentOverlapEntries = entries.slice(0, 30);
-            overlapPopupCountEl.textContent = '共 ' + summary.total + ' 处，显示前 ' + Math.min(entries.length, 30) + ' 条';
+            currentOverlapEntries = entries.slice(0, 60);
 
-            const html = entries.slice(0, 30).map(function(entry) {
-                const entryIndex = currentOverlapEntries.indexOf(entry);
-                const pairs = (entry.details || []).slice(0, 4).map(function(detail) {
-                    return '<div class="overlap-item-pair">'
-                        + escapeHtml(detail.sourceA) + ' / ' + escapeHtml(detail.featureA)
-                        + ' <strong>↔</strong> '
-                        + escapeHtml(detail.sourceB) + ' / ' + escapeHtml(detail.featureB)
-                        + '</div>';
-                }).join('');
+            const groupMap = new Map();
+            currentOverlapEntries.forEach(function(entry, entryIndex) {
+                const pairStats = Array.isArray(entry.pairStats) ? entry.pairStats : [];
+                pairStats.forEach(function(pair) {
+                    const key = pair.key;
+                    if (!groupMap.has(key)) {
+                        groupMap.set(key, {
+                            key: key,
+                            sourceA: pair.sourceA,
+                            sourceB: pair.sourceB,
+                            overlapCount: 0,
+                            relationTotal: 0,
+                            entryIndexes: [],
+                        });
+                    }
+                    const group = groupMap.get(key);
+                    group.overlapCount += 1;
+                    group.relationTotal += pair.count;
+                    if (!group.entryIndexes.includes(entryIndex)) {
+                        group.entryIndexes.push(entryIndex);
+                    }
+                });
+            });
 
-                return '<div class="overlap-item" data-entry-index="' + entryIndex + '">'
-                    + '<span class="overlap-item-type ' + escapeHtml(entry.kind) + '">' + getOverlapTypeLabel(entry.kind) + '</span>'
-                    + '<div class="overlap-item-meta">关联组数：' + entry.relationCount + '</div>'
-                    + pairs
-                    + '</div>';
-            }).join('');
+            currentOverlapGroups = Array.from(groupMap.values()).sort(function(a, b) {
+                if (b.overlapCount !== a.overlapCount) {
+                    return b.overlapCount - a.overlapCount;
+                }
+                return b.relationTotal - a.relationTotal;
+            });
 
-            overlapPopupBodyEl.innerHTML = html || '<div class="overlap-item">暂无重叠详情</div>';
+            overlapPopupCountEl.textContent = '涉及 ' + currentOverlapGroups.length + ' 组 KML 文件重叠';
+            renderOverlapGroupView();
             overlapPopupEl.classList.add('is-visible');
         }
 
@@ -1197,6 +1331,21 @@
 
         if (overlapPopupBodyEl) {
             overlapPopupBodyEl.addEventListener('click', function(event) {
+                const backBtn = event.target.closest('[data-action="back-to-group"]');
+                if (backBtn) {
+                    renderOverlapGroupView();
+                    return;
+                }
+
+                const groupItem = event.target.closest('.overlap-group-item');
+                if (groupItem) {
+                    const groupIndex = Number(groupItem.getAttribute('data-group-index'));
+                    if (Number.isInteger(groupIndex) && groupIndex >= 0) {
+                        renderOverlapDetailView(groupIndex);
+                    }
+                    return;
+                }
+
                 const item = event.target.closest('.overlap-item');
                 if (!item) {
                     return;
@@ -1978,11 +2127,29 @@
             overlapStore.forEach(function(entry, overlapKey) {
                 counts.total += 1;
                 counts[entry.kind] += 1;
+                const pairMap = new Map();
+                entry.details.forEach(function(detail) {
+                    const left = detail.sourceA || 'KML文件A';
+                    const right = detail.sourceB || 'KML文件B';
+                    const normalized = [left, right].sort();
+                    const pairKey = normalized[0] + '||' + normalized[1];
+                    if (!pairMap.has(pairKey)) {
+                        pairMap.set(pairKey, {
+                            key: pairKey,
+                            sourceA: normalized[0],
+                            sourceB: normalized[1],
+                            count: 0,
+                        });
+                    }
+                    pairMap.get(pairKey).count += 1;
+                });
+
                 entries.push({
                     overlapKey: overlapKey,
                     kind: entry.kind,
                     relationCount: entry.details.length,
                     details: entry.details.slice(0, 6),
+                    pairStats: Array.from(pairMap.values()),
                     geometry: cloneFeatureGeometry(entry.geometry),
                 });
                 const detailsHtml = entry.details.slice(0, 6).map(function(detail) {
