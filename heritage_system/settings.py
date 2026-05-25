@@ -15,17 +15,30 @@ import os
 import subprocess
 from datetime import datetime
 from zoneinfo import ZoneInfo
-import environ
+
+try:
+    import environ as _django_environ  # django-environ（正确包）
+except Exception:
+    _django_environ = None
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 SETTINGS_FILE = Path(__file__).resolve()
 PROJECT_TIME_ZONE = ZoneInfo('Asia/Shanghai')
 
-env = environ.Env()
-env_file = BASE_DIR / '.env'
-if env_file.exists():
-    environ.Env.read_env(env_file)
+if _django_environ and hasattr(_django_environ, 'Env'):
+    env = _django_environ.Env()
+    env_file = BASE_DIR / '.env'
+    if env_file.exists():
+        _django_environ.Env.read_env(env_file)
+else:
+    class _SimpleEnv:
+        """当 django-environ 不可用时，使用最小化 env 读取兜底。"""
+
+        def __call__(self, key, default=None):
+            return os.getenv(key, default)
+
+    env = _SimpleEnv()
 
 SYSTEM_VERSION_PREFIX = env('SYSTEM_VERSION_PREFIX', default='v1.2')
 
@@ -350,4 +363,14 @@ OPENTOPO_API_KEY = env(
 DEM_TILES_DIR = env(
     'DEM_TILES_DIR',
     default=str((BASE_DIR / 'dem_tiles').resolve()),
+)
+
+# DEM 下载局部代理配置（仅 utils/dem_handler.py 的 OpenTopography 下载请求生效）
+# 注意：若使用 socks5，需要安装 pip install "requests[socks]"
+DEM_DOWNLOAD_PROXY_ENABLED = env('DEM_DOWNLOAD_PROXY_ENABLED', default=True)
+DEM_DOWNLOAD_PROXY_SCHEME = env('DEM_DOWNLOAD_PROXY_SCHEME', default='socks5')  # 可切换为 http
+DEM_DOWNLOAD_PROXY_HOST = env('DEM_DOWNLOAD_PROXY_HOST', default='127.0.0.1')
+DEM_DOWNLOAD_PROXY_PORT = env('DEM_DOWNLOAD_PROXY_PORT', default=10808)
+DEM_DOWNLOAD_PROXY_ONLY_DOMAINS = (
+    'portal.opentopography.org',
 )
