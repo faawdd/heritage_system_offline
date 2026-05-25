@@ -1620,8 +1620,15 @@ def dem_elevation_lookup_api(request):
 
     tile_name = describe_tile(lon, lat)
 
+    prefer_cached_only = bool(payload.get('prefer_cached_only', True))
+
     try:
-        elevation = get_dem_elevation(lon, lat)
+        elevation = get_dem_elevation(
+            lon,
+            lat,
+            prefer_cached_only=prefer_cached_only,
+            trigger_background_download=True,
+        )
     except Exception:
         # 双保险兜底：任何 DEM 层异常都不影响主业务流程。
         import logging
@@ -1641,6 +1648,8 @@ def dem_elevation_lookup_api(request):
             'latitude': lat,
             'tile': tile_name,
             'elevation': elevation,
+            'prefer_cached_only': prefer_cached_only,
+            'cache_hit': elevation is not None,
             'source': 'SRTMGL1(OpenTopography)',
             'fallback_hint': 'elevation 为 null 时，请前端降级使用设备海拔',
         }
