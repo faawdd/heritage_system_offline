@@ -555,10 +555,10 @@ body {
     <tr class="photo-section">
       <td colspan="8" style="padding:0;">
         {% if photos %}
-          {% if cover_photo and cover_photo.image %}
+            {% if cover_photo_url %}
           <!-- 封面大图 -->
           <div style="padding:6px 6px 0;">
-              <img src="{{ cover_photo.image.url }}"
+              <img src="{{ cover_photo_url }}"
                  alt="{{ cover_photo.caption|default:'封面照片' }}"
                  class="cover-photo"
                  onerror="this.style.display='none'">
@@ -570,22 +570,20 @@ body {
           </div>
           {% endif %}
           <!-- 其余照片九宫格 -->
-          {% if other_photos %}
+          {% if other_photo_items %}
           <div class="photo-grid">
-            {% for photo in other_photos %}
-            {% if photo.image %}
+            {% for photo in other_photo_items %}
             <div class="photo-item">
-              <img src="{{ photo.image.url }}"
-                   alt="{{ photo.caption|default:photo.get_photo_type_display }}"
+              <img src="{{ photo.url }}"
+                   alt="{{ photo.caption|default:photo.photo_type_display }}"
                    onerror="this.parentElement.querySelector('.photo-placeholder').style.display='flex';this.style.display='none';">
               <div class="photo-placeholder" style="display:none;">🖼</div>
               <div class="photo-caption">
-                【{{ photo.get_photo_type_display }}】
+                【{{ photo.photo_type_display }}】
                 {% if photo.caption %}{{ photo.caption }}{% endif %}
                 {% if photo.shot_at %}<br>{{ photo.shot_at|date:"Y-m-d H:i" }}{% endif %}
               </div>
             </div>
-            {% endif %}
             {% endfor %}
           </div>
           {% endif %}
@@ -604,18 +602,18 @@ body {
   <div class="sign-bar">
     <div class="sign-cell">
       <span class="sign-label">采 集 人</span>
-      <span class="sign-val">{{ heritage.collector.get_full_name|default:heritage.collector.username|default:"——" }}</span>
+      <span class="sign-val">{{ collector_display }}</span>
       <span class="sign-val" style="color:#777;font-size:7.5pt;">
         {{ heritage.collected_at|date:"Y年m月d日 H:i"|default:"——" }}
       </span>
     </div>
     <div class="sign-cell">
       <span class="sign-label">录 入 人</span>
-      <span class="sign-val">{{ heritage.input_by.get_full_name|default:heritage.input_by.username|default:"——" }}</span>
+      <span class="sign-val">{{ input_by_display }}</span>
     </div>
     <div class="sign-cell">
       <span class="sign-label">审 核 人</span>
-      <span class="sign-val">{{ heritage.reviewer.get_full_name|default:heritage.reviewer.username|default:"——" }}</span>
+      <span class="sign-val">{{ reviewer_display }}</span>
       <span class="sign-val" style="color:#777;font-size:7.5pt;">
         {% if heritage.reviewed_at %}{{ heritage.reviewed_at|date:"Y年m月d日" }}{% endif %}
       </span>
