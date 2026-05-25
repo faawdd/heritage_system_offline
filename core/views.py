@@ -86,6 +86,29 @@ def mobile_kml_entry_view(request):
     return redirect(f"{target_path}{separator}token={quote(token)}")
 
 
+def mobile_collect_entry_view(request):
+    token = (request.GET.get('token') or '').strip()
+    target_path = request.GET.get('next', '/mobile/collect/')
+    if not token:
+        return HttpResponseForbidden('缺少登录凭证')
+
+    payload = _decode_fastapi_token(token)
+    if not payload:
+        return HttpResponseForbidden('登录凭证无效或已过期')
+
+    user = User.objects.filter(id=payload.get('user_id'), is_active=True).first()
+    if not user:
+        return HttpResponseForbidden('用户不存在或已禁用')
+
+    is_admin = user.is_superuser or user.groups.filter(name='管理员').exists() or user.groups.filter(name='超级管理员').exists()
+    if not is_admin:
+        return HttpResponseForbidden('当前账号无权使用不可移动文物采集管理')
+
+    auth_login(request, user, backend='django.contrib.auth.backends.ModelBackend')
+    separator = '&' if '?' in target_path else '?'
+    return redirect(f"{target_path}{separator}token={quote(token)}")
+
+
 @staff_member_required
 def system_version_api(request):
     """获取系统版本号信息 API"""

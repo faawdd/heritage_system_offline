@@ -26,7 +26,7 @@ from core.views import (heritage_map_view, heritage_dashboard_view, heritage_sta
                         inspection_mobile_list_view, export_doc_view, kml_overlay_check_view,
                         ovkml_converter_view, heritage_classification_stats_api, heritage_detail_view,
                         heritage_boundary_export_view,
-                        mobile_kml_entry_view, app_showcase_view,
+                        mobile_kml_entry_view, mobile_collect_entry_view, app_showcase_view,
                         system_version_api, heritage_collect_view,
                         heritage_detail_preview_view,
                         export_immovable_heritage_docx_view)
@@ -54,6 +54,7 @@ urlpatterns = [
     path('mobile/add/', inspection_mobile_add_view, name='inspection_mobile_add'),  # 手机版添加巡查
     path('mobile/list/', inspection_mobile_list_view, name='inspection_mobile_list'),  # 手机版列表
     path('mobile/kml-entry/', mobile_kml_entry_view, name='mobile_kml_entry'),
+    path('mobile/collect-entry/', mobile_collect_entry_view, name='mobile_collect_entry'),
     path('api/heritage-stats/', heritage_stats_api, name='heritage_stats_api'),
     path('api/heritage-stats-by-category/', heritage_stats_by_category_api, name='heritage_stats_by_category_api'),
     path('api/heritage-classification-stats/', heritage_classification_stats_api, name='heritage_classification_stats_api'),
