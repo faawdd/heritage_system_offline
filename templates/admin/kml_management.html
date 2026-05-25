@@ -8,6 +8,7 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/@tmcw/togeojson@6.0.1/dist/togeojson.umd.js"></script>
     <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
+    <script src="https://unpkg.com/@turf/turf@7.2.0/turf.min.js"></script>
     <style>
         * { box-sizing: border-box; }
         html, body {
@@ -476,6 +477,30 @@
             background: #fff;
         }
 
+        .dot-overlap-point {
+            width: 12px;
+            height: 12px;
+            margin-right: 8px;
+            border-radius: 50%;
+            background: #7c3aed;
+            border: 2px solid rgba(255, 255, 255, 0.85);
+        }
+
+        .line-overlap {
+            width: 12px;
+            height: 3px;
+            margin-right: 8px;
+            background: #f59e0b;
+        }
+
+        .poly-overlap {
+            width: 12px;
+            height: 10px;
+            margin-right: 8px;
+            border: 1px solid #dc2626;
+            background: rgba(220, 38, 38, 0.28);
+        }
+
         body.panel-collapsed .floating-panel {
             width: 58px;
             background: rgba(255, 255, 255, 0.88);
@@ -695,6 +720,9 @@
         <div class="legend-row"><span class="line"></span>KML线</div>
         <div class="legend-row"><span class="poly"></span>KML面</div>
         <div class="legend-row"><span class="dot-conflict"></span>冲突点位</div>
+        <div class="legend-row"><span class="dot-overlap-point"></span>KML重叠点</div>
+        <div class="legend-row"><span class="line-overlap"></span>KML重叠线</div>
+        <div class="legend-row"><span class="poly-overlap"></span>KML重叠面</div>
     </div>
 
     <script>
@@ -711,6 +739,12 @@
         const returnPanoramaBtn = document.getElementById('returnPanoramaBtn');
         const tk = '424ac2af85564078477428c1a2b72018';
         const COLORS = ['#ff5a36', '#e6a23c', '#409eff', '#85ce61', '#f78989', '#b37feb', '#41d7d7'];
+        const OVERLAP_STYLES = {
+            point: { radius: 8, color: '#ffffff', weight: 2, fillColor: '#7c3aed', fillOpacity: 0.9 },
+            line: { color: '#f59e0b', weight: 6, opacity: 0.95 },
+            polygon: { color: '#dc2626', weight: 2, fillColor: '#ef4444', fillOpacity: 0.28 },
+        };
+        const POINT_OVERLAP_TOLERANCE_M = 1;
 
         function escapeHtml(text) {
             return String(text || '')
@@ -811,6 +845,7 @@
 
         const heritageLayer = L.layerGroup().addTo(map);
         const overlayLayer = L.featureGroup().addTo(map);
+        const overlapLayer = L.layerGroup().addTo(map);
         const conflictLayer = L.layerGroup().addTo(map);
         const kmlBadgeLayer = L.layerGroup().addTo(map);
         syncKmlBubbleVisible();
@@ -1084,6 +1119,366 @@
             return null;
         }
 
+        function cloneFeatureGeometry(geometry) {
+            return JSON.parse(JSON.stringify(geometry || null));
+        }
+
+        function getGeometryFamily(geometryType) {
+            if (!geometryType) {
+                return '';
+            }
+            if (geometryType === 'Point' || geometryType === 'MultiPoint') {
+                return 'point';
+            }
+            if (geometryType === 'LineString' || geometryType === 'MultiLineString') {
+                return 'line';
+            }
+            if (geometryType === 'Polygon' || geometryType === 'MultiPolygon') {
+                return 'polygon';
+            }
+            return '';
+        }
+
+        function getFeatureName(feature) {
+            if (!feature) {
+                return 'KML要素';
+            }
+            const props = feature.properties || {};
+            return props.name || props.__sourceFile || 'KML要素';
+        }
+
+        function getFeatureSourceLabel(feature) {
+            if (!feature || !feature.properties) {
+                return 'KML文件';
+            }
+            return feature.properties.__sourceFile || 'KML文件';
+        }
+
+        function splitFeatureToSimpleGeometries(feature) {
+            if (!feature || !feature.geometry) {
+                return [];
+            }
+            const geometry = feature.geometry;
+            const baseProps = Object.assign({}, feature.properties || {});
+            const featureUid = baseProps.__featureUid || '';
+            const featureName = getFeatureName(feature);
+            const family = getGeometryFamily(geometry.type);
+
+            function makeSimpleFeature(simpleGeometry, partIndex) {
+                return {
+                    type: 'Feature',
+                    geometry: cloneFeatureGeometry(simpleGeometry),
+                    properties: Object.assign({}, baseProps, {
+                        __featureUid: featureUid,
+                        __partIndex: partIndex,
+                        __geometryFamily: family,
+                        __displayName: featureName,
+                    }),
+                };
+            }
+
+            if (geometry.type === 'Point' || geometry.type === 'LineString' || geometry.type === 'Polygon') {
+                return [makeSimpleFeature(geometry, 0)];
+            }
+            if (geometry.type === 'MultiPoint') {
+                return (geometry.coordinates || []).map(function(coords, index) {
+                    return makeSimpleFeature({ type: 'Point', coordinates: coords }, index);
+                });
+            }
+            if (geometry.type === 'MultiLineString') {
+                return (geometry.coordinates || []).map(function(coords, index) {
+                    return makeSimpleFeature({ type: 'LineString', coordinates: coords }, index);
+                });
+            }
+            if (geometry.type === 'MultiPolygon') {
+                return (geometry.coordinates || []).map(function(coords, index) {
+                    return makeSimpleFeature({ type: 'Polygon', coordinates: coords }, index);
+                });
+            }
+            return [];
+        }
+
+        function roundCoordValue(value) {
+            return Math.round(Number(value || 0) * 1000000) / 1000000;
+        }
+
+        function normalizeCoordsForKey(coords) {
+            if (!Array.isArray(coords)) {
+                return roundCoordValue(coords);
+            }
+            return coords.map(normalizeCoordsForKey);
+        }
+
+        function buildOverlapGeometryKey(kind, geometry) {
+            return kind + ':' + JSON.stringify({
+                type: geometry.type,
+                coordinates: normalizeCoordsForKey(geometry.coordinates || []),
+            });
+        }
+
+        function addOverlapResult(store, kind, geometry, detail) {
+            if (!geometry || !geometry.type) {
+                return;
+            }
+            const key = buildOverlapGeometryKey(kind, geometry);
+            if (!store.has(key)) {
+                store.set(key, {
+                    kind: kind,
+                    geometry: cloneFeatureGeometry(geometry),
+                    details: [],
+                });
+            }
+            store.get(key).details.push(detail);
+        }
+
+        function buildOverlapDetail(featureA, featureB) {
+            return {
+                sourceA: getFeatureSourceLabel(featureA),
+                sourceB: getFeatureSourceLabel(featureB),
+                featureA: getFeatureName(featureA),
+                featureB: getFeatureName(featureB),
+            };
+        }
+
+        function collectPointOverlap(featureA, featureB) {
+            const coordsA = featureA.geometry.coordinates || [];
+            const coordsB = featureB.geometry.coordinates || [];
+            if (coordsA.length < 2 || coordsB.length < 2) {
+                return [];
+            }
+            const distance = getDistance(coordsA[1], coordsA[0], coordsB[1], coordsB[0]);
+            if (distance > POINT_OVERLAP_TOLERANCE_M) {
+                return [];
+            }
+            return [{ kind: 'point', geometry: { type: 'Point', coordinates: coordsA } }];
+        }
+
+        function collectLineOverlap(featureA, featureB) {
+            const results = [];
+            try {
+                const overlap = turf.lineOverlap(featureA, featureB, { tolerance: 0.000001 });
+                if (overlap && Array.isArray(overlap.features)) {
+                    overlap.features.forEach(function(item) {
+                        if (item && item.geometry) {
+                            results.push({ kind: 'line', geometry: item.geometry });
+                        }
+                    });
+                }
+            } catch (err) {
+                // ignore turf line overlap failures and continue with point intersections
+            }
+            try {
+                const intersections = turf.lineIntersect(featureA, featureB);
+                if (intersections && Array.isArray(intersections.features)) {
+                    intersections.features.forEach(function(item) {
+                        if (item && item.geometry) {
+                            results.push({ kind: 'point', geometry: item.geometry });
+                        }
+                    });
+                }
+            } catch (err) {
+                // ignore turf line intersection failures
+            }
+            return results;
+        }
+
+        function getTurfIntersection(featureA, featureB) {
+            try {
+                return turf.intersect(featureA, featureB);
+            } catch (firstError) {
+                try {
+                    return turf.intersect(turf.featureCollection([featureA, featureB]));
+                } catch (secondError) {
+                    return null;
+                }
+            }
+        }
+
+        function collectPolygonOverlap(featureA, featureB) {
+            const intersection = getTurfIntersection(featureA, featureB);
+            if (!intersection || !intersection.geometry) {
+                return [];
+            }
+            const family = getGeometryFamily(intersection.geometry.type);
+            if (!family) {
+                return [];
+            }
+            return [{ kind: family, geometry: intersection.geometry }];
+        }
+
+        function collectPointLineOverlap(pointFeature, lineFeature) {
+            try {
+                if (!turf.booleanPointOnLine(pointFeature, lineFeature, { ignoreEndVertices: false })) {
+                    return [];
+                }
+            } catch (err) {
+                return [];
+            }
+            return [{ kind: 'point', geometry: pointFeature.geometry }];
+        }
+
+        function collectPointPolygonOverlap(pointFeature, polygonFeature) {
+            try {
+                if (!turf.booleanPointInPolygon(pointFeature, polygonFeature, { ignoreBoundary: false })) {
+                    return [];
+                }
+            } catch (err) {
+                return [];
+            }
+            return [{ kind: 'point', geometry: pointFeature.geometry }];
+        }
+
+        function collectLinePolygonOverlap(lineFeature, polygonFeature) {
+            const results = [];
+
+            try {
+                const boundary = turf.polygonToLine(polygonFeature);
+                const split = turf.lineSplit(lineFeature, boundary);
+                if (split && Array.isArray(split.features) && split.features.length) {
+                    split.features.forEach(function(segment) {
+                        if (!segment || !segment.geometry || !Array.isArray(segment.geometry.coordinates) || segment.geometry.coordinates.length < 2) {
+                            return;
+                        }
+                        try {
+                            const start = turf.point(segment.geometry.coordinates[0]);
+                            const end = turf.point(segment.geometry.coordinates[segment.geometry.coordinates.length - 1]);
+                            const mid = turf.midpoint(start, end);
+                            if (turf.booleanPointInPolygon(mid, polygonFeature, { ignoreBoundary: false })) {
+                                results.push({ kind: 'line', geometry: segment.geometry });
+                            }
+                        } catch (err) {
+                            // ignore invalid segment midpoint calculations
+                        }
+                    });
+                }
+
+                const intersections = turf.lineIntersect(lineFeature, boundary);
+                if (intersections && Array.isArray(intersections.features)) {
+                    intersections.features.forEach(function(item) {
+                        if (item && item.geometry) {
+                            results.push({ kind: 'point', geometry: item.geometry });
+                        }
+                    });
+                }
+            } catch (err) {
+                // ignore line/polygon overlap failures
+            }
+
+            return results;
+        }
+
+        function collectFeatureOverlapResults(featureA, featureB) {
+            const familyA = featureA.properties && featureA.properties.__geometryFamily;
+            const familyB = featureB.properties && featureB.properties.__geometryFamily;
+
+            if (!familyA || !familyB) {
+                return [];
+            }
+            if (familyA === 'point' && familyB === 'point') {
+                return collectPointOverlap(featureA, featureB);
+            }
+            if (familyA === 'line' && familyB === 'line') {
+                return collectLineOverlap(featureA, featureB);
+            }
+            if (familyA === 'polygon' && familyB === 'polygon') {
+                return collectPolygonOverlap(featureA, featureB);
+            }
+            if (familyA === 'point' && familyB === 'line') {
+                return collectPointLineOverlap(featureA, featureB);
+            }
+            if (familyA === 'line' && familyB === 'point') {
+                return collectPointLineOverlap(featureB, featureA);
+            }
+            if (familyA === 'point' && familyB === 'polygon') {
+                return collectPointPolygonOverlap(featureA, featureB);
+            }
+            if (familyA === 'polygon' && familyB === 'point') {
+                return collectPointPolygonOverlap(featureB, featureA);
+            }
+            if (familyA === 'line' && familyB === 'polygon') {
+                return collectLinePolygonOverlap(featureA, featureB);
+            }
+            if (familyA === 'polygon' && familyB === 'line') {
+                return collectLinePolygonOverlap(featureB, featureA);
+            }
+            return [];
+        }
+
+        function renderOverlapLayer(features) {
+            overlapLayer.clearLayers();
+            if (typeof turf === 'undefined') {
+                return { total: 0, point: 0, line: 0, polygon: 0 };
+            }
+
+            const simpleFeatures = [];
+            features.forEach(function(feature) {
+                splitFeatureToSimpleGeometries(feature).forEach(function(item) {
+                    const family = getGeometryFamily(item.geometry && item.geometry.type);
+                    if (family) {
+                        simpleFeatures.push(item);
+                    }
+                });
+            });
+
+            const overlapStore = new Map();
+
+            for (let i = 0; i < simpleFeatures.length; i++) {
+                const featureA = simpleFeatures[i];
+                for (let j = i + 1; j < simpleFeatures.length; j++) {
+                    const featureB = simpleFeatures[j];
+                    if ((featureA.properties && featureA.properties.__featureUid) === (featureB.properties && featureB.properties.__featureUid)) {
+                        continue;
+                    }
+
+                    const detail = buildOverlapDetail(featureA, featureB);
+                    const overlapResults = collectFeatureOverlapResults(featureA, featureB);
+
+                    overlapResults.forEach(function(item) {
+                        addOverlapResult(overlapStore, item.kind, item.geometry, detail);
+                    });
+                }
+            }
+
+            const counts = { total: 0, point: 0, line: 0, polygon: 0 };
+            overlapStore.forEach(function(entry) {
+                counts.total += 1;
+                counts[entry.kind] += 1;
+                const detailsHtml = entry.details.slice(0, 6).map(function(detail) {
+                    return escapeHtml(detail.sourceA) + ' / ' + escapeHtml(detail.featureA)
+                        + '<br>'
+                        + escapeHtml(detail.sourceB) + ' / ' + escapeHtml(detail.featureB);
+                }).join('<hr style="border:none; border-top:1px solid #e5e7eb; margin:6px 0;">');
+                const popupHtml = '<strong>KML重叠提示</strong><br>'
+                    + '重叠类型: ' + (entry.kind === 'point' ? '点位重叠' : entry.kind === 'line' ? '线重叠' : '面重叠')
+                    + '<br>关联组数: ' + entry.details.length
+                    + '<br><br>' + detailsHtml;
+
+                if (entry.kind === 'point') {
+                    const coords = entry.geometry.coordinates || [];
+                    if (coords.length >= 2) {
+                        L.circleMarker([coords[1], coords[0]], OVERLAP_STYLES.point)
+                            .bindPopup(popupHtml)
+                            .addTo(overlapLayer);
+                    }
+                    return;
+                }
+
+                L.geoJSON({ type: 'Feature', geometry: entry.geometry, properties: {} }, {
+                    style: function() {
+                        return OVERLAP_STYLES[entry.kind];
+                    },
+                    pointToLayer: function(itemFeature, latlng) {
+                        return L.circleMarker(latlng, OVERLAP_STYLES.point);
+                    },
+                    onEachFeature: function(itemFeature, layer) {
+                        layer.bindPopup(popupHtml);
+                    },
+                }).addTo(overlapLayer);
+            });
+
+            return counts;
+        }
+
         function renderConflictPoints(features, threshold) {
             conflictLayer.clearLayers();
             const conflictMap = new Map();
@@ -1336,6 +1731,7 @@
 
         async function renderSelectedKmlLayers() {
             overlayLayer.clearLayers();
+            overlapLayer.clearLayers();
             conflictLayer.clearLayers();
             kmlBadgeLayer.clearLayers();
             setReturnPanoramaVisible(false);
@@ -1364,6 +1760,16 @@
                     const buffer = await resp.arrayBuffer();
                     const geojson = normalizeClosedLines(await parseKmlFromBuffer(fileName, buffer));
                     if (Array.isArray(geojson.features)) {
+                        geojson.features = geojson.features.map(function(feature, featureIndex) {
+                            return Object.assign({}, feature, {
+                                properties: Object.assign({}, feature.properties || {}, {
+                                    __sourceFile: fileName,
+                                    __sourceColor: color,
+                                    __sourceIndex: i,
+                                    __featureUid: fileName + ':' + i + ':' + featureIndex,
+                                }),
+                            });
+                        });
                         allFeatures.push(...geojson.features);
                     }
                     const layer = L.geoJSON(geojson, {
@@ -1402,8 +1808,9 @@
                     // ignore invalid bounds
                 }
             }
+            const overlapCounts = renderOverlapLayer(allFeatures);
             const conflictCount = renderConflictPoints(allFeatures, threshold);
-            mapStatusEl.textContent = '已叠加 ' + renderedCount + ' 个 KML 文件，冲突点位 ' + conflictCount + ' 个，阈值 ' + threshold + 'm。';
+            mapStatusEl.textContent = '已叠加 ' + renderedCount + ' 个 KML 文件，文物冲突点位 ' + conflictCount + ' 个，KML重叠 ' + overlapCounts.total + ' 处（点 ' + overlapCounts.point + ' / 线 ' + overlapCounts.line + ' / 面 ' + overlapCounts.polygon + '），阈值 ' + threshold + 'm。';
         }
 
         if (checkAll) {
