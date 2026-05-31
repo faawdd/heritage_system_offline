@@ -1176,6 +1176,7 @@
             line: { color: '#f59e0b', weight: 6, opacity: 0.95 },
             polygon: { color: '#dc2626', weight: 2, fillColor: '#ef4444', fillOpacity: 0.28 },
         };
+        const OVERLAP_POLYGON_PATTERN_ID = 'kmlOverlapPolygonHatchPattern';
         const POINT_OVERLAP_TOLERANCE_M = 1;
         const MAX_CONCURRENT_LOADS = 4;
         const kmlGeoJsonCache = new Map();
@@ -1635,6 +1636,68 @@
         let measurePoints = [];
         syncKmlBubbleVisible();
         const siteData = JSON.parse(document.getElementById('sites-data').textContent || '[]');
+
+        function ensureOverlapPolygonPattern() {
+            const overlayPane = map && map.getPanes ? map.getPanes().overlayPane : null;
+            if (!overlayPane) {
+                return false;
+            }
+            const svg = overlayPane.querySelector('svg');
+            if (!svg) {
+                return false;
+            }
+
+            const ns = 'http://www.w3.org/2000/svg';
+            let defs = svg.querySelector('defs');
+            if (!defs) {
+                defs = document.createElementNS(ns, 'defs');
+                svg.insertBefore(defs, svg.firstChild || null);
+            }
+
+            if (defs.querySelector('#' + OVERLAP_POLYGON_PATTERN_ID)) {
+                return true;
+            }
+
+            const pattern = document.createElementNS(ns, 'pattern');
+            pattern.setAttribute('id', OVERLAP_POLYGON_PATTERN_ID);
+            pattern.setAttribute('patternUnits', 'userSpaceOnUse');
+            pattern.setAttribute('width', '10');
+            pattern.setAttribute('height', '10');
+            pattern.setAttribute('patternTransform', 'rotate(45)');
+
+            const bg = document.createElementNS(ns, 'rect');
+            bg.setAttribute('x', '0');
+            bg.setAttribute('y', '0');
+            bg.setAttribute('width', '10');
+            bg.setAttribute('height', '10');
+            bg.setAttribute('fill', 'rgba(239, 68, 68, 0.20)');
+
+            const line = document.createElementNS(ns, 'line');
+            line.setAttribute('x1', '0');
+            line.setAttribute('y1', '0');
+            line.setAttribute('x2', '0');
+            line.setAttribute('y2', '10');
+            line.setAttribute('stroke', 'rgba(185, 28, 28, 0.62)');
+            line.setAttribute('stroke-width', '3');
+
+            pattern.appendChild(bg);
+            pattern.appendChild(line);
+            defs.appendChild(pattern);
+            return true;
+        }
+
+        function applyOverlapPolygonPattern(layer) {
+            if (!layer) {
+                return;
+            }
+            if (!ensureOverlapPolygonPattern()) {
+                return;
+            }
+            if (layer._path) {
+                layer._path.setAttribute('fill', 'url(#' + OVERLAP_POLYGON_PATTERN_ID + ')');
+                layer._path.setAttribute('fill-opacity', '1');
+            }
+        }
 
         function formatMeasureDistance(distanceM) {
             if (!isFinite(distanceM) || distanceM <= 0) {
@@ -2558,6 +2621,12 @@
                     onEachFeature: function(itemFeature, layer) {
                         layer._overlapKey = overlapKey;
                         layer.bindPopup(popupHtml);
+                        if (entry.kind === 'polygon') {
+                            layer.on('add', function() {
+                                applyOverlapPolygonPattern(layer);
+                            });
+                            applyOverlapPolygonPattern(layer);
+                        }
                     },
                 }).addTo(overlapLayer);
                 overlapGeoLayer._overlapKey = overlapKey;
