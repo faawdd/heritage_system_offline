@@ -818,7 +818,14 @@
             height: 10px;
             margin-right: 8px;
             border: 1px solid #dc2626;
-            background: rgba(220, 38, 38, 0.28);
+            background-color: rgba(239, 68, 68, 0.2);
+            background-image: repeating-linear-gradient(
+                45deg,
+                rgba(185, 28, 28, 0.62) 0,
+                rgba(185, 28, 28, 0.62) 2px,
+                transparent 2px,
+                transparent 6px
+            );
         }
 
         body.panel-collapsed .floating-panel {
@@ -1131,7 +1138,7 @@
         <div class="legend-row"><span class="dot-conflict"></span>冲突点位</div>
         <div class="legend-row"><span class="dot-overlap-point"></span>KML重叠点</div>
         <div class="legend-row"><span class="line-overlap"></span>KML重叠线</div>
-        <div class="legend-row"><span class="poly-overlap"></span>KML重叠面</div>
+        <div class="legend-row"><span class="poly-overlap"></span>KML重叠面（斜线）</div>
     </div>
 
     <aside id="overlapPopup" class="overlap-popup" aria-live="polite">
