@@ -365,6 +365,10 @@
             display: flex;
         }
 
+        .overlap-popup.is-collapsed .overlap-popup-body {
+            display: none;
+        }
+
         .overlap-popup-head {
             display: flex;
             align-items: center;
@@ -541,6 +545,77 @@
             margin: 0;
             accent-color: #2563eb;
             cursor: pointer;
+        }
+
+        .measure-control {
+            position: fixed;
+            left: 50%;
+            bottom: 14px;
+            transform: translateX(-50%);
+            z-index: 722;
+            width: min(420px, calc(100vw - 28px));
+            background: rgba(255, 255, 255, 0.96);
+            border: 1px solid #dbe4ef;
+            border-radius: 12px;
+            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.18);
+            padding: 8px 10px;
+            backdrop-filter: blur(6px);
+        }
+
+        .measure-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .measure-btn {
+            border: none;
+            border-radius: 8px;
+            padding: 6px 10px;
+            font-size: 12px;
+            line-height: 1.2;
+            color: #fff;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .measure-btn-primary { background: #2563eb; }
+        .measure-btn-primary:hover { background: #1d4ed8; }
+        .measure-btn-danger { background: #ef4444; }
+        .measure-btn-danger:hover { background: #dc2626; }
+
+        .measure-status {
+            min-width: 0;
+            flex: 1;
+            font-size: 12px;
+            color: #1e293b;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .measure-scale-wrap {
+            margin-top: 8px;
+            padding-top: 7px;
+            border-top: 1px dashed #dbe4ef;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .measure-scale-bar {
+            height: 6px;
+            min-width: 24px;
+            border: 2px solid #1e293b;
+            border-top: none;
+            border-radius: 0 0 2px 2px;
+        }
+
+        .measure-scale-label {
+            font-size: 11px;
+            color: #334155;
+            white-space: nowrap;
         }
 
         .panorama-back-btn {
@@ -731,8 +806,11 @@
         }
 
         body.panel-collapsed .floating-panel {
-            width: 58px;
-            background: rgba(255, 255, 255, 0.88);
+            width: 56px;
+            height: 56px;
+            bottom: auto;
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 12px;
         }
 
         body.panel-collapsed .panel-title,
@@ -742,15 +820,21 @@
 
         body.panel-collapsed .panel-head {
             justify-content: center;
-            padding: 10px 0;
+            padding: 6px;
             border-bottom: none;
         }
 
         body.panel-collapsed .panel-toggle {
-            writing-mode: vertical-rl;
-            text-orientation: mixed;
-            padding: 8px 6px;
-            font-size: 11px;
+            width: 44px;
+            height: 44px;
+            border-radius: 9px;
+            padding: 0;
+            font-size: 19px;
+            font-weight: 700;
+            line-height: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
         @media (max-width: 860px) {
@@ -772,6 +856,8 @@
                 left: 10px;
                 right: auto;
                 width: 56px;
+                height: 56px;
+                bottom: auto;
             }
 
             .legend {
@@ -790,6 +876,56 @@
                 right: 10px;
             }
 
+            .measure-control {
+                bottom: 10px;
+                width: calc(100vw - 20px);
+            }
+
+        }
+
+        @media (max-width: 860px) and (orientation: portrait) {
+            .measure-control {
+                left: 8px;
+                right: 8px;
+                transform: none;
+                width: auto;
+                bottom: 8px;
+                border-radius: 10px;
+                padding: 6px 8px;
+            }
+
+            .measure-toolbar {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 6px;
+                align-items: center;
+            }
+
+            .measure-btn {
+                padding: 5px 8px;
+                font-size: 11px;
+                border-radius: 7px;
+            }
+
+            .measure-status {
+                grid-column: 1 / -1;
+                font-size: 11px;
+                min-height: 16px;
+            }
+
+            .measure-scale-wrap {
+                margin-top: 6px;
+                padding-top: 6px;
+                gap: 6px;
+            }
+
+            .measure-scale-bar {
+                height: 5px;
+            }
+
+            .measure-scale-label {
+                font-size: 10px;
+            }
         }
     </style>
 </head>
@@ -959,6 +1095,18 @@
         <button type="button" id="returnPanoramaBtn" class="panorama-back-btn" style="display:none;">返回全景</button>
     </div>
 
+    <div class="measure-control" id="measureControl">
+        <div class="measure-toolbar">
+            <button type="button" class="measure-btn measure-btn-primary" id="measureToggleBtn">开始测距</button>
+            <button type="button" class="measure-btn measure-btn-danger" id="measureClearBtn">清空</button>
+            <div class="measure-status" id="measureStatus">测距未开始</div>
+        </div>
+        <div class="measure-scale-wrap">
+            <div class="measure-scale-bar" id="measureScaleBar"></div>
+            <div class="measure-scale-label" id="measureScaleLabel">比例尺 --</div>
+        </div>
+    </div>
+
     <div class="legend">
         <div class="legend-row"><span class="dot" style="background:#2a9d8f;"></span>文物点</div>
         <div class="legend-row"><span class="dot" style="background:#ff5a36;"></span>KML点</div>
@@ -997,6 +1145,11 @@
         const overlapPopupBodyEl = document.getElementById('overlapPopupBody');
         const overlapPopupCountEl = document.getElementById('overlapPopupCount');
         const overlapPopupCloseEl = document.getElementById('overlapPopupClose');
+        const measureToggleBtn = document.getElementById('measureToggleBtn');
+        const measureClearBtn = document.getElementById('measureClearBtn');
+        const measureStatusEl = document.getElementById('measureStatus');
+        const measureScaleBarEl = document.getElementById('measureScaleBar');
+        const measureScaleLabelEl = document.getElementById('measureScaleLabel');
         const loadingOverlayEl = document.getElementById('loadingOverlay');
         const loadingTextEl = document.getElementById('loadingText');
         const loadingDetailEl = document.getElementById('loadingDetail');
@@ -1015,6 +1168,7 @@
         let currentOverlapEntries = [];
         let currentOverlapGroups = [];
         let currentOverlapView = 'group';
+        let overlapPopupCollapsed = false;
         let renderTaskId = 0;
 
         function setLoadingState(visible, text, detail) {
@@ -1045,6 +1199,8 @@
                 return;
             }
             overlapPopupEl.classList.remove('is-visible');
+            overlapPopupEl.classList.remove('is-collapsed');
+            overlapPopupCollapsed = false;
             currentOverlapEntries = [];
             currentOverlapGroups = [];
             currentOverlapView = 'group';
@@ -1053,6 +1209,20 @@
             }
             if (overlapPopupCountEl) {
                 overlapPopupCountEl.textContent = '0 条';
+            }
+            if (overlapPopupCloseEl) {
+                overlapPopupCloseEl.textContent = '收起';
+            }
+        }
+
+        function setOverlapPopupCollapsed(collapsed) {
+            if (!overlapPopupEl) {
+                return;
+            }
+            overlapPopupCollapsed = Boolean(collapsed);
+            overlapPopupEl.classList.toggle('is-collapsed', overlapPopupCollapsed);
+            if (overlapPopupCloseEl) {
+                overlapPopupCloseEl.textContent = overlapPopupCollapsed ? '展开' : '收起';
             }
         }
 
@@ -1231,7 +1401,23 @@
 
             overlapPopupCountEl.textContent = '涉及 ' + currentOverlapGroups.length + ' 组 KML 文件重叠';
             renderOverlapGroupView();
+            setOverlapPopupCollapsed(false);
             overlapPopupEl.classList.add('is-visible');
+        }
+
+        function updatePanelToggleButton(collapsed) {
+            if (!panelToggle) {
+                return;
+            }
+            if (collapsed) {
+                panelToggle.textContent = '☰';
+                panelToggle.title = '展开菜单';
+                panelToggle.setAttribute('aria-label', '展开菜单');
+                return;
+            }
+            panelToggle.textContent = '收起菜单';
+            panelToggle.title = '收起菜单';
+            panelToggle.setAttribute('aria-label', '收起菜单');
         }
 
         function debounce(fn, wait) {
@@ -1325,7 +1511,10 @@
 
         if (overlapPopupCloseEl) {
             overlapPopupCloseEl.addEventListener('click', function() {
-                hideOverlapPopup();
+                if (!overlapPopupEl || !overlapPopupEl.classList.contains('is-visible')) {
+                    return;
+                }
+                setOverlapPopupCollapsed(!overlapPopupCollapsed);
             });
         }
 
@@ -1359,9 +1548,10 @@
         }
 
         if (panelToggle) {
+            updatePanelToggleButton(document.body.classList.contains('panel-collapsed'));
             panelToggle.addEventListener('click', function() {
                 const collapsed = document.body.classList.toggle('panel-collapsed');
-                panelToggle.textContent = collapsed ? '展开菜单' : '收起菜单';
+                updatePanelToggleButton(collapsed);
                 setTimeout(function() {
                     map.invalidateSize();
                 }, 230);
@@ -1424,8 +1614,171 @@
         const overlapLayer = L.layerGroup().addTo(map);
         const conflictLayer = L.layerGroup().addTo(map);
         const kmlBadgeLayer = L.layerGroup().addTo(map);
+        const measureLayer = L.layerGroup().addTo(map);
+        let isMeasureMode = false;
+        let measurePoints = [];
         syncKmlBubbleVisible();
         const siteData = JSON.parse(document.getElementById('sites-data').textContent || '[]');
+
+        function formatMeasureDistance(distanceM) {
+            if (!isFinite(distanceM) || distanceM <= 0) {
+                return '0 m';
+            }
+            if (distanceM >= 1000) {
+                return (distanceM / 1000).toFixed(3) + ' km';
+            }
+            return Math.round(distanceM) + ' m';
+        }
+
+        function calcMeasureTotalDistance(points) {
+            if (!Array.isArray(points) || points.length < 2) {
+                return 0;
+            }
+            let total = 0;
+            for (let i = 0; i < points.length - 1; i++) {
+                total += getDistance(points[i].lat, points[i].lng, points[i + 1].lat, points[i + 1].lng);
+            }
+            return total;
+        }
+
+        function refreshMeasureLayer() {
+            measureLayer.clearLayers();
+            if (!measurePoints.length) {
+                return;
+            }
+
+            measurePoints.forEach(function(point, index) {
+                L.circleMarker([point.lat, point.lng], {
+                    radius: 5,
+                    color: '#1d4ed8',
+                    weight: 2,
+                    fillColor: '#ffffff',
+                    fillOpacity: 0.95,
+                })
+                    .bindTooltip('点 ' + (index + 1), { permanent: false, direction: 'top' })
+                    .addTo(measureLayer);
+            });
+
+            if (measurePoints.length > 1) {
+                L.polyline(measurePoints.map(function(point) { return [point.lat, point.lng]; }), {
+                    color: '#2563eb',
+                    weight: 3,
+                    opacity: 0.92,
+                    dashArray: '8 6',
+                }).addTo(measureLayer);
+            }
+        }
+
+        function setMeasureStatusText(text) {
+            if (measureStatusEl) {
+                measureStatusEl.textContent = text;
+            }
+        }
+
+        function updateMeasureToggleButton() {
+            if (!measureToggleBtn) {
+                return;
+            }
+            measureToggleBtn.textContent = isMeasureMode ? '结束测距' : '开始测距';
+        }
+
+        function setMeasureMode(active) {
+            isMeasureMode = Boolean(active);
+            updateMeasureToggleButton();
+            if (map && map.getContainer) {
+                map.getContainer().style.cursor = isMeasureMode ? 'crosshair' : '';
+            }
+            if (map && map.doubleClickZoom) {
+                if (isMeasureMode) {
+                    map.doubleClickZoom.disable();
+                } else {
+                    map.doubleClickZoom.enable();
+                }
+            }
+
+            const totalDistance = calcMeasureTotalDistance(measurePoints);
+            if (!measurePoints.length) {
+                setMeasureStatusText(isMeasureMode ? '测距已开启：单击地图添加点' : '测距未开始');
+                return;
+            }
+            if (isMeasureMode) {
+                setMeasureStatusText('已添加 ' + measurePoints.length + ' 点，累计 ' + formatMeasureDistance(totalDistance));
+                return;
+            }
+            setMeasureStatusText('测距完成：' + formatMeasureDistance(totalDistance));
+        }
+
+        function clearMeasureResult() {
+            measurePoints = [];
+            measureLayer.clearLayers();
+            if (isMeasureMode) {
+                setMeasureStatusText('测距已开启：单击地图添加点');
+                return;
+            }
+            setMeasureStatusText('测距未开始');
+        }
+
+        function getNiceScaleDistance(maxMeters) {
+            if (!isFinite(maxMeters) || maxMeters <= 0) {
+                return 1;
+            }
+            const pow10 = Math.pow(10, Math.floor(Math.log10(maxMeters)));
+            const factors = [1, 2, 5];
+            let best = pow10;
+            factors.forEach(function(factor) {
+                const candidate = factor * pow10;
+                if (candidate <= maxMeters) {
+                    best = candidate;
+                }
+            });
+            return best;
+        }
+
+        function updateMeasureScale() {
+            if (!measureScaleBarEl || !measureScaleLabelEl || !map) {
+                return;
+            }
+            const center = map.getCenter();
+            const zoom = map.getZoom();
+            const metersPerPixel = 156543.03392 * Math.cos(center.lat * Math.PI / 180) / Math.pow(2, zoom);
+            const maxBarPx = 112;
+            const maxMeters = metersPerPixel * maxBarPx;
+            const distance = getNiceScaleDistance(maxMeters);
+            const barPx = Math.max(24, Math.round(distance / metersPerPixel));
+
+            measureScaleBarEl.style.width = barPx + 'px';
+            measureScaleLabelEl.textContent = '比例尺 ' + formatMeasureDistance(distance) + ' | 缩放 ' + zoom;
+        }
+
+        if (measureToggleBtn) {
+            measureToggleBtn.addEventListener('click', function() {
+                setMeasureMode(!isMeasureMode);
+            });
+        }
+
+        if (measureClearBtn) {
+            measureClearBtn.addEventListener('click', function() {
+                clearMeasureResult();
+            });
+        }
+
+        map.on('click', function(event) {
+            if (!isMeasureMode) {
+                return;
+            }
+            measurePoints.push({ lat: event.latlng.lat, lng: event.latlng.lng });
+            refreshMeasureLayer();
+            const totalDistance = calcMeasureTotalDistance(measurePoints);
+            if (measurePoints.length === 1) {
+                setMeasureStatusText('已设置起点，继续点击添加路径点');
+                return;
+            }
+            setMeasureStatusText('已添加 ' + measurePoints.length + ' 点，累计 ' + formatMeasureDistance(totalDistance));
+        });
+
+        map.on('zoomend moveend', updateMeasureScale);
+        updateMeasureToggleButton();
+        updateMeasureScale();
 
         function fitToPanorama() {
             if (overlayLayer.getLayers().length > 0) {
@@ -2679,10 +3032,12 @@
 
         window.addEventListener('resize', function() {
             map.invalidateSize();
+            updateMeasureScale();
         });
 
         window.addEventListener('load', function() {
             map.invalidateSize();
+            updateMeasureScale();
             if (heritageLayer.getLayers().length > 0) {
                 try {
                     map.fitBounds(heritageLayer.getBounds().pad(0.2));
