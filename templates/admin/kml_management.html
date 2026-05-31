@@ -26,6 +26,14 @@
             height: 100%;
         }
 
+        #map.is-measure-mode .leaflet-overlay-pane,
+        #map.is-measure-mode .leaflet-marker-pane,
+        #map.is-measure-mode .leaflet-popup-pane,
+        #map.is-measure-mode .leaflet-tooltip-pane,
+        #map.is-measure-mode .leaflet-shadow-pane {
+            pointer-events: none;
+        }
+
         .map-status-pill {
             position: fixed;
             top: 14px;
@@ -1686,7 +1694,9 @@
             isMeasureMode = Boolean(active);
             updateMeasureToggleButton();
             if (map && map.getContainer) {
-                map.getContainer().style.cursor = isMeasureMode ? 'crosshair' : '';
+                const mapContainer = map.getContainer();
+                mapContainer.style.cursor = isMeasureMode ? 'crosshair' : '';
+                mapContainer.classList.toggle('is-measure-mode', isMeasureMode);
             }
             if (map && map.doubleClickZoom) {
                 if (isMeasureMode) {
@@ -1694,6 +1704,10 @@
                 } else {
                     map.doubleClickZoom.enable();
                 }
+            }
+
+            if (isMeasureMode && map) {
+                map.closePopup();
             }
 
             const totalDistance = calcMeasureTotalDistance(measurePoints);
