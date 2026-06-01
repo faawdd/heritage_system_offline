@@ -334,6 +334,12 @@ def _is_closed_ring_points(points):
     return _coord_points_equal(points[0], points[-1])
 
 
+def _is_nearly_closed_ring_points(points, tolerance=1e-5):
+    if not isinstance(points, list) or len(points) < 3:
+        return False
+    return _coord_points_equal(points[0], points[-1], tolerance=tolerance)
+
+
 def _extract_polygon_rings(polygon_node):
     rings = []
 
@@ -381,11 +387,14 @@ def _extract_geometry_features(geom_node, feature_name, source_name):
         if not points:
             return features
 
-        if _is_closed_ring_points(points):
+        if _is_closed_ring_points(points) or _is_nearly_closed_ring_points(points):
+            polygon_ring = _ensure_closed_ring(points)
+            if not polygon_ring:
+                return features
             features.append({
                 'name': feature_name,
                 'geometry_type': 'Polygon',
-                'coordinates': [points],
+                'coordinates': [polygon_ring],
                 'source': source_name,
             })
         else:
@@ -459,15 +468,22 @@ def _extract_features_from_upload(filename, content_bytes):
     features = []
 
     if lower_name.endswith('.kmz') or lower_name.endswith('.ovkmz'):
-        with zipfile.ZipFile(io.BytesIO(content_bytes), 'r') as zf:
-            for member in zf.namelist():
-                if not member.lower().endswith('.kml'):
-                    continue
-                text = zf.read(member).decode('utf-8', errors='ignore')
-                features.extend(_extract_features_from_kml_xml(text, f"{filename}:{member}"))
+        try:
+            with zipfile.ZipFile(io.BytesIO(content_bytes), 'r') as zf:
+                for member in zf.namelist():
+                    if not member.lower().endswith('.kml'):
+                        continue
+                    try:
+                        member_bytes = zf.read(member)
+                    except Exception:
+                        # 单个成员损坏时跳过，避免整包失败。
+                        continue
+                    features.extend(_extract_features_from_kml_xml(member_bytes, f"{filename}:{member}"))
+        except (zipfile.BadZipFile, RuntimeError, OSError):
+            # 兼容部分浏览器/端将 KML 误命名为 KMZ 的情况，回退按 KML 文本解析。
+            features.extend(_extract_features_from_kml_xml(content_bytes, filename))
     else:
-        text = content_bytes.decode('utf-8', errors='ignore')
-        features.extend(_extract_features_from_kml_xml(text, filename))
+        features.extend(_extract_features_from_kml_xml(content_bytes, filename))
 
     return features
 
@@ -760,7 +776,8 @@ def _reanalyze_kml_records(records, threshold):
         try:
             with record.source_file.open('rb') as source:
                 content = source.read()
-            features = _extract_features_from_upload(record.title, content)
+            file_name_for_parse = record.source_file.name or record.title or ''
+            features = _extract_features_from_upload(file_name_for_parse, content)
             conflicts = _analyze_conflicts(features, threshold)
         except Exception:
             failed_count += 1
