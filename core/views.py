@@ -311,6 +311,124 @@ def _find_first_coordinates_text(node):
     return ''
 
 
+def _coord_points_equal(point_a, point_b, tolerance=1e-7):
+    if not point_a or not point_b or len(point_a) < 2 or len(point_b) < 2:
+        return False
+    return abs(point_a[0] - point_b[0]) <= tolerance and abs(point_a[1] - point_b[1]) <= tolerance
+
+
+def _ensure_closed_ring(points):
+    ring_points = list(points or [])
+    if len(ring_points) < 3:
+        return []
+    if not _coord_points_equal(ring_points[0], ring_points[-1]):
+        ring_points.append(ring_points[0])
+    if len(ring_points) < 4:
+        return []
+    return ring_points
+
+
+def _is_closed_ring_points(points):
+    if not isinstance(points, list) or len(points) < 4:
+        return False
+    return _coord_points_equal(points[0], points[-1])
+
+
+def _extract_polygon_rings(polygon_node):
+    rings = []
+
+    # 优先按 outer/innerBoundaryIs 提取，保证孔洞顺序正确。
+    for boundary_tag in ('outerBoundaryIs', 'innerBoundaryIs'):
+        for boundary in polygon_node:
+            if _local_tag_name(boundary.tag) != boundary_tag:
+                continue
+            for ring in boundary:
+                if _local_tag_name(ring.tag) != 'LinearRing':
+                    continue
+                ring_points = _ensure_closed_ring(_parse_coordinate_text(_find_first_coordinates_text(ring)))
+                if ring_points:
+                    rings.append(ring_points)
+
+    if rings:
+        return rings
+
+    for ring in polygon_node.iter():
+        if _local_tag_name(ring.tag) != 'LinearRing':
+            continue
+        ring_points = _ensure_closed_ring(_parse_coordinate_text(_find_first_coordinates_text(ring)))
+        if ring_points:
+            rings.append(ring_points)
+    return rings
+
+
+def _extract_geometry_features(geom_node, feature_name, source_name):
+    geom_type = _local_tag_name(geom_node.tag)
+    features = []
+
+    if geom_type == 'Point':
+        points = _parse_coordinate_text(_find_first_coordinates_text(geom_node))
+        if points:
+            features.append({
+                'name': feature_name,
+                'geometry_type': 'Point',
+                'coordinates': points[0],
+                'source': source_name,
+            })
+        return features
+
+    if geom_type == 'LineString':
+        points = _parse_coordinate_text(_find_first_coordinates_text(geom_node))
+        if not points:
+            return features
+
+        if _is_closed_ring_points(points):
+            features.append({
+                'name': feature_name,
+                'geometry_type': 'Polygon',
+                'coordinates': [points],
+                'source': source_name,
+            })
+        else:
+            features.append({
+                'name': feature_name,
+                'geometry_type': 'LineString',
+                'coordinates': points,
+                'source': source_name,
+            })
+        return features
+
+    if geom_type == 'LinearRing':
+        ring_points = _ensure_closed_ring(_parse_coordinate_text(_find_first_coordinates_text(geom_node)))
+        if ring_points:
+            features.append({
+                'name': feature_name,
+                'geometry_type': 'Polygon',
+                'coordinates': [ring_points],
+                'source': source_name,
+            })
+        return features
+
+    if geom_type == 'Polygon':
+        rings = _extract_polygon_rings(geom_node)
+        if rings:
+            features.append({
+                'name': feature_name,
+                'geometry_type': 'Polygon',
+                'coordinates': rings,
+                'source': source_name,
+            })
+        return features
+
+    if geom_type in {'MultiGeometry', 'GeometryCollection'}:
+        for child_geom in geom_node:
+            child_type = _local_tag_name(child_geom.tag)
+            if child_type in {'Point', 'LineString', 'LinearRing', 'Polygon', 'MultiGeometry', 'GeometryCollection'}:
+                features.extend(_extract_geometry_features(child_geom, feature_name, source_name))
+        return features
+
+    return features
+
+
 def _extract_features_from_kml_xml(xml_text, source_name):
     try:
         root = ET.fromstring(xml_text)
@@ -328,90 +446,10 @@ def _extract_features_from_kml_xml(xml_text, source_name):
                 feature_name = child.text.strip()
                 break
 
-        for geom in placemark.iter():
-            geom_type = _local_tag_name(geom.tag)
-            if geom_type not in {'Point', 'LineString', 'Polygon', 'MultiGeometry'}:
-                continue
-
-            if geom_type == 'Point':
-                points = _parse_coordinate_text(_find_first_coordinates_text(geom))
-                if points:
-                    features.append({
-                        'name': feature_name,
-                        'geometry_type': 'Point',
-                        'coordinates': points[0],
-                        'source': source_name,
-                    })
-
-            elif geom_type == 'LineString':
-                points = _parse_coordinate_text(_find_first_coordinates_text(geom))
-                if points:
-                    features.append({
-                        'name': feature_name,
-                        'geometry_type': 'LineString',
-                        'coordinates': points,
-                        'source': source_name,
-                    })
-
-            elif geom_type == 'Polygon':
-                rings = []
-                for ring in geom.iter():
-                    if _local_tag_name(ring.tag) != 'LinearRing':
-                        continue
-                    ring_points = _parse_coordinate_text(_find_first_coordinates_text(ring))
-                    if ring_points:
-                        rings.append(ring_points)
-                if rings:
-                    features.append({
-                        'name': feature_name,
-                        'geometry_type': 'Polygon',
-                        'coordinates': rings,
-                        'source': source_name,
-                    })
-
-            elif geom_type == 'MultiGeometry':
-                line_geometries = []
-                polygon_geometries = []
-                for child_geom in geom:
-                    child_type = _local_tag_name(child_geom.tag)
-                    if child_type == 'Point':
-                        points = _parse_coordinate_text(_find_first_coordinates_text(child_geom))
-                        if points:
-                            features.append({
-                                'name': feature_name,
-                                'geometry_type': 'Point',
-                                'coordinates': points[0],
-                                'source': source_name,
-                            })
-                    elif child_type == 'LineString':
-                        points = _parse_coordinate_text(_find_first_coordinates_text(child_geom))
-                        if points:
-                            line_geometries.append(points)
-                    elif child_type == 'Polygon':
-                        rings = []
-                        for ring in child_geom.iter():
-                            if _local_tag_name(ring.tag) != 'LinearRing':
-                                continue
-                            ring_points = _parse_coordinate_text(_find_first_coordinates_text(ring))
-                            if ring_points:
-                                rings.append(ring_points)
-                        if rings:
-                            polygon_geometries.append(rings)
-
-                if line_geometries:
-                    features.append({
-                        'name': feature_name,
-                        'geometry_type': 'MultiLineString',
-                        'coordinates': line_geometries,
-                        'source': source_name,
-                    })
-                if polygon_geometries:
-                    features.append({
-                        'name': feature_name,
-                        'geometry_type': 'MultiPolygon',
-                        'coordinates': polygon_geometries,
-                        'source': source_name,
-                    })
+        for child in placemark:
+            child_type = _local_tag_name(child.tag)
+            if child_type in {'Point', 'LineString', 'LinearRing', 'Polygon', 'MultiGeometry', 'GeometryCollection'}:
+                features.extend(_extract_geometry_features(child, feature_name, source_name))
 
     return features
 
