@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }}</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            padding: 24px;
+            background: #f5f7fa;
+            font-family: "Microsoft YaHei", "Segoe UI", Arial, sans-serif;
+            color: #303133;
+        }
+        .container { max-width: 1280px; margin: 0 auto; }
+        .card {
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+        h1 { margin: 0 0 10px; font-size: 24px; }
+        h2 { margin: 0 0 8px; font-size: 18px; }
+        .desc { color: #606266; font-size: 14px; margin-bottom: 8px; }
+        .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 10px; }
+        .col { display: inline-flex; align-items: center; gap: 6px; }
+        label { font-size: 13px; color: #606266; }
+        select, input[type="file"] {
+            height: 34px;
+            border: 1px solid #dcdfe6;
+            border-radius: 4px;
+            padding: 0 10px;
+            background: #fff;
+            min-width: 180px;
+        }
+        .btn {
+            border: 0;
+            border-radius: 4px;
+            height: 34px;
+            padding: 0 14px;
+            cursor: pointer;
+            background: #409EFF;
+            color: #fff;
+            font-size: 13px;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+        }
+        .btn-secondary { background: #909399; }
+        .alert {
+            border-radius: 4px;
+            padding: 10px 12px;
+            margin-top: 12px;
+            font-size: 13px;
+        }
+        .alert-error { background: #fef0f0; color: #f56c6c; }
+        .alert-success { background: #f0f9eb; color: #67c23a; }
+        .hint { margin-top: 8px; color: #909399; font-size: 12px; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+            font-size: 13px;
+            background: #fff;
+        }
+        th, td {
+            border: 1px solid #ebeef5;
+            padding: 8px 10px;
+            text-align: left;
+            vertical-align: top;
+            word-break: break-all;
+        }
+        th { background: #f5f7fa; font-weight: 600; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="card">
+        <h1>KML处理和转换</h1>
+        <div class="desc">支持 DXF 转 KML；支持将已上传 KML/KMZ 或新上传 KML/KMZ 转换为经纬度或2000投影坐标表格，并导出 CSV。</div>
+
+        {% if messages %}
+            {% for message in messages %}
+                <div class="alert {% if message.tags == 'success' %}alert-success{% else %}alert-error{% endif %}">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+
+        {% if error %}
+            <div class="alert alert-error">{{ error }}</div>
+        {% endif %}
+    </div>
+
+    <div class="card">
+        <h2>一、DXF 转 KML</h2>
+        <div class="desc">上传 DXF 后将直接返回 KML 下载文件。当前支持 POINT、LINE、LWPOLYLINE、POLYLINE。</div>
+        <form method="post" enctype="multipart/form-data">
+            {% csrf_token %}
+            <input type="hidden" name="tool" value="dxf_to_kml">
+            <div class="row">
+                <div class="col">
+                    <label for="dxfFile">DXF 文件：</label>
+                    <input id="dxfFile" name="dxf_file" type="file" accept=".dxf" required>
+                </div>
+                <button class="btn" type="submit" name="action" value="convert">转换并下载 KML</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="card">
+        <h2>二、KML/KMZ 坐标表转换</h2>
+        <div class="desc">可选择 kml叠加检查中已上传文件，也可临时上传文件进行转换。支持表格预览与 CSV 导出。</div>
+
+        <form method="post" enctype="multipart/form-data">
+            {% csrf_token %}
+            <input type="hidden" name="tool" value="kml_table">
+
+            <div class="row">
+                <div class="col">
+                    <label><input type="radio" name="source_mode" value="uploaded" {% if source_mode == 'uploaded' %}checked{% endif %}> 使用已上传记录</label>
+                    <label><input type="radio" name="source_mode" value="upload" {% if source_mode == 'upload' %}checked{% endif %}> 临时上传文件</label>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col">
+                    <label for="uploadedRecord">已上传记录：</label>
+                    <select id="uploadedRecord" name="uploaded_record_id">
+                        <option value="">请选择</option>
+                        {% for record in uploaded_records %}
+                            <option value="{{ record.id }}" {% if uploaded_record_id == record.id|stringformat:'s' %}selected{% endif %}>{{ record.title }}（{{ record.created_at|date:'Y-m-d H:i' }}）</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="col">
+                    <label for="kmlFile">临时上传：</label>
+                    <input id="kmlFile" name="kml_file" type="file" accept=".kml,.kmz,.ovkml,.ovkmz,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz">
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col">
+                    <label for="inputCrs">输入坐标系：</label>
+                    <select id="inputCrs" name="input_crs">
+                        <option value="wgs84" {% if input_crs == 'wgs84' %}selected{% endif %}>WGS84</option>
+                        <option value="cgcs2000" {% if input_crs == 'cgcs2000' %}selected{% endif %}>CGCS2000</option>
+                    </select>
+                </div>
+
+                <div class="col">
+                    <label for="outputMode">输出格式：</label>
+                    <select id="outputMode" name="output_mode">
+                        <option value="geo" {% if output_mode == 'geo' %}selected{% endif %}>经纬度表格</option>
+                        <option value="cgcs2000_proj" {% if output_mode == 'cgcs2000_proj' %}selected{% endif %}>2000投影坐标表格</option>
+                    </select>
+                </div>
+
+                <div class="col">
+                    <label for="geoOutputCrs">经纬度输出坐标系：</label>
+                    <select id="geoOutputCrs" name="geo_output_crs">
+                        <option value="wgs84" {% if geo_output_crs == 'wgs84' %}selected{% endif %}>WGS84</option>
+                        <option value="cgcs2000" {% if geo_output_crs == 'cgcs2000' %}selected{% endif %}>CGCS2000</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="row">
+                <button class="btn" type="submit" name="action" value="preview">转换并预览</button>
+                <button class="btn btn-secondary" type="submit" name="action" value="export_csv">直接导出CSV</button>
+            </div>
+        </form>
+
+        <div class="hint">提示：当选择“使用已上传记录”时，会读取 kml叠加检查页面中保存的原始文件内容进行转换。</div>
+    </div>
+
+    {% if success %}
+    <div class="card">
+        <h2>转换结果</h2>
+        <div class="alert alert-success">已解析 {{ total_count }} 条要素，来源文件：{{ source_name }}（{{ file_format|upper }}）</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>序号</th>
+                    <th>要素名称</th>
+                    <th>几何类型</th>
+                    <th>顶点数</th>
+                    <th>{{ coord_a_label }}</th>
+                    <th>{{ coord_b_label }}</th>
+                    <th>来源文件夹</th>
+                    <th>坐标串</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for row in preview_rows %}
+                <tr>
+                    <td>{{ row.index }}</td>
+                    <td>{{ row.project_name }}</td>
+                    <td>{{ row.geometry_type }}</td>
+                    <td>{{ row.vertex_count }}</td>
+                    <td>{{ row.coord_a }}</td>
+                    <td>{{ row.coord_b }}</td>
+                    <td>{{ row.source_folder }}</td>
+                    <td>{{ row.project_coordinates }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% if preview_truncated %}
+            <div class="hint">仅展示前 200 条，导出 CSV 可获取完整数据。</div>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+</body>
+</html>
