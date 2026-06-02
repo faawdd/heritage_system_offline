@@ -24,7 +24,8 @@ from core.views import (heritage_map_view, heritage_dashboard_view, heritage_sta
                         kanerjing_list_view, kanerjing_stats_api, kanerjing_import_check_view,
                         CustomPasswordChangeDoneView, inspection_mobile_add_view,
                         inspection_mobile_list_view, kml_overlay_check_view,
-                        ovkml_converter_view, heritage_classification_stats_api, heritage_detail_view,
+                        ovkml_converter_view, kml_process_convert_view,
+                        heritage_classification_stats_api, heritage_detail_view,
                         heritage_boundary_export_view,
                         mobile_kml_entry_view, mobile_collect_entry_view, app_showcase_view,
                         system_version_api, heritage_collect_view,
@@ -43,6 +44,7 @@ urlpatterns = [
     path('admin/heritage/<int:pk>/detail/', heritage_detail_view, name='heritage_detail'),  # 文物详情页（只读）
     path('admin/heritage/<int:pk>/boundary-export/', heritage_boundary_export_view, name='heritage_boundary_export'),
     path('admin/ovkml-converter/', ovkml_converter_view, name='ovkml_converter'),
+    path('admin/kml-process-convert/', kml_process_convert_view, name='kml_process_convert'),
     path('admin/heritage-map/', heritage_map_view, name='heritage_map'),
     path('admin/kml-overlay-check/', kml_overlay_check_view, name='kml_overlay_check'),
     path('admin/kml-management/', RedirectView.as_view(pattern_name='kml_overlay_check', permanent=True, query_string=True), name='kml_management_alias'),

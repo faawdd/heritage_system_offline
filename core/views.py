@@ -1368,6 +1368,301 @@ def kml_management_view(request):
     return render(request, 'admin/kml_management.html', context)
 
 
+def _is_kml_family_filename(filename: str) -> bool:
+    lower_name = (filename or '').lower()
+    return lower_name.endswith('.kml') or lower_name.endswith('.kmz') or lower_name.endswith('.ovkml') or lower_name.endswith('.ovkmz')
+
+
+def _build_kml_table_rows(records, output_mode: str):
+    rows = []
+    for idx, item in enumerate(records, start=1):
+        row = {
+            'index': idx,
+            'project_name': item.project_name,
+            'geometry_type': item.geometry_type,
+            'vertex_count': item.vertex_count,
+            'source_folder': item.source_folder or '-',
+            'project_coordinates': item.project_coordinates,
+        }
+        if output_mode == 'cgcs2000_proj':
+            row['coord_a'] = '' if item.cgcs2000_x is None else f'{item.cgcs2000_x:.3f}'
+            row['coord_b'] = '' if item.cgcs2000_y is None else f'{item.cgcs2000_y:.3f}'
+        else:
+            row['coord_a'] = '' if item.target_lon is None else f'{item.target_lon:.10f}'
+            row['coord_b'] = '' if item.target_lat is None else f'{item.target_lat:.10f}'
+        rows.append(row)
+    return rows
+
+
+def _build_kml_table_csv(rows, output_mode: str) -> str:
+    output = io.StringIO()
+    writer = csv.writer(output)
+    if output_mode == 'cgcs2000_proj':
+        writer.writerow(['序号', '要素名称', '几何类型', '顶点数', 'CGCS2000_X(米)', 'CGCS2000_Y(米)', '来源文件夹', '坐标串'])
+    else:
+        writer.writerow(['序号', '要素名称', '几何类型', '顶点数', '经度', '纬度', '来源文件夹', '坐标串'])
+
+    for row in rows:
+        writer.writerow([
+            row.get('index', ''),
+            row.get('project_name', ''),
+            row.get('geometry_type', ''),
+            row.get('vertex_count', ''),
+            row.get('coord_a', ''),
+            row.get('coord_b', ''),
+            row.get('source_folder', ''),
+            row.get('project_coordinates', ''),
+        ])
+
+    return output.getvalue()
+
+
+def _convert_dxf_bytes_to_kml(dxf_bytes: bytes, doc_name: str):
+    try:
+        import ezdxf
+    except Exception:
+        raise RuntimeError('DXF 转换依赖 ezdxf，请先安装：pip install ezdxf')
+
+    import tempfile
+
+    temp_path = ''
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.dxf') as tmp:
+            tmp.write(dxf_bytes)
+            temp_path = tmp.name
+
+        doc = ezdxf.readfile(temp_path)
+        msp = doc.modelspace()
+
+        ET.register_namespace('', 'http://www.opengis.net/kml/2.2')
+        ns = 'http://www.opengis.net/kml/2.2'
+        kml_root = ET.Element(f'{{{ns}}}kml')
+        doc_el = ET.SubElement(kml_root, f'{{{ns}}}Document')
+        ET.SubElement(doc_el, f'{{{ns}}}name').text = doc_name
+
+        stats = {
+            'point_count': 0,
+            'line_count': 0,
+            'polygon_count': 0,
+            'unsupported_count': 0,
+        }
+
+        def _add_placemark(name, geometry_type, coords):
+            if not coords:
+                return
+            pm = ET.SubElement(doc_el, f'{{{ns}}}Placemark')
+            ET.SubElement(pm, f'{{{ns}}}name').text = name
+
+            if geometry_type == 'Point':
+                point = ET.SubElement(pm, f'{{{ns}}}Point')
+                x, y = coords[0]
+                ET.SubElement(point, f'{{{ns}}}coordinates').text = f'{x:.10f},{y:.10f},0'
+                stats['point_count'] += 1
+                return
+
+            if geometry_type == 'Polygon':
+                polygon = ET.SubElement(pm, f'{{{ns}}}Polygon')
+                outer = ET.SubElement(polygon, f'{{{ns}}}outerBoundaryIs')
+                ring = ET.SubElement(outer, f'{{{ns}}}LinearRing')
+                text = ' '.join(f'{x:.10f},{y:.10f},0' for x, y in coords)
+                ET.SubElement(ring, f'{{{ns}}}coordinates').text = text
+                stats['polygon_count'] += 1
+                return
+
+            line = ET.SubElement(pm, f'{{{ns}}}LineString')
+            text = ' '.join(f'{x:.10f},{y:.10f},0' for x, y in coords)
+            ET.SubElement(line, f'{{{ns}}}coordinates').text = text
+            stats['line_count'] += 1
+
+        for entity in msp:
+            etype = entity.dxftype()
+            layer_name = getattr(entity.dxf, 'layer', '') or 'DXF'
+
+            if etype == 'POINT':
+                location = entity.dxf.location
+                _add_placemark(f'{layer_name}-POINT', 'Point', [(float(location.x), float(location.y))])
+                continue
+
+            if etype == 'LINE':
+                start = entity.dxf.start
+                end = entity.dxf.end
+                _add_placemark(
+                    f'{layer_name}-LINE',
+                    'LineString',
+                    [(float(start.x), float(start.y)), (float(end.x), float(end.y))],
+                )
+                continue
+
+            if etype == 'LWPOLYLINE':
+                pts = [(float(p[0]), float(p[1])) for p in entity.get_points('xy')]
+                if len(pts) < 2:
+                    continue
+                if bool(entity.closed) and len(pts) >= 3:
+                    if pts[0] != pts[-1]:
+                        pts.append(pts[0])
+                    _add_placemark(f'{layer_name}-LWPOLY', 'Polygon', pts)
+                else:
+                    _add_placemark(f'{layer_name}-LWPOLY', 'LineString', pts)
+                continue
+
+            if etype == 'POLYLINE':
+                pts = []
+                for v in entity.vertices:
+                    pts.append((float(v.dxf.location.x), float(v.dxf.location.y)))
+                if len(pts) < 2:
+                    continue
+                if bool(entity.is_closed) and len(pts) >= 3:
+                    if pts[0] != pts[-1]:
+                        pts.append(pts[0])
+                    _add_placemark(f'{layer_name}-POLYLINE', 'Polygon', pts)
+                else:
+                    _add_placemark(f'{layer_name}-POLYLINE', 'LineString', pts)
+                continue
+
+            stats['unsupported_count'] += 1
+
+        kml_bytes = ET.tostring(kml_root, encoding='utf-8', xml_declaration=True)
+        return kml_bytes, stats
+    finally:
+        if temp_path:
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+
+
+@staff_member_required
+def kml_process_convert_view(request):
+    if not _is_admin_user(request.user):
+        return HttpResponseForbidden('需要管理员权限')
+
+    context = {
+        'title': 'KML处理和转换',
+        'input_crs': 'wgs84',
+        'output_mode': 'geo',
+        'geo_output_crs': 'wgs84',
+        'source_mode': 'uploaded',
+        'uploaded_record_id': '',
+    }
+
+    uploaded_records = list(KmlUploadRecord.objects.order_by('-created_at')[:200])
+    context['uploaded_records'] = uploaded_records
+
+    if request.method == 'POST':
+        tool = (request.POST.get('tool') or '').strip()
+        action = (request.POST.get('action') or '').strip()
+
+        if tool == 'dxf_to_kml':
+            dxf_file = request.FILES.get('dxf_file')
+            if not dxf_file:
+                context['error'] = '请先选择 DXF 文件。'
+                return render(request, 'admin/kml_process_convert.html', context)
+
+            lower_name = (dxf_file.name or '').lower()
+            if not lower_name.endswith('.dxf'):
+                context['error'] = '文件格式不正确，请上传 .dxf 文件。'
+                return render(request, 'admin/kml_process_convert.html', context)
+
+            try:
+                kml_bytes, stats = _convert_dxf_bytes_to_kml(dxf_file.read(), os.path.splitext(dxf_file.name)[0])
+            except Exception as exc:
+                context['error'] = f'DXF 转换失败：{exc}'
+                return render(request, 'admin/kml_process_convert.html', context)
+
+            date_str = timezone.now().strftime('%Y%m%d_%H%M%S')
+            export_name = f'dxf_to_kml_{date_str}.kml'
+            response = HttpResponse(kml_bytes, content_type='application/vnd.google-earth.kml+xml; charset=utf-8')
+            encoded_name = quote(export_name, safe='')
+            response['Content-Disposition'] = f"attachment; filename*=UTF-8''{encoded_name}"
+
+            messages.success(
+                request,
+                f"DXF 转换完成：点{stats['point_count']}、线{stats['line_count']}、面{stats['polygon_count']}，未支持要素{stats['unsupported_count']}。",
+            )
+            return response
+
+        if tool == 'kml_table':
+            source_mode = (request.POST.get('source_mode') or 'uploaded').strip()
+            input_crs = (request.POST.get('input_crs') or 'wgs84').strip()
+            output_mode = (request.POST.get('output_mode') or 'geo').strip()
+            geo_output_crs = (request.POST.get('geo_output_crs') or 'wgs84').strip()
+            uploaded_record_id = (request.POST.get('uploaded_record_id') or '').strip()
+
+            context['source_mode'] = source_mode
+            context['input_crs'] = input_crs
+            context['output_mode'] = output_mode
+            context['geo_output_crs'] = geo_output_crs
+            context['uploaded_record_id'] = uploaded_record_id
+
+            source_name = ''
+            raw_content = b''
+
+            if source_mode == 'uploaded':
+                if not uploaded_record_id:
+                    context['error'] = '请先选择已上传的 KML/KMZ 记录。'
+                    return render(request, 'admin/kml_process_convert.html', context)
+                record = KmlUploadRecord.objects.filter(id=uploaded_record_id).first()
+                if not record:
+                    context['error'] = '所选记录不存在。'
+                    return render(request, 'admin/kml_process_convert.html', context)
+
+                source_name = os.path.basename(record.source_file.name or record.title or f'kml_record_{record.id}')
+                with record.source_file.open('rb') as source:
+                    raw_content = source.read()
+            else:
+                upload_file = request.FILES.get('kml_file')
+                if not upload_file:
+                    context['error'] = '请先上传 KML/KMZ 文件。'
+                    return render(request, 'admin/kml_process_convert.html', context)
+                source_name = upload_file.name or '未命名文件'
+                raw_content = upload_file.read()
+
+            if not _is_kml_family_filename(source_name):
+                context['error'] = '文件格式不正确，请选择 .kml .kmz .ovkml .ovkmz 文件。'
+                return render(request, 'admin/kml_process_convert.html', context)
+
+            parse_output_crs = 'cgcs2000_proj' if output_mode == 'cgcs2000_proj' else geo_output_crs
+            try:
+                from core.ovkml_converter import parse_kml_or_kmz
+                records, file_format = parse_kml_or_kmz(raw_content, input_crs=input_crs, output_crs=parse_output_crs)
+            except Exception as exc:
+                context['error'] = f'解析失败：{exc}'
+                return render(request, 'admin/kml_process_convert.html', context)
+
+            if not records:
+                context['error'] = '未提取到要素，请检查文件内容。'
+                return render(request, 'admin/kml_process_convert.html', context)
+
+            table_rows = _build_kml_table_rows(records, parse_output_crs)
+            csv_text = _build_kml_table_csv(table_rows, parse_output_crs)
+
+            if action == 'export_csv':
+                date_str = timezone.now().strftime('%Y%m%d_%H%M%S')
+                ext_name = 'cgcs2000坐标' if parse_output_crs == 'cgcs2000_proj' else '经纬度坐标'
+                report_name = f'{date_str}_{os.path.splitext(source_name)[0]}_{ext_name}.csv'
+                response = HttpResponse(csv_text, content_type='text/csv; charset=utf-8-sig')
+                encoded_name = quote(report_name, safe='')
+                response['Content-Disposition'] = f"attachment; filename*=UTF-8''{encoded_name}"
+                return response
+
+            context.update({
+                'success': True,
+                'source_name': source_name,
+                'file_format': file_format,
+                'total_count': len(table_rows),
+                'preview_rows': table_rows[:200],
+                'preview_truncated': len(table_rows) > 200,
+                'coord_a_label': 'CGCS2000_X(米)' if parse_output_crs == 'cgcs2000_proj' else '经度',
+                'coord_b_label': 'CGCS2000_Y(米)' if parse_output_crs == 'cgcs2000_proj' else '纬度',
+            })
+
+            return render(request, 'admin/kml_process_convert.html', context)
+
+        context['error'] = '未知操作请求。'
+
+    return render(request, 'admin/kml_process_convert.html', context)
+
+
 @staff_member_required
 @staff_member_required
 def ovkml_converter_view(request):

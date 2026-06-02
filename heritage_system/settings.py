@@ -237,6 +237,11 @@ SIMPLEUI_CONFIG = {
                     'icon': 'fas fa-layer-group',
                     'url': '/admin/kml-overlay-check/'
                 },
+                {
+                    'name': 'kml处理和转换',
+                    'icon': 'fas fa-file-export',
+                    'url': '/admin/kml-process-convert/'
+                },
             ]
         },
         {
