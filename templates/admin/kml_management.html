@@ -691,17 +691,6 @@
             max-width: 170px;
         }
 
-        .kml-range-badge-zoom {
-            border: 1px solid rgba(255, 255, 255, 0.56);
-            border-radius: 999px;
-            padding: 1px 7px;
-            font-size: 10px;
-            font-weight: 700;
-            color: #fff;
-            background: rgba(15, 23, 42, 0.22);
-            white-space: nowrap;
-        }
-
         .legend-row {
             display: flex;
             align-items: center;
@@ -1931,7 +1920,6 @@
             const markerHtml = '<div class="kml-range-badge" style="background:' + color + ';">'
                 + '<span class="kml-range-badge-index">' + String(index + 1) + '</span>'
                 + '<span class="kml-range-badge-text">' + safeName + '</span>'
-                + '<span class="kml-range-badge-zoom">自动放大</span>'
                 + '</div>';
 
             const badgeMarker = L.marker(center, {
