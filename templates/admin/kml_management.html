@@ -1091,6 +1091,7 @@
                                             <td>
                                                 <div class="manage-actions">
                                                     <input class="rename-input" type="text" name="rename_title_{{ record.id }}" value="{{ record.title }}" maxlength="255">
+                                                    <button class="btn btn-success btn-mini" type="submit" name="single_record_id" value="{{ record.id }}">查询此条</button>
                                                     <button class="btn btn-secondary btn-mini" type="submit" name="row_rename_id" value="{{ record.id }}">重命名</button>
                                                     <button class="btn btn-danger btn-mini btn-icon" type="submit" name="row_delete_id" value="{{ record.id }}" title="删除" aria-label="删除" onclick="return confirm('确认删除该KML记录及文件吗？');">×</button>
                                                 </div>
