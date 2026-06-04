@@ -1230,6 +1230,8 @@ def kml_management_view(request):
     if not _is_admin_user(request.user):
         return HttpResponseForbidden('需要管理员权限')
 
+    default_threshold = _normalize_threshold(request.GET.get('threshold_m', 50))
+
     if request.method == 'POST':
         row_delete_id = request.POST.get('row_delete_id')
         if row_delete_id:
@@ -1264,8 +1266,13 @@ def kml_management_view(request):
             messages.success(request, f'已重命名为：{new_title}')
             return redirect('kml_overlay_check')
 
-        action = request.POST.get('action', 'upload')
-        threshold = _normalize_threshold(request.POST.get('threshold_m', 50))
+        action = request.POST.get('action')
+        if not action and request.POST.get('single_record_id'):
+            action = 'analyze_selected'
+        if not action:
+            action = 'upload'
+
+        threshold = _normalize_threshold(request.POST.get('threshold_m', default_threshold), default=default_threshold)
 
         if action == 'upload':
             immediate_analyze = request.POST.get('immediate_analyze') == '1'
@@ -1322,18 +1329,23 @@ def kml_management_view(request):
                     messages.success(request, f'已上传并分析 {created_count} 个文件，共发现 {total_conflicts} 处冲突。')
                 else:
                     messages.success(request, f'已快速上传 {created_count} 个文件。若需冲突报告，请勾选后点击“批量查询冲突并导出报告”。')
-            return redirect('kml_overlay_check')
+            return redirect(f'{request.path}?threshold_m={threshold}')
 
         if action in {'analyze_selected', 'analyze_export_selected', 'export_conflict_kml', 'export_boundary_points', 'export_boundary_kmz'}:
-            selected_ids = request.POST.getlist('selected_ids')
+            single_record_id = (request.POST.get('single_record_id') or '').strip()
+            if single_record_id:
+                selected_ids = [single_record_id]
+            else:
+                selected_ids = [sid for sid in request.POST.getlist('selected_ids') if sid]
+
             if not selected_ids:
                 messages.error(request, '请先选择要批量查询的文件。')
-                return redirect('kml_overlay_check')
+                return redirect(f'{request.path}?threshold_m={threshold}')
 
             selected_records = list(KmlUploadRecord.objects.filter(id__in=selected_ids))
             if not selected_records:
                 messages.error(request, '未找到选中的文件记录。')
-                return redirect('kml_overlay_check')
+                return redirect(f'{request.path}?threshold_m={threshold}')
 
             combined_conflicts, updated_count, failed_count, failed_items = _reanalyze_kml_records(selected_records, threshold)
 
@@ -1347,8 +1359,9 @@ def kml_management_view(request):
                 messages.warning(request, f'有 {failed_count} 个文件分析失败：{summary}')
 
             if action == 'analyze_selected':
-                messages.success(request, f'已分析并更新 {updated_count} 条记录，当前共识别 {len(combined_conflicts)} 处冲突。')
-                return redirect('kml_overlay_check')
+                query_mode = '单条' if single_record_id else '批量'
+                messages.success(request, f'已按阈值 {threshold} 米完成{query_mode}查询，更新 {updated_count} 条记录，识别 {len(combined_conflicts)} 处冲突。')
+                return redirect(f'{request.path}?threshold_m={threshold}')
 
             if action == 'export_conflict_kml':
                 return _build_conflict_sites_kml(combined_conflicts, threshold, selected_records)
@@ -1357,10 +1370,10 @@ def kml_management_view(request):
                 cookie = (request.POST.get('sipu_cookie') or '').strip()
                 if not cookie:
                     messages.error(request, '请先填写四普系统的 Cookie 再导出边界坐标。')
-                    return redirect('kml_overlay_check')
+                    return redirect(f'{request.path}?threshold_m={threshold}')
                 if not combined_conflicts:
                     messages.warning(request, '所选 KML 文件中未发现冲突文物点，无需导出边界坐标。')
-                    return redirect('kml_overlay_check')
+                    return redirect(f'{request.path}?threshold_m={threshold}')
                 user_county = (request.POST.get('sipu_county') or '').strip()
                 return _build_boundary_points_csv(combined_conflicts, selected_records, cookie, user_county)
 
@@ -1368,10 +1381,10 @@ def kml_management_view(request):
                 cookie = (request.POST.get('sipu_cookie') or '').strip()
                 if not cookie:
                     messages.error(request, '请先填写四普系统的 Cookie 再导出边界 KMZ。')
-                    return redirect('kml_overlay_check')
+                    return redirect(f'{request.path}?threshold_m={threshold}')
                 if not combined_conflicts:
                     messages.warning(request, '所选 KML 文件中未发现冲突文物点，无需导出边界 KMZ。')
-                    return redirect('kml_overlay_check')
+                    return redirect(f'{request.path}?threshold_m={threshold}')
                 user_county = (request.POST.get('sipu_county') or '').strip()
                 return _build_boundary_points_kmz(combined_conflicts, selected_records, cookie, user_county)
 
@@ -1386,7 +1399,7 @@ def kml_management_view(request):
     context = {
         'title': 'KML文件管理与批量冲突检查',
         'records': records,
-        'default_threshold': 50,
+        'default_threshold': default_threshold,
         'sites_json': json.dumps(sites_data, ensure_ascii=False),
     }
     return render(request, 'admin/kml_management.html', context)
