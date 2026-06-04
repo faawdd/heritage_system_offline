@@ -27,6 +27,7 @@ import uuid
 import re
 import math
 import logging
+import zipfile
 import xml.etree.ElementTree as ET
 from django.shortcuts import get_object_or_404
 from django.contrib import messages
