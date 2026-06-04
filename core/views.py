@@ -26,6 +26,7 @@ import io
 import uuid
 import re
 import math
+import logging
 import xml.etree.ElementTree as ET
 from django.shortcuts import get_object_or_404
 from django.contrib import messages
@@ -34,6 +35,7 @@ from .permission_decorators import is_management_admin, is_limited_admin
 from utils.dem_handler import describe_tile, get_dem_elevation
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 
 def _b64url_decode(value):
@@ -771,16 +773,31 @@ def _reanalyze_kml_records(records, threshold):
     combined_conflicts = []
     updated_count = 0
     failed_count = 0
+    failed_items = []
 
     for record in records:
         try:
+            if not record.source_file or not record.source_file.name:
+                raise FileNotFoundError('记录未绑定源文件')
+            try:
+                file_exists = record.source_file.storage.exists(record.source_file.name)
+            except Exception:
+                file_exists = True
+            if not file_exists:
+                raise FileNotFoundError(f'源文件不存在: {record.source_file.name}')
+
             with record.source_file.open('rb') as source:
                 content = source.read()
             file_name_for_parse = record.source_file.name or record.title or ''
             features = _extract_features_from_upload(file_name_for_parse, content)
             conflicts = _analyze_conflicts(features, threshold)
-        except Exception:
+        except Exception as exc:
+            logger.exception('KML重分析失败: record_id=%s title=%s source=%s', record.id, record.title, getattr(record.source_file, 'name', ''))
             failed_count += 1
+            failed_items.append({
+                'title': record.title or f'记录#{record.id}',
+                'error': str(exc) or exc.__class__.__name__,
+            })
             continue
 
         record.threshold_m = threshold
@@ -798,7 +815,7 @@ def _reanalyze_kml_records(records, threshold):
         updated_count += 1
         combined_conflicts.extend(conflicts)
 
-    return combined_conflicts, updated_count, failed_count
+    return combined_conflicts, updated_count, failed_count, failed_items
 
 
 def _is_admin_user(user):
@@ -1317,10 +1334,16 @@ def kml_management_view(request):
                 messages.error(request, '未找到选中的文件记录。')
                 return redirect('kml_overlay_check')
 
-            combined_conflicts, updated_count, failed_count = _reanalyze_kml_records(selected_records, threshold)
+            combined_conflicts, updated_count, failed_count, failed_items = _reanalyze_kml_records(selected_records, threshold)
 
             if failed_count:
-                messages.warning(request, f'有 {failed_count} 个文件分析失败，请检查文件格式。')
+                summary = '；'.join(
+                    f"{item.get('title', '未命名文件')}（{item.get('error', '未知错误')}）"
+                    for item in failed_items[:3]
+                )
+                if failed_count > 3:
+                    summary = f"{summary}；其余 {failed_count - 3} 个请查看服务端日志"
+                messages.warning(request, f'有 {failed_count} 个文件分析失败：{summary}')
 
             if action == 'analyze_selected':
                 messages.success(request, f'已分析并更新 {updated_count} 条记录，当前共识别 {len(combined_conflicts)} 处冲突。')
