@@ -249,7 +249,7 @@ SIMPLEUI_CONFIG = {
             'icon': 'fas fa-tasks',
             'models': [
                 {'name': '巡查记录', 'url': 'core/inspectionrecord/', 'icon': 'fas fa-camera'},
-                {'name': '项目管理', 'url': 'core/projectaudit/', 'icon': 'fas fa-project-diagram'},
+                {'name': '项目管理', 'url': '/admin/land-projects/', 'icon': 'fas fa-project-diagram'},
             ]
         },
         {

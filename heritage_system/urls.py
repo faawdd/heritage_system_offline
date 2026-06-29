@@ -15,7 +15,7 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
-from django.urls import path, include
+from django.urls import path, include, re_path
 from django.conf import settings
 from django.conf.urls.static import static
 from django.views.generic import RedirectView
@@ -40,6 +40,8 @@ from core.views import (heritage_map_view, heritage_dashboard_view, heritage_sta
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 urlpatterns = [
+    # 兼容旧项目管理入口，统一跳转到新重构页面
+    re_path(r'^admin/core/projectaudit(?:/.*)?$', RedirectView.as_view(url='/admin/land-projects/', permanent=False, query_string=True), name='projectaudit_legacy_redirect'),
     path('app-download/', app_showcase_view, name='app_showcase'),
     path('download/', app_showcase_view, name='app_showcase_alias'),
     path('mobile/collect/', heritage_collect_view, name='heritage_collect'),  # 鄯善县不可移动文物采集
