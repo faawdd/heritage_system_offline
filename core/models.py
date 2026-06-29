@@ -1,7 +1,9 @@
 from django.db import models, IntegrityError, transaction
 from django.db.models import Q
 from django.contrib.auth.models import User
+from django.core.validators import RegexValidator
 from django.utils import timezone
+import uuid
 import json
 import re
 
@@ -236,6 +238,156 @@ class ProjectAudit(models.Model):
         verbose_name = "项目管理"
         verbose_name_plural = verbose_name
         ordering = ['-received_date']
+
+
+class LandUseProjectApproval(models.Model):
+    """基层文物管理-用地项目审批与文档登记归档主表。"""
+
+    STATUS_RECEIVED = '10_已收文'
+    STATUS_PRELIM_SAFE = '20_初审安全'
+    STATUS_CHECK_OVERLAP = '21_CHECK_OVERLAP'
+    STATUS_FIELD_DONE = '30_现场勘查完成'
+    STATUS_CITY_REVIEWING = '40_市局审批中'
+    STATUS_ARCHAEOLOGY = '45_考古流转中'
+    STATUS_REPLY_RECEIVED = '50_批复已收到'
+    STATUS_ARCHIVED = '60_已结案归档'
+
+    STATUS_CHOICES = [
+        (STATUS_RECEIVED, '10_已收文'),
+        (STATUS_PRELIM_SAFE, '20_初审安全'),
+        (STATUS_CHECK_OVERLAP, '21_初审涉及'),
+        (STATUS_FIELD_DONE, '30_现场勘查完成'),
+        (STATUS_CITY_REVIEWING, '40_市局审批中'),
+        (STATUS_ARCHAEOLOGY, '45_考古流转中'),
+        (STATUS_REPLY_RECEIVED, '50_批复已收到'),
+        (STATUS_ARCHIVED, '60_已结案归档'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    # 收文登记
+    project_name = models.CharField('用地项目名称', max_length=255)
+    company_name = models.CharField('企业单位名称', max_length=255)
+    incoming_doc_num = models.CharField('企业来函字号', max_length=120)
+    receive_date = models.DateField('收文日期', default=timezone.localdate)
+    kml_file_path = models.CharField('原始KML文件路径', max_length=500, blank=True, default='')
+
+    # 空间核验结果
+    is_overlap_artifact = models.BooleanField('是否涉及文物', default=False)
+    overlapped_relics_info = models.JSONField('涉事文物信息', default=list, blank=True)
+    status = models.CharField('项目状态', max_length=32, choices=STATUS_CHOICES, default=STATUS_RECEIVED)
+
+    # 流程A字段
+    field_check_date = models.DateField('现场勘查日期', null=True, blank=True)
+    shanshan_request_num = models.CharField(
+        '县局请示文号',
+        max_length=100,
+        blank=True,
+        default='',
+        validators=[
+            RegexValidator(
+                regex=r'^鄯文旅字-\d{4}-\d+号$',
+                message='县局请示文号格式应为：鄯文旅字-2026-xx号',
+            )
+        ],
+    )
+    city_reply_num = models.CharField('市局复函文号', max_length=120, blank=True, default='')
+
+    # 流程B字段
+    archaeology_request_num = models.CharField('考古请示文号', max_length=120, blank=True, default='')
+    archaeology_report_path = models.CharField('考古调查报告路径', max_length=500, blank=True, default='')
+    region_approval_num = models.CharField('自治区文物局批复文号', max_length=120, blank=True, default='')
+    city_final_reply_num = models.CharField('市文物局最终复函号', max_length=120, blank=True, default='')
+
+    # 办结归档
+    final_reply_to_company = models.CharField('给企业最终复函号', max_length=120, blank=True, default='')
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+    updated_at = models.DateTimeField('更新时间', auto_now=True)
+
+    def __str__(self):
+        return f"{self.project_name} - {self.get_status_display()}"
+
+    @classmethod
+    def suggest_next_shanshan_num(cls, year=None):
+        """按年度扫描历史文号，返回推荐的下一个编号文本。"""
+        target_year = int(year or timezone.localdate().year)
+        pattern = re.compile(rf'^鄯文旅字-{target_year}-(\d+)号$')
+        max_no = 0
+        for value in cls.objects.exclude(shanshan_request_num='').values_list('shanshan_request_num', flat=True):
+            matched = pattern.match((value or '').strip())
+            if not matched:
+                continue
+            max_no = max(max_no, int(matched.group(1)))
+        return f'鄯文旅字-{target_year}-{max_no + 1}号'
+
+    class Meta:
+        verbose_name = '用地项目审批归档'
+        verbose_name_plural = verbose_name
+        ordering = ['-receive_date', '-created_at']
+        indexes = [
+            models.Index(fields=['status']),
+            models.Index(fields=['receive_date']),
+            models.Index(fields=['company_name']),
+        ]
+
+
+class LandUseProjectFieldPhoto(models.Model):
+    """流程A现场照片多附件表。"""
+
+    project = models.ForeignKey(
+        LandUseProjectApproval,
+        on_delete=models.CASCADE,
+        related_name='field_photos',
+        verbose_name='所属项目',
+    )
+    photo_path = models.CharField('现场照片路径', max_length=500)
+    uploaded_at = models.DateTimeField('上传时间', auto_now_add=True)
+    note = models.CharField('备注', max_length=200, blank=True, default='')
+
+    def __str__(self):
+        return f"{self.project.project_name}-现场照片{self.id}"
+
+    class Meta:
+        verbose_name = '用地项目现场照片'
+        verbose_name_plural = verbose_name
+        ordering = ['-uploaded_at']
+
+
+class LandUseProjectOperationLog(models.Model):
+    """用地项目流程操作日志。"""
+
+    project = models.ForeignKey(
+        LandUseProjectApproval,
+        on_delete=models.CASCADE,
+        related_name='operation_logs',
+        verbose_name='所属项目',
+    )
+    operator = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='land_project_operation_logs',
+        verbose_name='操作人',
+    )
+    action = models.CharField('动作编码', max_length=50)
+    action_label = models.CharField('动作名称', max_length=120, blank=True, default='')
+    payload = models.JSONField('动作参数', default=dict, blank=True)
+    status_before = models.CharField('操作前状态', max_length=32, blank=True, default='')
+    status_after = models.CharField('操作后状态', max_length=32, blank=True, default='')
+    created_at = models.DateTimeField('操作时间', auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.project.project_name}-{self.action}@{self.created_at:%Y-%m-%d %H:%M}"
+
+    class Meta:
+        verbose_name = '用地项目流程日志'
+        verbose_name_plural = verbose_name
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['project', '-created_at']),
+            models.Index(fields=['action']),
+        ]
 
 
 class Coordinate(models.Model):

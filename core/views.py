@@ -1,8 +1,23 @@
 # core/views.py
 from django.shortcuts import render, redirect
 from django.template.loader import render_to_string
-from .models import HeritageSite, InspectionRecord, ProjectAudit, Coordinate, KmlUploadRecord
+from .models import (
+    HeritageSite,
+    InspectionRecord,
+    ProjectAudit,
+    Coordinate,
+    KmlUploadRecord,
+    LandUseProjectApproval,
+    LandUseProjectFieldPhoto,
+    LandUseProjectOperationLog,
+)
 from .ovkml_converter import parse_ovkml, build_csv_outputs
+from .land_project_services import (
+    verify_project_spatial_safety,
+    build_project_media_path,
+    get_status_controls,
+    apply_workflow_action,
+)
 import base64
 import hashlib
 import hmac
@@ -17,6 +32,7 @@ from django.utils import timezone
 from django.conf import settings
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
+from django.core.files.storage import default_storage
 from docx import Document
 from docx.shared import Mm, Pt
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
@@ -37,6 +53,52 @@ from utils.dem_handler import describe_tile, get_dem_elevation
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
+
+
+LAND_PROJECT_ACTION_LABELS = {
+    'create': '收文登记',
+    'upload_kml': '上传KML',
+    'upload_field_photo': '上传现场照片',
+    'upload_archaeology_report': '上传考古报告',
+    'verify_spatial_safety': '执行空间核验',
+    'complete_field_check': '提交现场勘查完成',
+    'submit_city_request': '录入县局请示并提交市局',
+    'record_city_reply': '录入市局复函',
+    'submit_archaeology_request': '发起考古流转',
+    'record_archaeology_reply': '录入考古批复结果',
+    'archive_case': '办结归档',
+}
+
+
+def _build_payload_doc_nums(payload):
+    keys = [
+        'incoming_doc_num',
+        'shanshan_request_num',
+        'city_reply_num',
+        'archaeology_request_num',
+        'region_approval_num',
+        'city_final_reply_num',
+        'final_reply_to_company',
+    ]
+    result = {}
+    for key in keys:
+        value = payload.get(key)
+        if value:
+            result[key] = value
+    return result
+
+
+def _record_land_project_operation(project, user, action, payload=None, status_before='', status_after=''):
+    payload_data = payload if isinstance(payload, dict) else {}
+    LandUseProjectOperationLog.objects.create(
+        project=project,
+        operator=user if getattr(user, 'is_authenticated', False) else None,
+        action=action,
+        action_label=LAND_PROJECT_ACTION_LABELS.get(action, action),
+        payload=payload_data,
+        status_before=status_before or '',
+        status_after=status_after or '',
+    )
 
 
 def _b64url_decode(value):
@@ -1828,6 +1890,372 @@ def ovkml_converter_view(request):
             context['import_skipped_count'] = skipped_count
 
     return render(request, 'admin/ovkml_converter.html', context)
+
+
+@staff_member_required
+def land_project_management_view(request):
+    """独立项目管理页面（非Django原生Admin表单）。"""
+    if not is_management_admin(request.user):
+        return HttpResponseForbidden('当前账号无权使用项目管理页面')
+
+    status_choices = [
+        {'value': value, 'label': label}
+        for value, label in LandUseProjectApproval.STATUS_CHOICES
+    ]
+    context = {
+        'title': '用地项目审批与文档登记',
+        'status_choices_json': json.dumps(status_choices, ensure_ascii=False),
+    }
+    return render(request, 'admin/land_project_management.html', context)
+
+
+@staff_member_required
+def land_project_list_api(request):
+    """用地项目列表API。"""
+    if not is_management_admin(request.user):
+        return JsonResponse({'success': False, 'message': '无权限'}, status=403)
+
+    q = (request.GET.get('q') or '').strip()
+    status = (request.GET.get('status') or '').strip()
+    queryset = LandUseProjectApproval.objects.all()
+
+    if q:
+        queryset = queryset.filter(
+            Q(project_name__icontains=q)
+            | Q(company_name__icontains=q)
+            | Q(incoming_doc_num__icontains=q)
+            | Q(final_reply_to_company__icontains=q)
+        )
+    if status:
+        queryset = queryset.filter(status=status)
+
+    rows = []
+    for item in queryset.order_by('-receive_date', '-updated_at')[:300]:
+        rows.append({
+            'id': str(item.id),
+            'project_name': item.project_name,
+            'company_name': item.company_name,
+            'incoming_doc_num': item.incoming_doc_num,
+            'receive_date': item.receive_date.isoformat() if item.receive_date else '',
+            'status': item.status,
+            'status_label': item.get_status_display(),
+            'is_overlap_artifact': item.is_overlap_artifact,
+            'updated_at': item.updated_at.strftime('%Y-%m-%d %H:%M') if item.updated_at else '',
+        })
+
+    return JsonResponse({'success': True, 'rows': rows})
+
+
+@staff_member_required
+def land_project_detail_api(request, project_id):
+    """用地项目详情API。"""
+    if not is_management_admin(request.user):
+        return JsonResponse({'success': False, 'message': '无权限'}, status=403)
+
+    project = LandUseProjectApproval.objects.filter(id=project_id).first()
+    if not project:
+        return JsonResponse({'success': False, 'message': '项目不存在'}, status=404)
+
+    photo_rows = [
+        {
+            'id': photo.id,
+            'photo_path': photo.photo_path,
+            'photo_url': f"{settings.MEDIA_URL}{photo.photo_path}",
+            'uploaded_at': photo.uploaded_at.strftime('%Y-%m-%d %H:%M'),
+            'note': photo.note,
+        }
+        for photo in project.field_photos.all().order_by('-uploaded_at')[:200]
+    ]
+
+    operation_logs = [
+        {
+            'id': item.id,
+            'action': item.action,
+            'action_label': item.action_label,
+            'operator': item.operator.username if item.operator else '系统',
+            'payload': item.payload,
+            'status_before': item.status_before,
+            'status_after': item.status_after,
+            'created_at': item.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+        }
+        for item in project.operation_logs.select_related('operator').all()[:200]
+    ]
+
+    return JsonResponse({
+        'success': True,
+        'data': {
+            'id': str(project.id),
+            'project_name': project.project_name,
+            'company_name': project.company_name,
+            'incoming_doc_num': project.incoming_doc_num,
+            'receive_date': project.receive_date.isoformat() if project.receive_date else '',
+            'kml_file_path': project.kml_file_path,
+            'is_overlap_artifact': project.is_overlap_artifact,
+            'overlapped_relics_info': project.overlapped_relics_info,
+            'status': project.status,
+            'status_label': project.get_status_display(),
+            'field_check_date': project.field_check_date.isoformat() if project.field_check_date else '',
+            'shanshan_request_num': project.shanshan_request_num,
+            'city_reply_num': project.city_reply_num,
+            'archaeology_request_num': project.archaeology_request_num,
+            'archaeology_report_path': project.archaeology_report_path,
+            'region_approval_num': project.region_approval_num,
+            'city_final_reply_num': project.city_final_reply_num,
+            'final_reply_to_company': project.final_reply_to_company,
+            'controls': get_status_controls(project.status),
+            'field_photos': photo_rows,
+            'operation_logs': operation_logs,
+            'created_at': project.created_at.strftime('%Y-%m-%d %H:%M'),
+            'updated_at': project.updated_at.strftime('%Y-%m-%d %H:%M'),
+        }
+    })
+
+
+def _load_json_payload(request):
+    if not request.body:
+        return {}
+    try:
+        return json.loads(request.body.decode('utf-8'))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        raise ValueError('请求体必须是合法JSON')
+
+
+@csrf_exempt
+@require_POST
+@staff_member_required
+def land_project_create_api(request):
+    """收文登记：创建用地项目审批记录。"""
+    if not is_management_admin(request.user):
+        return JsonResponse({'success': False, 'message': '无权限'}, status=403)
+
+    try:
+        payload = _load_json_payload(request)
+    except ValueError as exc:
+        return JsonResponse({'success': False, 'message': str(exc)}, status=400)
+
+    project_name = (payload.get('project_name') or '').strip()
+    company_name = (payload.get('company_name') or '').strip()
+    incoming_doc_num = (payload.get('incoming_doc_num') or '').strip()
+    receive_date = payload.get('receive_date') or timezone.localdate()
+
+    if not project_name or not company_name or not incoming_doc_num:
+        return JsonResponse({'success': False, 'message': 'project_name/company_name/incoming_doc_num 必填'}, status=400)
+
+    project = LandUseProjectApproval.objects.create(
+        project_name=project_name,
+        company_name=company_name,
+        incoming_doc_num=incoming_doc_num,
+        receive_date=receive_date,
+    )
+    _record_land_project_operation(
+        project=project,
+        user=request.user,
+        action='create',
+        payload={
+            'project_name': project_name,
+            'company_name': company_name,
+            'incoming_doc_num': incoming_doc_num,
+        },
+        status_before='',
+        status_after=project.status,
+    )
+    return JsonResponse({'success': True, 'project_id': str(project.id), 'status': project.status})
+
+
+@csrf_exempt
+@require_POST
+@staff_member_required
+def land_project_upload_api(request, project_id):
+    """
+    文件自动归档：
+    - kml: projects/{year}/{项目名}/kml/
+    - field_photo: projects/{year}/{项目名}/field_checks/
+    - archaeology_report: projects/{year}/{项目名}/archaeology/
+    """
+    if not is_management_admin(request.user):
+        return JsonResponse({'success': False, 'message': '无权限'}, status=403)
+
+    project = LandUseProjectApproval.objects.filter(id=project_id).first()
+    if not project:
+        return JsonResponse({'success': False, 'message': '项目不存在'}, status=404)
+
+    upload_file = request.FILES.get('file')
+    file_type = (request.POST.get('file_type') or '').strip()
+    if not upload_file:
+        return JsonResponse({'success': False, 'message': '未接收到上传文件'}, status=400)
+
+    filename = os.path.basename(upload_file.name or 'upload.bin')
+
+    if file_type == 'kml':
+        if not filename.lower().endswith(('.kml', '.kmz', '.ovkml', '.ovkmz')):
+            return JsonResponse({'success': False, 'message': 'KML文件类型不正确'}, status=400)
+        status_before = project.status
+        relative_path = build_project_media_path(project, 'kml', filename)
+        saved_path = default_storage.save(relative_path, upload_file)
+        project.kml_file_path = saved_path
+        project.save(update_fields=['kml_file_path', 'updated_at'])
+        _record_land_project_operation(
+            project=project,
+            user=request.user,
+            action='upload_kml',
+            payload={
+                'file_type': file_type,
+                'original_filename': filename,
+                'saved_path': saved_path,
+            },
+            status_before=status_before,
+            status_after=project.status,
+        )
+        return JsonResponse({'success': True, 'file_path': saved_path})
+
+    if file_type == 'field_photo':
+        status_before = project.status
+        relative_path = build_project_media_path(project, 'field_checks', filename)
+        saved_path = default_storage.save(relative_path, upload_file)
+        photo = LandUseProjectFieldPhoto.objects.create(
+            project=project,
+            photo_path=saved_path,
+            note=(request.POST.get('note') or '').strip(),
+        )
+        _record_land_project_operation(
+            project=project,
+            user=request.user,
+            action='upload_field_photo',
+            payload={
+                'file_type': file_type,
+                'original_filename': filename,
+                'saved_path': saved_path,
+                'photo_id': photo.id,
+            },
+            status_before=status_before,
+            status_after=project.status,
+        )
+        return JsonResponse({'success': True, 'photo_id': photo.id, 'file_path': saved_path})
+
+    if file_type == 'archaeology_report':
+        if not filename.lower().endswith('.pdf'):
+            return JsonResponse({'success': False, 'message': '考古调查报告仅支持PDF'}, status=400)
+        status_before = project.status
+        relative_path = build_project_media_path(project, 'archaeology', filename)
+        saved_path = default_storage.save(relative_path, upload_file)
+        project.archaeology_report_path = saved_path
+        project.save(update_fields=['archaeology_report_path', 'updated_at'])
+        _record_land_project_operation(
+            project=project,
+            user=request.user,
+            action='upload_archaeology_report',
+            payload={
+                'file_type': file_type,
+                'original_filename': filename,
+                'saved_path': saved_path,
+            },
+            status_before=status_before,
+            status_after=project.status,
+        )
+        return JsonResponse({'success': True, 'file_path': saved_path})
+
+    return JsonResponse({'success': False, 'message': 'file_type 必须为 kml/field_photo/archaeology_report'}, status=400)
+
+
+@csrf_exempt
+@require_POST
+@staff_member_required
+def verify_project_spatial_safety_api(request, project_id):
+    """触发KML与文物保护范围/建控地带叠加核验。"""
+    if not is_management_admin(request.user):
+        return JsonResponse({'success': False, 'message': '无权限'}, status=403)
+
+    project = LandUseProjectApproval.objects.filter(id=project_id).first()
+    if not project:
+        return JsonResponse({'success': False, 'message': '项目不存在'}, status=404)
+
+    status_before = project.status
+
+    try:
+        result = verify_project_spatial_safety(project_id)
+        _record_land_project_operation(
+            project=project,
+            user=request.user,
+            action='verify_spatial_safety',
+            payload={
+                'is_overlap_artifact': result.get('is_overlap_artifact', False),
+                'overlapped_count': len(result.get('overlapped_relics_info') or []),
+            },
+            status_before=status_before,
+            status_after=result.get('status', project.status),
+        )
+    except ValueError as exc:
+        return JsonResponse({'success': False, 'message': str(exc)}, status=400)
+    except Exception:
+        logger.exception('项目空间核验失败: project_id=%s', project_id)
+        return JsonResponse({'success': False, 'message': '空间核验失败，请检查KML与空间数据'}, status=500)
+
+    return JsonResponse({'success': True, 'data': result})
+
+
+@staff_member_required
+def land_project_next_doc_num_api(request):
+    """文号推荐：根据年度历史数据推荐下一个鄯文旅字文号。"""
+    if not is_management_admin(request.user):
+        return JsonResponse({'success': False, 'message': '无权限'}, status=403)
+
+    raw_year = (request.GET.get('year') or '').strip()
+    year = int(raw_year) if raw_year.isdigit() else timezone.localdate().year
+    value = LandUseProjectApproval.suggest_next_shanshan_num(year)
+    return JsonResponse({'success': True, 'year': year, 'next_doc_num': value})
+
+
+@csrf_exempt
+@require_POST
+@staff_member_required
+def land_project_workflow_action_api(request, project_id):
+    """状态机强控流转入口。"""
+    if not is_management_admin(request.user):
+        return JsonResponse({'success': False, 'message': '无权限'}, status=403)
+
+    project = LandUseProjectApproval.objects.filter(id=project_id).first()
+    if not project:
+        return JsonResponse({'success': False, 'message': '项目不存在'}, status=404)
+
+    try:
+        payload = _load_json_payload(request)
+        action = (payload.get('action') or '').strip()
+        status_before = project.status
+        result = apply_workflow_action(project, action, payload)
+        _record_land_project_operation(
+            project=project,
+            user=request.user,
+            action=action,
+            payload=_build_payload_doc_nums(payload),
+            status_before=status_before,
+            status_after=result.get('status', project.status),
+        )
+    except ValueError as exc:
+        return JsonResponse({'success': False, 'message': str(exc)}, status=400)
+    except Exception:
+        logger.exception('项目流程动作执行失败: project_id=%s', project_id)
+        return JsonResponse({'success': False, 'message': '流程动作执行失败'}, status=500)
+
+    return JsonResponse({'success': True, 'data': result})
+
+
+@staff_member_required
+def land_project_controls_api(request, project_id):
+    """前端按钮动态启禁：返回当前状态对应的操作许可。"""
+    if not is_management_admin(request.user):
+        return JsonResponse({'success': False, 'message': '无权限'}, status=403)
+
+    project = LandUseProjectApproval.objects.filter(id=project_id).first()
+    if not project:
+        return JsonResponse({'success': False, 'message': '项目不存在'}, status=404)
+
+    return JsonResponse({
+        'success': True,
+        'project_id': str(project.id),
+        'status': project.status,
+        'status_label': project.get_status_display(),
+        'controls': get_status_controls(project.status),
+    })
 
 
 @staff_member_required

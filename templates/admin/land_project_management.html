@@ -1,0 +1,1191 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>用地项目审批与文档登记</title>
+    <style>
+        :root {
+            --bg: #f5f7fb;
+            --panel: #ffffff;
+            --line: #d9e2ef;
+            --text: #1f2a37;
+            --sub: #5b6b80;
+            --brand: #0b69a3;
+            --brand-strong: #0a4f7f;
+            --ok: #1f9d73;
+            --warn: #b45309;
+            --bad: #b91c1c;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            background: radial-gradient(circle at 12% 18%, #ecf4ff 0, #f5f7fb 42%), linear-gradient(180deg, #f5f7fb, #eef2f8);
+            color: var(--text);
+            font-family: "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+        }
+        .wrap {
+            width: min(1440px, 96vw);
+            margin: 18px auto 30px;
+        }
+        .top {
+            background: linear-gradient(115deg, #0b69a3, #1b86c5 60%, #2f97bf);
+            color: #fff;
+            border-radius: 14px;
+            padding: 18px 20px;
+            box-shadow: 0 14px 30px rgba(11, 105, 163, 0.24);
+            display: grid;
+            gap: 6px;
+        }
+        .top h1 { margin: 0; font-size: 23px; }
+        .top p { margin: 0; opacity: 0.92; font-size: 14px; }
+        .layout {
+            margin-top: 14px;
+            display: grid;
+            grid-template-columns: minmax(360px, 38%) 1fr;
+            gap: 14px;
+            min-height: calc(100vh - 170px);
+        }
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            box-shadow: 0 6px 14px rgba(16, 24, 40, 0.06);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        .panel-head {
+            padding: 12px 14px;
+            border-bottom: 1px solid var(--line);
+            display: grid;
+            gap: 8px;
+            background: #f8fbff;
+        }
+        .title-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+        }
+        .title-row h3 { margin: 0; font-size: 16px; }
+        .toolbar {
+            display: grid;
+            grid-template-columns: 1fr 140px 86px;
+            gap: 8px;
+        }
+        input, select, textarea {
+            width: 100%;
+            border: 1px solid #b9c6d8;
+            border-radius: 8px;
+            padding: 9px 10px;
+            background: #fff;
+            font-size: 14px;
+            color: var(--text);
+        }
+        textarea { min-height: 88px; resize: vertical; }
+        .btn {
+            border: none;
+            border-radius: 8px;
+            background: var(--brand);
+            color: #fff;
+            padding: 9px 12px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 700;
+            letter-spacing: .2px;
+        }
+        .btn:hover { background: var(--brand-strong); }
+        .btn.secondary {
+            background: #e8eef6;
+            color: #334155;
+        }
+        .btn.secondary:hover { background: #d6e0ee; }
+        .btn.warn { background: #d97706; }
+        .btn.warn:hover { background: #b45309; }
+        .list {
+            overflow: auto;
+            padding: 8px;
+            display: grid;
+            gap: 8px;
+        }
+        .item {
+            border: 1px solid #d7e0eb;
+            border-radius: 10px;
+            padding: 10px;
+            cursor: pointer;
+            background: #fff;
+            transition: all .18s ease;
+        }
+        .item:hover { border-color: #6ea8d6; box-shadow: 0 4px 12px rgba(11, 105, 163, 0.12); }
+        .item.active { border-color: #0b69a3; background: #f2f9ff; }
+        .item-name { font-weight: 700; font-size: 14px; }
+        .item-meta { margin-top: 4px; color: var(--sub); font-size: 12px; }
+        .item-tags { margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap; }
+        .tag {
+            display: inline-flex;
+            align-items: center;
+            border-radius: 999px;
+            font-size: 12px;
+            padding: 4px 8px;
+            background: #eef3f9;
+            color: #334155;
+        }
+        .tag.safe { background: #dcfce7; color: #166534; }
+        .tag.risk { background: #fee2e2; color: #991b1b; }
+
+        .detail {
+            overflow: auto;
+            padding: 14px;
+            display: grid;
+            gap: 12px;
+        }
+        .section {
+            border: 1px solid #dbe5f1;
+            border-radius: 10px;
+            padding: 12px;
+            background: #fff;
+        }
+        .section h4 {
+            margin: 0 0 10px;
+            color: #184a76;
+            font-size: 15px;
+        }
+        .grid2 {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+        }
+        .grid3 {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 8px;
+        }
+        .field small { display: block; color: var(--sub); margin-bottom: 4px; }
+        .muted { color: var(--sub); font-size: 13px; }
+        .row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .action-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 8px;
+        }
+        .photo-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 8px;
+        }
+        .photo-card {
+            border: 1px solid #d9e2ef;
+            border-radius: 8px;
+            overflow: hidden;
+            background: #f8fbff;
+        }
+        .photo-card img {
+            width: 100%;
+            height: 120px;
+            object-fit: cover;
+            display: block;
+            background: #edf2f7;
+        }
+        .photo-meta { padding: 6px; font-size: 12px; color: #475569; }
+        .timeline {
+            position: relative;
+            padding-left: 18px;
+            display: grid;
+            gap: 10px;
+        }
+        .timeline::before {
+            content: "";
+            position: absolute;
+            left: 6px;
+            top: 2px;
+            bottom: 2px;
+            width: 2px;
+            background: linear-gradient(180deg, #b8c7da, #dbe5f1);
+        }
+        .tl-item {
+            position: relative;
+            border: 1px solid #dbe5f1;
+            border-radius: 8px;
+            background: #fbfdff;
+            padding: 8px 10px;
+        }
+        .tl-item::before {
+            content: "";
+            position: absolute;
+            left: -16px;
+            top: 12px;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #0b69a3;
+            box-shadow: 0 0 0 3px #e8f2fb;
+        }
+        .tl-title { font-size: 13px; font-weight: 700; color: #1e3a5f; }
+        .tl-meta { font-size: 12px; color: #64748b; margin-top: 3px; }
+        .tl-empty { color: #64748b; font-size: 13px; }
+        .upload-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
+        }
+        .drop-zone {
+            border: 1px dashed #9ab4d2;
+            border-radius: 10px;
+            padding: 10px;
+            background: #f8fbff;
+            min-height: 110px;
+            display: grid;
+            gap: 8px;
+            align-content: center;
+            text-align: center;
+            transition: all .18s ease;
+        }
+        .drop-zone.dragover {
+            border-color: #0b69a3;
+            background: #edf6ff;
+            box-shadow: inset 0 0 0 1px #0b69a3;
+        }
+        .drop-zone .dz-title { font-size: 13px; font-weight: 700; color: #1e3a5f; }
+        .drop-zone .dz-sub { font-size: 12px; color: #64748b; }
+        .drop-zone input[type="file"] { display: none; }
+        .upload-queue {
+            margin-top: 10px;
+            border: 1px solid #dbe5f1;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .uq-row {
+            display: grid;
+            grid-template-columns: 120px 1fr 120px 90px;
+            gap: 8px;
+            align-items: center;
+            padding: 8px 10px;
+            border-bottom: 1px solid #edf2f7;
+            font-size: 12px;
+        }
+        .uq-row:last-child { border-bottom: none; }
+        .uq-type { color: #1e3a5f; font-weight: 700; }
+        .uq-file { color: #334155; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .uq-state { color: #475569; }
+        .uq-op { display: flex; justify-content: flex-end; }
+        .progress-wrap {
+            height: 8px;
+            border-radius: 999px;
+            background: #e5edf8;
+            overflow: hidden;
+            margin-top: 4px;
+        }
+        .progress-bar {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #0b69a3, #22a4df);
+            transition: width .2s ease;
+        }
+        .mini-btn {
+            border: 1px solid #c9d7ea;
+            border-radius: 6px;
+            background: #f8fbff;
+            color: #1e3a5f;
+            padding: 3px 6px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .mini-btn:hover { background: #edf4ff; }
+        .log-table-wrap {
+            overflow: auto;
+            border: 1px solid #dbe5f1;
+            border-radius: 8px;
+        }
+        .log-table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 760px;
+        }
+        .log-table th,
+        .log-table td {
+            border-bottom: 1px solid #edf2f7;
+            padding: 7px 8px;
+            font-size: 12px;
+            text-align: left;
+            vertical-align: top;
+        }
+        .log-table th {
+            background: #f7fbff;
+            color: #1e3a5f;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+        .log-json {
+            max-width: 420px;
+            white-space: pre-wrap;
+            word-break: break-all;
+            color: #475569;
+        }
+        .hint {
+            border-radius: 8px;
+            background: #eefaf4;
+            border: 1px solid #b9e8cd;
+            color: #166534;
+            padding: 8px 10px;
+            font-size: 13px;
+        }
+        .error {
+            border-radius: 8px;
+            background: #fff1f2;
+            border: 1px solid #fecdd3;
+            color: #9f1239;
+            padding: 8px 10px;
+            font-size: 13px;
+        }
+        .badge {
+            display: inline-flex;
+            border-radius: 999px;
+            padding: 4px 9px;
+            font-size: 12px;
+            font-weight: 700;
+            background: #dbeafe;
+            color: #1e3a8a;
+        }
+        .modal-mask {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.45);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1200;
+            padding: 14px;
+        }
+        .modal-mask.show { display: flex; }
+        .modal-card {
+            width: min(640px, 94vw);
+            background: #fff;
+            border-radius: 12px;
+            border: 1px solid #d4dfec;
+            box-shadow: 0 20px 42px rgba(15, 23, 42, 0.25);
+            overflow: hidden;
+        }
+        .modal-head {
+            background: #f2f8ff;
+            padding: 12px 14px;
+            border-bottom: 1px solid #dbe7f5;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+        }
+        .modal-head h5 { margin: 0; font-size: 15px; color: #1e3a5f; }
+        .modal-close {
+            border: none;
+            background: #e2ebf7;
+            color: #334155;
+            border-radius: 6px;
+            width: 30px;
+            height: 30px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        .modal-body { padding: 12px 14px; display: grid; gap: 10px; }
+        .modal-actions {
+            padding: 10px 14px 14px;
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+        }
+        @media (max-width: 1200px) {
+            .layout { grid-template-columns: 1fr; min-height: auto; }
+        }
+        @media (max-width: 860px) {
+            .grid2, .grid3, .action-grid { grid-template-columns: 1fr; }
+            .upload-grid { grid-template-columns: 1fr; }
+            .uq-row { grid-template-columns: 1fr; }
+            .photo-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .toolbar { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+<div class="wrap">
+    <div class="top">
+        <h1>用地项目审批与文档登记</h1>
+        <p>一页完成收文登记、KML叠加核验、流程A/B流转、归档闭环。当前为独立页面，不依赖原生Admin编辑表单。</p>
+    </div>
+
+    <div class="layout">
+        <section class="panel">
+            <div class="panel-head">
+                <div class="title-row">
+                    <h3>项目列表</h3>
+                    <button class="btn secondary" id="btnReload">刷新</button>
+                </div>
+                <div class="toolbar">
+                    <input id="searchInput" placeholder="搜索项目名 / 企业 / 来函字号">
+                    <select id="statusFilter"></select>
+                    <button class="btn" id="btnSearch">查询</button>
+                </div>
+            </div>
+            <div class="list" id="projectList"></div>
+        </section>
+
+        <section class="panel">
+            <div class="panel-head">
+                <div class="title-row">
+                    <h3>项目详情与流程操作</h3>
+                    <span class="badge" id="currentStatus">未选择项目</span>
+                </div>
+            </div>
+            <div class="detail">
+                <div id="messageBox" class="muted">请先从左侧选择项目，或先创建新项目。</div>
+
+                <div class="section">
+                    <h4>1. 收文登记（创建项目）</h4>
+                    <div class="grid3">
+                        <div class="field"><small>用地项目名称</small><input id="createProjectName"></div>
+                        <div class="field"><small>企业单位名称</small><input id="createCompanyName"></div>
+                        <div class="field"><small>企业来函字号</small><input id="createIncomingDoc"></div>
+                    </div>
+                    <div class="row" style="margin-top:8px;">
+                        <button class="btn" id="btnCreateProject">创建项目</button>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <h4>2. 文件归档上传</h4>
+                    <div class="upload-grid">
+                        <div class="drop-zone" id="zoneKml" data-type="kml">
+                            <div class="dz-title">KML/KMZ 批量拖拽</div>
+                            <div class="dz-sub">拖入 .kml/.kmz/.ovkml/.ovkmz，或点击选择文件</div>
+                            <button class="mini-btn" id="btnPickKml" type="button">选择KML文件</button>
+                            <input type="file" id="kmlFile" accept=".kml,.kmz,.ovkml,.ovkmz" multiple>
+                        </div>
+                        <div class="drop-zone" id="zonePhoto" data-type="field_photo">
+                            <div class="dz-title">现场照片批量拖拽</div>
+                            <div class="dz-sub">拖入多张图片，支持失败重试</div>
+                            <button class="mini-btn" id="btnPickPhoto" type="button">选择照片</button>
+                            <input type="file" id="photoFile" accept="image/*" multiple>
+                        </div>
+                        <div class="drop-zone" id="zonePdf" data-type="archaeology_report">
+                            <div class="dz-title">考古报告PDF批量拖拽</div>
+                            <div class="dz-sub">拖入一份或多份PDF文件</div>
+                            <button class="mini-btn" id="btnPickPdf" type="button">选择PDF</button>
+                            <input type="file" id="pdfFile" accept="application/pdf" multiple>
+                        </div>
+                    </div>
+                    <div class="row" style="margin-top:8px;">
+                        <button class="btn" id="btnStartKml">开始上传KML队列</button>
+                        <button class="btn secondary" id="btnStartPhoto">开始上传照片队列</button>
+                        <button class="btn warn" id="btnStartPdf">开始上传PDF队列</button>
+                        <button class="btn secondary" id="btnClearQueue">清空完成/失败项</button>
+                    </div>
+                    <div class="upload-queue" id="uploadQueueBox"></div>
+                    <div class="muted" id="kmlPathText" style="margin-top:8px;"></div>
+                </div>
+
+                <div class="section">
+                    <h4>3. 空间核验与文号推荐</h4>
+                    <div class="row">
+                        <button class="btn" id="btnVerifySpatial">执行KML叠加核验</button>
+                        <button class="btn secondary" id="btnSuggestNum">推荐县局请示文号</button>
+                        <input id="suggestOutput" readonly placeholder="点击按钮后自动填充" style="max-width:320px;">
+                    </div>
+                    <div class="muted" id="overlapText" style="margin-top:8px;"></div>
+                </div>
+
+                <div class="section">
+                    <h4>4. 状态流转强控</h4>
+                    <div class="action-grid">
+                        <button class="btn secondary" id="actFieldDone">提交现场勘查完成</button>
+                        <button class="btn secondary" id="actSubmitCity">录入县局请示并提交市局</button>
+                        <button class="btn secondary" id="actCityReply">录入市局复函</button>
+                        <button class="btn secondary" id="actArchaeologyReq">发起考古流转</button>
+                        <button class="btn secondary" id="actArchaeologyReply">录入考古批复结果</button>
+                        <button class="btn" id="actArchive">办结归档</button>
+                    </div>
+                    <div class="muted" style="margin-top:8px;">按钮会根据状态自动启用/禁用，禁止越级流转。</div>
+                </div>
+
+                <div class="section">
+                    <h4>5. 已上传现场照片</h4>
+                    <div class="photo-grid" id="photoGrid"></div>
+                </div>
+
+                <div class="section">
+                    <h4>6. 流程时间轴</h4>
+                    <div class="timeline" id="timelineBox"></div>
+                </div>
+
+                <div class="section">
+                    <h4>7. 流程操作日志表</h4>
+                    <div class="log-table-wrap">
+                        <table class="log-table">
+                            <thead>
+                                <tr>
+                                    <th>时间</th>
+                                    <th>操作人</th>
+                                    <th>动作</th>
+                                    <th>状态变化</th>
+                                    <th>传入参数（文号等）</th>
+                                </tr>
+                            </thead>
+                            <tbody id="logTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </div>
+</div>
+
+<div class="modal-mask" id="workflowModal">
+    <div class="modal-card">
+        <div class="modal-head">
+            <h5 id="modalTitle">流程操作</h5>
+            <button class="modal-close" id="modalClose" title="关闭">×</button>
+        </div>
+        <div class="modal-body" id="modalBody"></div>
+        <div class="modal-actions">
+            <button class="btn secondary" id="modalCancel">取消</button>
+            <button class="btn" id="modalSubmit">确认提交</button>
+        </div>
+    </div>
+</div>
+
+<script>
+const STATUS_CHOICES = {{ status_choices_json|safe }};
+let currentProjectId = null;
+let currentDetail = null;
+let currentAction = '';
+let uploadQueue = [];
+let uploadSeq = 1;
+
+const el = {
+    messageBox: document.getElementById('messageBox'),
+    projectList: document.getElementById('projectList'),
+    searchInput: document.getElementById('searchInput'),
+    statusFilter: document.getElementById('statusFilter'),
+    currentStatus: document.getElementById('currentStatus'),
+    kmlPathText: document.getElementById('kmlPathText'),
+    overlapText: document.getElementById('overlapText'),
+    photoGrid: document.getElementById('photoGrid'),
+    suggestOutput: document.getElementById('suggestOutput'),
+    timelineBox: document.getElementById('timelineBox'),
+    uploadQueueBox: document.getElementById('uploadQueueBox'),
+    logTableBody: document.getElementById('logTableBody'),
+    workflowModal: document.getElementById('workflowModal'),
+    modalTitle: document.getElementById('modalTitle'),
+    modalBody: document.getElementById('modalBody'),
+    modalSubmit: document.getElementById('modalSubmit'),
+};
+
+const FILE_TYPE_LABEL = {
+    kml: 'KML/KMZ',
+    field_photo: '现场照片',
+    archaeology_report: '考古PDF',
+};
+
+const ACTION_SCHEMAS = {
+    complete_field_check: {
+        title: '提交现场勘查完成',
+        fields: [
+            { key: 'field_check_date', label: '现场勘查日期', type: 'date', required: true },
+        ],
+    },
+    submit_city_request: {
+        title: '录入县局请示并提交市局',
+        fields: [
+            { key: 'shanshan_request_num', label: '县局请示文号', type: 'text', required: true, placeholder: '鄯文旅字-2026-xx号' },
+        ],
+    },
+    record_city_reply: {
+        title: '录入市局复函',
+        fields: [
+            { key: 'city_reply_num', label: '市局复函号', type: 'text', required: true },
+        ],
+    },
+    submit_archaeology_request: {
+        title: '发起考古流转',
+        fields: [
+            { key: 'archaeology_request_num', label: '考古请示文号', type: 'text', required: true },
+        ],
+    },
+    record_archaeology_reply: {
+        title: '录入考古批复结果',
+        fields: [
+            { key: 'region_approval_num', label: '自治区文物局批复文号', type: 'text', required: true },
+            { key: 'city_final_reply_num', label: '市文物局最终复函号', type: 'text', required: true },
+        ],
+    },
+    archive_case: {
+        title: '办结归档',
+        fields: [
+            { key: 'final_reply_to_company', label: '给企业最终复函号', type: 'text', required: true },
+        ],
+    },
+};
+
+function msg(text, ok=true) {
+    el.messageBox.className = ok ? 'hint' : 'error';
+    el.messageBox.textContent = text;
+}
+
+function escapeAttr(value) {
+    return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
+function requireProjectId() {
+    if (!currentProjectId) {
+        msg('请先在左侧选择项目。', false);
+        return false;
+    }
+    return true;
+}
+
+function initStatusFilter() {
+    const opts = ['<option value="">全部状态</option>'];
+    for (const item of STATUS_CHOICES) {
+        opts.push(`<option value="${item.value}">${item.label}</option>`);
+    }
+    el.statusFilter.innerHTML = opts.join('');
+}
+
+function renderList(rows) {
+    if (!rows.length) {
+        el.projectList.innerHTML = '<div class="muted">暂无项目记录，可先在右侧创建项目。</div>';
+        return;
+    }
+    el.projectList.innerHTML = rows.map(row => {
+        const active = row.id === currentProjectId ? 'active' : '';
+        const overlapTag = row.is_overlap_artifact ? '<span class="tag risk">涉及文物</span>' : '<span class="tag safe">初审安全</span>';
+        return `
+            <div class="item ${active}" data-id="${row.id}">
+                <div class="item-name">${row.project_name}</div>
+                <div class="item-meta">${row.company_name} | ${row.incoming_doc_num}</div>
+                <div class="item-meta">收文: ${row.receive_date || '-'} | 更新: ${row.updated_at || '-'}</div>
+                <div class="item-tags">
+                    <span class="tag">${row.status_label}</span>
+                    ${overlapTag}
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    for (const node of el.projectList.querySelectorAll('.item')) {
+        node.addEventListener('click', () => {
+            currentProjectId = node.dataset.id;
+            loadDetail();
+            loadList();
+        });
+    }
+}
+
+async function loadList() {
+    const params = new URLSearchParams();
+    const q = el.searchInput.value.trim();
+    const status = el.statusFilter.value;
+    if (q) params.set('q', q);
+    if (status) params.set('status', status);
+    const resp = await fetch(`/api/land-projects/?${params.toString()}`);
+    const data = await resp.json();
+    if (!data.success) {
+        msg(data.message || '加载列表失败', false);
+        return;
+    }
+    const rows = data.rows || [];
+    renderList(rows);
+    if (!currentProjectId && rows.length > 0) {
+        currentProjectId = rows[0].id;
+        await loadDetail();
+        renderList(rows);
+    }
+}
+
+function renderPhotos(rows) {
+    if (!rows || !rows.length) {
+        el.photoGrid.innerHTML = '<div class="muted">暂无现场照片。</div>';
+        return;
+    }
+    el.photoGrid.innerHTML = rows.map(item => `
+        <div class="photo-card">
+            <a href="${item.photo_url}" target="_blank" rel="noopener noreferrer"><img src="${item.photo_url}" alt="现场照片"></a>
+            <div class="photo-meta">${item.uploaded_at}<br>${item.note || ''}</div>
+        </div>
+    `).join('');
+}
+
+function renderTimeline(detail) {
+    const events = [];
+    if (detail.receive_date) {
+        events.push({ title: '收文登记', meta: `${detail.receive_date} | 来函: ${detail.incoming_doc_num || '-'}` });
+    }
+    if (detail.kml_file_path) {
+        events.push({ title: 'KML文件已归档', meta: detail.kml_file_path });
+    }
+    events.push({
+        title: '空间核验状态',
+        meta: detail.is_overlap_artifact ? '涉及文物重叠（已进入涉及流程）' : '初审安全（可走流程A）',
+    });
+    if (detail.field_check_date) {
+        events.push({ title: '现场勘查完成', meta: detail.field_check_date });
+    }
+    if (detail.shanshan_request_num) {
+        events.push({ title: '县局请示已录入', meta: detail.shanshan_request_num });
+    }
+    if (detail.city_reply_num) {
+        events.push({ title: '市局复函已录入', meta: detail.city_reply_num });
+    }
+    if (detail.archaeology_request_num) {
+        events.push({ title: '考古流转发起', meta: detail.archaeology_request_num });
+    }
+    if (detail.archaeology_report_path) {
+        events.push({ title: '考古报告已归档', meta: detail.archaeology_report_path });
+    }
+    if (detail.region_approval_num || detail.city_final_reply_num) {
+        events.push({
+            title: '考古批复结果已录入',
+            meta: `自治区: ${detail.region_approval_num || '-'} | 市局: ${detail.city_final_reply_num || '-'}`,
+        });
+    }
+    if (detail.final_reply_to_company) {
+        events.push({ title: '向企业出具最终复函', meta: detail.final_reply_to_company });
+    }
+    events.push({ title: '当前状态', meta: `${detail.status_label} | 更新时间: ${detail.updated_at || '-'}` });
+
+    if (!events.length) {
+        el.timelineBox.innerHTML = '<div class="tl-empty">暂无流程节点。</div>';
+        return;
+    }
+
+    el.timelineBox.innerHTML = events.map(item => `
+        <div class="tl-item">
+            <div class="tl-title">${item.title}</div>
+            <div class="tl-meta">${item.meta}</div>
+        </div>
+    `).join('');
+}
+
+function renderOperationLogs(rows) {
+    if (!rows || !rows.length) {
+        el.logTableBody.innerHTML = '<tr><td colspan="5" class="muted">暂无流程日志。</td></tr>';
+        return;
+    }
+    el.logTableBody.innerHTML = rows.map(item => {
+        const before = item.status_before || '-';
+        const after = item.status_after || '-';
+        const payloadText = item.payload && Object.keys(item.payload).length ? JSON.stringify(item.payload, null, 2) : '-';
+        return `
+            <tr>
+                <td>${item.created_at}</td>
+                <td>${item.operator}</td>
+                <td>${item.action_label || item.action}</td>
+                <td>${before} -> ${after}</td>
+                <td><div class="log-json">${escapeAttr(payloadText)}</div></td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function addFilesToQueue(fileType, fileList) {
+    if (!fileList || !fileList.length) return;
+    Array.from(fileList).forEach(file => {
+        uploadQueue.push({
+            id: uploadSeq++,
+            fileType,
+            file,
+            status: 'pending',
+            progress: 0,
+            attempts: 0,
+            error: '',
+        });
+    });
+    renderUploadQueue();
+}
+
+function getUploadStatusText(item) {
+    if (item.status === 'pending') return '待上传';
+    if (item.status === 'uploading') return `上传中 ${item.progress}%`;
+    if (item.status === 'success') return '上传成功';
+    return `上传失败${item.error ? `: ${item.error}` : ''}`;
+}
+
+function renderUploadQueue() {
+    if (!uploadQueue.length) {
+        el.uploadQueueBox.innerHTML = '<div class="uq-row"><div class="muted">上传队列为空，可拖拽文件到上方区域。</div></div>';
+        return;
+    }
+    el.uploadQueueBox.innerHTML = uploadQueue.map(item => {
+        const progress = Math.max(0, Math.min(100, item.progress || 0));
+        const op = item.status === 'failed'
+            ? `<button class="mini-btn" data-retry-id="${item.id}">重试</button>`
+            : '-';
+        return `
+            <div class="uq-row">
+                <div class="uq-type">${FILE_TYPE_LABEL[item.fileType] || item.fileType}</div>
+                <div>
+                    <div class="uq-file" title="${escapeAttr(item.file.name)}">${item.file.name}</div>
+                    <div class="progress-wrap"><div class="progress-bar" style="width:${progress}%;"></div></div>
+                </div>
+                <div class="uq-state">${getUploadStatusText(item)}</div>
+                <div class="uq-op">${op}</div>
+            </div>
+        `;
+    }).join('');
+
+    for (const btn of el.uploadQueueBox.querySelectorAll('[data-retry-id]')) {
+        btn.addEventListener('click', () => {
+            const id = Number(btn.getAttribute('data-retry-id'));
+            retryUploadById(id);
+        });
+    }
+}
+
+function uploadByXHR(item) {
+    return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        const form = new FormData();
+        form.append('file_type', item.fileType);
+        form.append('file', item.file);
+
+        xhr.open('POST', `/api/land-projects/${currentProjectId}/upload/`, true);
+        xhr.upload.onprogress = (evt) => {
+            if (!evt.lengthComputable) return;
+            item.progress = Math.round((evt.loaded / evt.total) * 100);
+            renderUploadQueue();
+        };
+        xhr.onload = () => {
+            try {
+                const data = JSON.parse(xhr.responseText || '{}');
+                if (xhr.status >= 200 && xhr.status < 300 && data.success) {
+                    resolve(data);
+                    return;
+                }
+                reject(new Error(data.message || `HTTP ${xhr.status}`));
+            } catch (err) {
+                reject(new Error('响应解析失败'));
+            }
+        };
+        xhr.onerror = () => reject(new Error('网络错误'));
+        xhr.send(form);
+    });
+}
+
+async function uploadQueueItem(item) {
+    item.status = 'uploading';
+    item.progress = 0;
+    item.error = '';
+    item.attempts += 1;
+    renderUploadQueue();
+
+    try {
+        const data = await uploadByXHR(item);
+        item.status = 'success';
+        item.progress = 100;
+        item.error = '';
+        if (item.fileType === 'kml' && data.file_path) {
+            el.kmlPathText.textContent = `KML文件: ${data.file_path}`;
+        }
+    } catch (err) {
+        item.status = 'failed';
+        item.error = err.message || '上传失败';
+    }
+    renderUploadQueue();
+}
+
+async function startUploadByType(fileType) {
+    if (!requireProjectId()) return;
+    const pendingItems = uploadQueue.filter(item => item.fileType === fileType && (item.status === 'pending' || item.status === 'failed'));
+    if (!pendingItems.length) {
+        msg(`${FILE_TYPE_LABEL[fileType]}队列无可上传文件。`, false);
+        return;
+    }
+
+    for (const item of pendingItems) {
+        await uploadQueueItem(item);
+    }
+
+    const failedCount = pendingItems.filter(item => item.status === 'failed').length;
+    if (failedCount > 0) {
+        msg(`${FILE_TYPE_LABEL[fileType]}上传完成，失败 ${failedCount} 个，可点击重试。`, false);
+    } else {
+        msg(`${FILE_TYPE_LABEL[fileType]}全部上传成功。`);
+    }
+    await loadDetail();
+    await loadList();
+}
+
+async function retryUploadById(id) {
+    if (!requireProjectId()) return;
+    const item = uploadQueue.find(it => it.id === id);
+    if (!item) return;
+    await uploadQueueItem(item);
+    if (item.status === 'success') {
+        msg(`${item.file.name} 重试上传成功。`);
+        await loadDetail();
+        await loadList();
+    }
+}
+
+function clearFinishedQueue() {
+    uploadQueue = uploadQueue.filter(item => item.status === 'uploading' || item.status === 'pending');
+    renderUploadQueue();
+}
+
+function bindDropZone(zoneId, inputId, fileType) {
+    const zone = document.getElementById(zoneId);
+    const input = document.getElementById(inputId);
+    if (!zone || !input) return;
+
+    const stop = (evt) => {
+        evt.preventDefault();
+        evt.stopPropagation();
+    };
+
+    ['dragenter', 'dragover'].forEach(name => {
+        zone.addEventListener(name, (evt) => {
+            stop(evt);
+            zone.classList.add('dragover');
+        });
+    });
+    ['dragleave', 'drop'].forEach(name => {
+        zone.addEventListener(name, (evt) => {
+            stop(evt);
+            zone.classList.remove('dragover');
+        });
+    });
+    zone.addEventListener('drop', (evt) => {
+        const files = evt.dataTransfer ? evt.dataTransfer.files : null;
+        addFilesToQueue(fileType, files);
+    });
+
+    input.addEventListener('change', () => {
+        addFilesToQueue(fileType, input.files);
+        input.value = '';
+    });
+}
+
+function setActionEnabled(controls) {
+    const map = {
+        btnStartKml: controls.upload_kml,
+        btnVerifySpatial: controls.verify_spatial,
+        btnStartPhoto: controls.upload_field_photos,
+        actFieldDone: currentDetail && currentDetail.status === '20_初审安全',
+        actSubmitCity: currentDetail && currentDetail.status === '30_现场勘查完成',
+        actCityReply: controls.input_city_reply,
+        actArchaeologyReq: controls.submit_archaeology,
+        actArchaeologyReply: currentDetail && currentDetail.status === '45_考古流转中',
+        btnStartPdf: controls.upload_archaeology_report,
+        actArchive: controls.close_archive,
+    };
+    Object.entries(map).forEach(([id, enabled]) => {
+        const node = document.getElementById(id);
+        if (node) node.disabled = !enabled;
+    });
+}
+
+async function loadDetail() {
+    if (!requireProjectId()) return;
+    const resp = await fetch(`/api/land-projects/${currentProjectId}/`);
+    const payload = await resp.json();
+    if (!payload.success) {
+        msg(payload.message || '加载详情失败', false);
+        return;
+    }
+
+    currentDetail = payload.data;
+    el.currentStatus.textContent = `${currentDetail.status_label}`;
+    el.kmlPathText.textContent = currentDetail.kml_file_path ? `KML文件: ${currentDetail.kml_file_path}` : '尚未上传KML';
+
+    const overlapInfo = currentDetail.overlapped_relics_info || [];
+    if (!overlapInfo.length) {
+        el.overlapText.textContent = '叠加结果: 当前未发现与文物保护范围/建控地带重叠。';
+    } else {
+        const names = overlapInfo.map(x => `${x.heritage_name}(${x.zone_type})`).join('；');
+        el.overlapText.textContent = `叠加结果: 发现重叠 ${overlapInfo.length} 条，${names}`;
+    }
+
+    renderPhotos(currentDetail.field_photos || []);
+    renderTimeline(currentDetail);
+    renderOperationLogs(currentDetail.operation_logs || []);
+    setActionEnabled(currentDetail.controls || {});
+    msg(`已加载项目: ${currentDetail.project_name}`);
+}
+
+async function createProject() {
+    const project_name = document.getElementById('createProjectName').value.trim();
+    const company_name = document.getElementById('createCompanyName').value.trim();
+    const incoming_doc_num = document.getElementById('createIncomingDoc').value.trim();
+    if (!project_name || !company_name || !incoming_doc_num) {
+        msg('请完整填写收文登记信息。', false);
+        return;
+    }
+
+    const resp = await fetch('/api/land-projects/create/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_name, company_name, incoming_doc_num }),
+    });
+    const data = await resp.json();
+    if (!data.success) {
+        msg(data.message || '创建失败', false);
+        return;
+    }
+    currentProjectId = data.project_id;
+    msg('项目创建成功。');
+    await loadList();
+    await loadDetail();
+}
+
+async function verifySpatial() {
+    if (!requireProjectId()) return;
+    const resp = await fetch(`/api/land-projects/${currentProjectId}/verify-spatial-safety/`, {
+        method: 'POST'
+    });
+    const data = await resp.json();
+    if (!data.success) {
+        msg(data.message || '空间核验失败', false);
+        return;
+    }
+    msg('空间核验完成，状态已自动更新。');
+    await loadDetail();
+    await loadList();
+}
+
+async function suggestNum() {
+    const year = new Date().getFullYear();
+    const resp = await fetch(`/api/land-projects/next-shanshan-doc/?year=${year}`);
+    const data = await resp.json();
+    if (!data.success) {
+        msg('文号推荐失败', false);
+        return;
+    }
+    el.suggestOutput.value = data.next_doc_num || '';
+    msg('已生成推荐文号。');
+}
+
+async function doWorkflow(action, payload={}) {
+    if (!requireProjectId()) return;
+    const resp = await fetch(`/api/land-projects/${currentProjectId}/workflow-action/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, ...payload }),
+    });
+    const data = await resp.json();
+    if (!data.success) {
+        msg(data.message || '流转失败', false);
+        return;
+    }
+    msg(`流程推进成功，当前状态: ${data.data.status_label}`);
+    await loadDetail();
+    await loadList();
+}
+
+function closeModal() {
+    el.workflowModal.classList.remove('show');
+    currentAction = '';
+    el.modalBody.innerHTML = '';
+}
+
+function openActionModal(action) {
+    if (!requireProjectId()) return;
+    const schema = ACTION_SCHEMAS[action];
+    if (!schema) return;
+
+    currentAction = action;
+    el.modalTitle.textContent = schema.title;
+    el.modalBody.innerHTML = schema.fields.map(field => {
+        const preset = (field.key === 'shanshan_request_num' && el.suggestOutput.value)
+            ? el.suggestOutput.value
+            : (currentDetail && currentDetail[field.key] ? currentDetail[field.key] : '');
+        const safePreset = escapeAttr(preset);
+        const safePlaceholder = field.placeholder ? escapeAttr(field.placeholder) : '';
+        return `
+            <label class="field">
+                <small>${field.label}</small>
+                <input
+                    data-field-key="${field.key}"
+                    type="${field.type || 'text'}"
+                    value="${safePreset}"
+                    ${field.placeholder ? `placeholder="${safePlaceholder}"` : ''}
+                >
+            </label>
+        `;
+    }).join('');
+
+    el.workflowModal.classList.add('show');
+}
+
+async function submitModalWorkflow() {
+    const schema = ACTION_SCHEMAS[currentAction];
+    if (!schema) return;
+
+    const payload = {};
+    for (const field of schema.fields) {
+        const node = el.modalBody.querySelector(`[data-field-key="${field.key}"]`);
+        const value = (node ? node.value : '').trim();
+        if (field.required && !value) {
+            msg(`${field.label}不能为空`, false);
+            return;
+        }
+        payload[field.key] = value;
+    }
+
+    await doWorkflow(currentAction, payload);
+    closeModal();
+}
+
+function bindEvents() {
+    document.getElementById('btnSearch').addEventListener('click', loadList);
+    document.getElementById('btnReload').addEventListener('click', loadList);
+    el.searchInput.addEventListener('keydown', (evt) => {
+        if (evt.key === 'Enter') loadList();
+    });
+    document.getElementById('btnCreateProject').addEventListener('click', createProject);
+
+    document.getElementById('btnPickKml').addEventListener('click', () => document.getElementById('kmlFile').click());
+    document.getElementById('btnPickPhoto').addEventListener('click', () => document.getElementById('photoFile').click());
+    document.getElementById('btnPickPdf').addEventListener('click', () => document.getElementById('pdfFile').click());
+    bindDropZone('zoneKml', 'kmlFile', 'kml');
+    bindDropZone('zonePhoto', 'photoFile', 'field_photo');
+    bindDropZone('zonePdf', 'pdfFile', 'archaeology_report');
+
+    document.getElementById('btnStartKml').addEventListener('click', () => startUploadByType('kml'));
+    document.getElementById('btnStartPhoto').addEventListener('click', () => startUploadByType('field_photo'));
+    document.getElementById('btnStartPdf').addEventListener('click', () => startUploadByType('archaeology_report'));
+    document.getElementById('btnClearQueue').addEventListener('click', clearFinishedQueue);
+    document.getElementById('btnVerifySpatial').addEventListener('click', verifySpatial);
+    document.getElementById('btnSuggestNum').addEventListener('click', suggestNum);
+
+    document.getElementById('actFieldDone').addEventListener('click', () => openActionModal('complete_field_check'));
+    document.getElementById('actSubmitCity').addEventListener('click', () => openActionModal('submit_city_request'));
+    document.getElementById('actCityReply').addEventListener('click', () => openActionModal('record_city_reply'));
+    document.getElementById('actArchaeologyReq').addEventListener('click', () => openActionModal('submit_archaeology_request'));
+    document.getElementById('actArchaeologyReply').addEventListener('click', () => openActionModal('record_archaeology_reply'));
+    document.getElementById('actArchive').addEventListener('click', () => openActionModal('archive_case'));
+
+    document.getElementById('modalClose').addEventListener('click', closeModal);
+    document.getElementById('modalCancel').addEventListener('click', closeModal);
+    el.modalSubmit.addEventListener('click', submitModalWorkflow);
+    el.workflowModal.addEventListener('click', (e) => {
+        if (e.target === el.workflowModal) closeModal();
+    });
+}
+
+(async function init() {
+    initStatusFilter();
+    bindEvents();
+    renderUploadQueue();
+    await loadList();
+})();
+</script>
+</body>
+</html>

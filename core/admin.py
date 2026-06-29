@@ -3,6 +3,9 @@ from .models import (
     HeritageSite,
     InspectionRecord,
     ProjectAudit,
+    LandUseProjectApproval,
+    LandUseProjectFieldPhoto,
+    LandUseProjectOperationLog,
     Coordinate,
     UserProfile,
     UserManagementAudit,
@@ -619,9 +622,90 @@ class ProjectAdmin(admin.ModelAdmin):
     export_standard_request_doc.short_description = '导出标准请示公文'
     actions = ['export_standard_request_doc']
 
+
+class LandUseProjectFieldPhotoInline(admin.TabularInline):
+    model = LandUseProjectFieldPhoto
+    extra = 0
+    fields = ('photo_path', 'note', 'uploaded_at')
+    readonly_fields = ('uploaded_at',)
+
+
+@admin.register(LandUseProjectApproval)
+class LandUseProjectApprovalAdmin(admin.ModelAdmin):
+    list_display = (
+        'project_name',
+        'company_name',
+        'incoming_doc_num',
+        'status',
+        'is_overlap_artifact',
+        'receive_date',
+        'updated_at',
+    )
+    list_filter = ('status', 'is_overlap_artifact', 'receive_date')
+    search_fields = ('project_name', 'company_name', 'incoming_doc_num', 'final_reply_to_company')
+    readonly_fields = ('created_at', 'updated_at', 'overlapped_relics_info')
+    date_hierarchy = 'receive_date'
+    inlines = [LandUseProjectFieldPhotoInline]
+
+    fieldsets = (
+        ('收文登记', {
+            'fields': (
+                'project_name',
+                'company_name',
+                'incoming_doc_num',
+                'receive_date',
+                'kml_file_path',
+            )
+        }),
+        ('空间核验', {
+            'fields': ('is_overlap_artifact', 'overlapped_relics_info', 'status'),
+        }),
+        ('流程A（不涉及文物）', {
+            'fields': ('field_check_date', 'shanshan_request_num', 'city_reply_num'),
+            'classes': ('collapse',),
+        }),
+        ('流程B（涉及文物）', {
+            'fields': (
+                'archaeology_request_num',
+                'archaeology_report_path',
+                'region_approval_num',
+                'city_final_reply_num',
+            ),
+            'classes': ('collapse',),
+        }),
+        ('办结归档', {
+            'fields': ('final_reply_to_company', 'created_at', 'updated_at'),
+            'classes': ('collapse',),
+        }),
+    )
+
     class Media:
         js = ('admin/js/project_quick_nav.js',)
 
+
+@admin.register(LandUseProjectOperationLog)
+class LandUseProjectOperationLogAdmin(admin.ModelAdmin):
+    list_display = (
+        'project',
+        'operator',
+        'action',
+        'action_label',
+        'status_before',
+        'status_after',
+        'created_at',
+    )
+    list_filter = ('action', 'created_at')
+    search_fields = ('project__project_name', 'operator__username', 'action', 'action_label')
+    readonly_fields = (
+        'project',
+        'operator',
+        'action',
+        'action_label',
+        'payload',
+        'status_before',
+        'status_after',
+        'created_at',
+    )
 
 @admin.register(Coordinate)
 class CoordinateAdmin(admin.ModelAdmin):
