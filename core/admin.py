@@ -635,14 +635,14 @@ class LandUseProjectApprovalAdmin(admin.ModelAdmin):
     list_display = (
         'project_name',
         'company_name',
-        'incoming_doc_num',
+        'incoming_doc_date',
         'status',
         'is_overlap_artifact',
         'receive_date',
         'updated_at',
     )
     list_filter = ('status', 'is_overlap_artifact', 'receive_date')
-    search_fields = ('project_name', 'company_name', 'incoming_doc_num', 'final_reply_to_company')
+    search_fields = ('project_name', 'company_name', 'final_reply_to_company')
     readonly_fields = ('created_at', 'updated_at', 'overlapped_relics_info')
     date_hierarchy = 'receive_date'
     inlines = [LandUseProjectFieldPhotoInline]
@@ -652,9 +652,10 @@ class LandUseProjectApprovalAdmin(admin.ModelAdmin):
             'fields': (
                 'project_name',
                 'company_name',
-                'incoming_doc_num',
+                'incoming_doc_date',
                 'receive_date',
                 'kml_file_path',
+                'misc_zip_path',
             )
         }),
         ('空间核验', {

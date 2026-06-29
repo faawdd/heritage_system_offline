@@ -23,6 +23,7 @@ import hashlib
 import hmac
 import json
 import csv
+from datetime import datetime
 from urllib.parse import quote
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth import get_user_model, login as auth_login
@@ -58,6 +59,7 @@ logger = logging.getLogger(__name__)
 LAND_PROJECT_ACTION_LABELS = {
     'create': '收文登记',
     'upload_kml': '上传KML',
+    'upload_misc_zip': '上传杂项ZIP',
     'upload_field_photo': '上传现场照片',
     'upload_archaeology_report': '上传考古报告',
     'verify_spatial_safety': '执行空间核验',
@@ -72,7 +74,6 @@ LAND_PROJECT_ACTION_LABELS = {
 
 def _build_payload_doc_nums(payload):
     keys = [
-        'incoming_doc_num',
         'shanshan_request_num',
         'city_reply_num',
         'archaeology_request_num',
@@ -1920,12 +1921,18 @@ def land_project_list_api(request):
     queryset = LandUseProjectApproval.objects.all()
 
     if q:
-        queryset = queryset.filter(
+        search_filter = (
             Q(project_name__icontains=q)
             | Q(company_name__icontains=q)
-            | Q(incoming_doc_num__icontains=q)
             | Q(final_reply_to_company__icontains=q)
         )
+        normalized_date_text = q.replace('/', '-')
+        try:
+            parsed_date = datetime.strptime(normalized_date_text, '%Y-%m-%d').date()
+            search_filter = search_filter | Q(incoming_doc_date=parsed_date)
+        except ValueError:
+            parsed_date = None
+        queryset = queryset.filter(search_filter)
     if status:
         queryset = queryset.filter(status=status)
 
@@ -1935,7 +1942,7 @@ def land_project_list_api(request):
             'id': str(item.id),
             'project_name': item.project_name,
             'company_name': item.company_name,
-            'incoming_doc_num': item.incoming_doc_num,
+            'incoming_doc_date': item.incoming_doc_date.isoformat() if item.incoming_doc_date else '',
             'receive_date': item.receive_date.isoformat() if item.receive_date else '',
             'status': item.status,
             'status_label': item.get_status_display(),
@@ -1987,9 +1994,11 @@ def land_project_detail_api(request, project_id):
             'id': str(project.id),
             'project_name': project.project_name,
             'company_name': project.company_name,
-            'incoming_doc_num': project.incoming_doc_num,
+            'incoming_doc_date': project.incoming_doc_date.isoformat() if project.incoming_doc_date else '',
             'receive_date': project.receive_date.isoformat() if project.receive_date else '',
             'kml_file_path': project.kml_file_path,
+            'misc_zip_path': project.misc_zip_path,
+            'misc_zip_url': f"/api/land-projects/{project.id}/download-misc-zip/" if project.misc_zip_path else '',
             'is_overlap_artifact': project.is_overlap_artifact,
             'overlapped_relics_info': project.overlapped_relics_info,
             'status': project.status,
@@ -2020,6 +2029,16 @@ def _load_json_payload(request):
         raise ValueError('请求体必须是合法JSON')
 
 
+def _parse_incoming_doc_date(raw_value):
+    if not raw_value:
+        raise ValueError('incoming_doc_date 必填')
+    text = str(raw_value).strip().replace('/', '-')
+    try:
+        return datetime.strptime(text, '%Y-%m-%d').date()
+    except ValueError:
+        raise ValueError('incoming_doc_date 格式错误，需为 YYYY-MM-DD')
+
+
 @csrf_exempt
 @require_POST
 @staff_member_required
@@ -2035,16 +2054,21 @@ def land_project_create_api(request):
 
     project_name = (payload.get('project_name') or '').strip()
     company_name = (payload.get('company_name') or '').strip()
-    incoming_doc_num = (payload.get('incoming_doc_num') or '').strip()
+    incoming_doc_date_raw = payload.get('incoming_doc_date')
     receive_date = payload.get('receive_date') or timezone.localdate()
 
-    if not project_name or not company_name or not incoming_doc_num:
-        return JsonResponse({'success': False, 'message': 'project_name/company_name/incoming_doc_num 必填'}, status=400)
+    if not project_name or not company_name:
+        return JsonResponse({'success': False, 'message': 'project_name/company_name 必填'}, status=400)
+
+    try:
+        incoming_doc_date = _parse_incoming_doc_date(incoming_doc_date_raw)
+    except ValueError as exc:
+        return JsonResponse({'success': False, 'message': str(exc)}, status=400)
 
     project = LandUseProjectApproval.objects.create(
         project_name=project_name,
         company_name=company_name,
-        incoming_doc_num=incoming_doc_num,
+        incoming_doc_date=incoming_doc_date,
         receive_date=receive_date,
     )
     _record_land_project_operation(
@@ -2054,7 +2078,7 @@ def land_project_create_api(request):
         payload={
             'project_name': project_name,
             'company_name': company_name,
-            'incoming_doc_num': incoming_doc_num,
+            'incoming_doc_date': incoming_doc_date.isoformat(),
         },
         status_before='',
         status_after=project.status,
@@ -2069,6 +2093,7 @@ def land_project_upload_api(request, project_id):
     """
     文件自动归档：
     - kml: projects/{year}/{项目名}/kml/
+    - misc_zip: projects/{year}/{项目名}/misc/
     - field_photo: projects/{year}/{项目名}/field_checks/
     - archaeology_report: projects/{year}/{项目名}/archaeology/
     """
@@ -2132,6 +2157,28 @@ def land_project_upload_api(request, project_id):
         )
         return JsonResponse({'success': True, 'photo_id': photo.id, 'file_path': saved_path})
 
+    if file_type == 'misc_zip':
+        if not filename.lower().endswith('.zip'):
+            return JsonResponse({'success': False, 'message': '杂项文件仅支持ZIP格式'}, status=400)
+        status_before = project.status
+        relative_path = build_project_media_path(project, 'misc', filename)
+        saved_path = default_storage.save(relative_path, upload_file)
+        project.misc_zip_path = saved_path
+        project.save(update_fields=['misc_zip_path', 'updated_at'])
+        _record_land_project_operation(
+            project=project,
+            user=request.user,
+            action='upload_misc_zip',
+            payload={
+                'file_type': file_type,
+                'original_filename': filename,
+                'saved_path': saved_path,
+            },
+            status_before=status_before,
+            status_after=project.status,
+        )
+        return JsonResponse({'success': True, 'file_path': saved_path})
+
     if file_type == 'archaeology_report':
         if not filename.lower().endswith('.pdf'):
             return JsonResponse({'success': False, 'message': '考古调查报告仅支持PDF'}, status=400)
@@ -2154,7 +2201,31 @@ def land_project_upload_api(request, project_id):
         )
         return JsonResponse({'success': True, 'file_path': saved_path})
 
-    return JsonResponse({'success': False, 'message': 'file_type 必须为 kml/field_photo/archaeology_report'}, status=400)
+    return JsonResponse({'success': False, 'message': 'file_type 必须为 kml/misc_zip/field_photo/archaeology_report'}, status=400)
+
+
+@staff_member_required
+def land_project_download_misc_zip_api(request, project_id):
+    """下载项目杂项ZIP文件。"""
+    if not is_management_admin(request.user):
+        return JsonResponse({'success': False, 'message': '无权限'}, status=403)
+
+    project = LandUseProjectApproval.objects.filter(id=project_id).first()
+    if not project:
+        return JsonResponse({'success': False, 'message': '项目不存在'}, status=404)
+    if not project.misc_zip_path:
+        return JsonResponse({'success': False, 'message': '当前项目未上传杂项ZIP'}, status=404)
+    if not default_storage.exists(project.misc_zip_path):
+        return JsonResponse({'success': False, 'message': '杂项ZIP文件不存在或已被移除'}, status=404)
+
+    try:
+        file_handler = default_storage.open(project.misc_zip_path, 'rb')
+    except Exception:
+        logger.exception('打开杂项ZIP失败: project_id=%s, path=%s', project_id, project.misc_zip_path)
+        return JsonResponse({'success': False, 'message': '文件读取失败'}, status=500)
+
+    download_name = os.path.basename(project.misc_zip_path) or f'{project.project_name}_misc.zip'
+    return FileResponse(file_handler, as_attachment=True, filename=download_name, content_type='application/zip')
 
 
 @csrf_exempt

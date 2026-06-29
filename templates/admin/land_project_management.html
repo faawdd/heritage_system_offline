@@ -231,7 +231,7 @@
         .tl-empty { color: #64748b; font-size: 13px; }
         .upload-grid {
             display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
+            grid-template-columns: repeat(4, minmax(0, 1fr));
             gap: 10px;
         }
         .drop-zone {
@@ -426,7 +426,7 @@
                     <button class="btn secondary" id="btnReload">刷新</button>
                 </div>
                 <div class="toolbar">
-                    <input id="searchInput" placeholder="搜索项目名 / 企业 / 来函字号">
+                    <input id="searchInput" placeholder="搜索项目名 / 企业 / 来函日期(YYYY-MM-DD)">
                     <select id="statusFilter"></select>
                     <button class="btn" id="btnSearch">查询</button>
                 </div>
@@ -449,7 +449,7 @@
                     <div class="grid3">
                         <div class="field"><small>用地项目名称</small><input id="createProjectName"></div>
                         <div class="field"><small>企业单位名称</small><input id="createCompanyName"></div>
-                        <div class="field"><small>企业来函字号</small><input id="createIncomingDoc"></div>
+                        <div class="field"><small>企业来函日期</small><input id="createIncomingDate" type="date"></div>
                     </div>
                     <div class="row" style="margin-top:8px;">
                         <button class="btn" id="btnCreateProject">创建项目</button>
@@ -464,6 +464,12 @@
                             <div class="dz-sub">拖入 .kml/.kmz/.ovkml/.ovkmz，或点击选择文件</div>
                             <button class="mini-btn" id="btnPickKml" type="button">选择KML文件</button>
                             <input type="file" id="kmlFile" accept=".kml,.kmz,.ovkml,.ovkmz" multiple>
+                        </div>
+                        <div class="drop-zone" id="zoneZip" data-type="misc_zip">
+                            <div class="dz-title">杂项ZIP批量拖拽</div>
+                            <div class="dz-sub">用于其他补充资料，仅支持 .zip</div>
+                            <button class="mini-btn" id="btnPickZip" type="button">选择ZIP</button>
+                            <input type="file" id="zipFile" accept=".zip,application/zip" multiple>
                         </div>
                         <div class="drop-zone" id="zonePhoto" data-type="field_photo">
                             <div class="dz-title">现场照片批量拖拽</div>
@@ -480,12 +486,14 @@
                     </div>
                     <div class="row" style="margin-top:8px;">
                         <button class="btn" id="btnStartKml">开始上传KML队列</button>
+                        <button class="btn secondary" id="btnStartZip">开始上传ZIP队列</button>
                         <button class="btn secondary" id="btnStartPhoto">开始上传照片队列</button>
                         <button class="btn warn" id="btnStartPdf">开始上传PDF队列</button>
                         <button class="btn secondary" id="btnClearQueue">清空完成/失败项</button>
                     </div>
                     <div class="upload-queue" id="uploadQueueBox"></div>
                     <div class="muted" id="kmlPathText" style="margin-top:8px;"></div>
+                    <div class="muted" id="miscZipText" style="margin-top:4px;"></div>
                 </div>
 
                 <div class="section">
@@ -572,6 +580,7 @@ const el = {
     statusFilter: document.getElementById('statusFilter'),
     currentStatus: document.getElementById('currentStatus'),
     kmlPathText: document.getElementById('kmlPathText'),
+    miscZipText: document.getElementById('miscZipText'),
     overlapText: document.getElementById('overlapText'),
     photoGrid: document.getElementById('photoGrid'),
     suggestOutput: document.getElementById('suggestOutput'),
@@ -586,6 +595,7 @@ const el = {
 
 const FILE_TYPE_LABEL = {
     kml: 'KML/KMZ',
+    misc_zip: '杂项ZIP',
     field_photo: '现场照片',
     archaeology_report: '考古PDF',
 };
@@ -670,7 +680,7 @@ function renderList(rows) {
         return `
             <div class="item ${active}" data-id="${row.id}">
                 <div class="item-name">${row.project_name}</div>
-                <div class="item-meta">${row.company_name} | ${row.incoming_doc_num}</div>
+                <div class="item-meta">${row.company_name} | 来函日期: ${row.incoming_doc_date || '-'}</div>
                 <div class="item-meta">收文: ${row.receive_date || '-'} | 更新: ${row.updated_at || '-'}</div>
                 <div class="item-tags">
                     <span class="tag">${row.status_label}</span>
@@ -726,10 +736,13 @@ function renderPhotos(rows) {
 function renderTimeline(detail) {
     const events = [];
     if (detail.receive_date) {
-        events.push({ title: '收文登记', meta: `${detail.receive_date} | 来函: ${detail.incoming_doc_num || '-'}` });
+        events.push({ title: '收文登记', meta: `${detail.receive_date} | 来函日期: ${detail.incoming_doc_date || '-'}` });
     }
     if (detail.kml_file_path) {
         events.push({ title: 'KML文件已归档', meta: detail.kml_file_path });
+    }
+    if (detail.misc_zip_path) {
+        events.push({ title: '杂项ZIP已归档', meta: detail.misc_zip_path });
     }
     events.push({
         title: '空间核验状态',
@@ -894,6 +907,9 @@ async function uploadQueueItem(item) {
         if (item.fileType === 'kml' && data.file_path) {
             el.kmlPathText.textContent = `KML文件: ${data.file_path}`;
         }
+        if (item.fileType === 'misc_zip' && data.file_path) {
+            el.miscZipText.textContent = `杂项ZIP: ${data.file_path}`;
+        }
     } catch (err) {
         item.status = 'failed';
         item.error = err.message || '上传失败';
@@ -976,6 +992,7 @@ function bindDropZone(zoneId, inputId, fileType) {
 function setActionEnabled(controls) {
     const map = {
         btnStartKml: controls.upload_kml,
+        btnStartZip: controls.upload_misc_zip,
         btnVerifySpatial: controls.verify_spatial,
         btnStartPhoto: controls.upload_field_photos,
         actFieldDone: currentDetail && currentDetail.status === '20_初审安全',
@@ -1004,6 +1021,11 @@ async function loadDetail() {
     currentDetail = payload.data;
     el.currentStatus.textContent = `${currentDetail.status_label}`;
     el.kmlPathText.textContent = currentDetail.kml_file_path ? `KML文件: ${currentDetail.kml_file_path}` : '尚未上传KML';
+    if (currentDetail.misc_zip_url) {
+        el.miscZipText.innerHTML = `杂项ZIP: <a href="${currentDetail.misc_zip_url}" target="_blank" rel="noopener noreferrer">下载当前ZIP</a>`;
+    } else {
+        el.miscZipText.textContent = '尚未上传杂项ZIP';
+    }
 
     const overlapInfo = currentDetail.overlapped_relics_info || [];
     if (!overlapInfo.length) {
@@ -1023,8 +1045,8 @@ async function loadDetail() {
 async function createProject() {
     const project_name = document.getElementById('createProjectName').value.trim();
     const company_name = document.getElementById('createCompanyName').value.trim();
-    const incoming_doc_num = document.getElementById('createIncomingDoc').value.trim();
-    if (!project_name || !company_name || !incoming_doc_num) {
+    const incoming_doc_date = document.getElementById('createIncomingDate').value.trim();
+    if (!project_name || !company_name || !incoming_doc_date) {
         msg('请完整填写收文登记信息。', false);
         return;
     }
@@ -1032,7 +1054,7 @@ async function createProject() {
     const resp = await fetch('/api/land-projects/create/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project_name, company_name, incoming_doc_num }),
+        body: JSON.stringify({ project_name, company_name, incoming_doc_date }),
     });
     const data = await resp.json();
     if (!data.success) {
@@ -1152,13 +1174,16 @@ function bindEvents() {
     document.getElementById('btnCreateProject').addEventListener('click', createProject);
 
     document.getElementById('btnPickKml').addEventListener('click', () => document.getElementById('kmlFile').click());
+    document.getElementById('btnPickZip').addEventListener('click', () => document.getElementById('zipFile').click());
     document.getElementById('btnPickPhoto').addEventListener('click', () => document.getElementById('photoFile').click());
     document.getElementById('btnPickPdf').addEventListener('click', () => document.getElementById('pdfFile').click());
     bindDropZone('zoneKml', 'kmlFile', 'kml');
+    bindDropZone('zoneZip', 'zipFile', 'misc_zip');
     bindDropZone('zonePhoto', 'photoFile', 'field_photo');
     bindDropZone('zonePdf', 'pdfFile', 'archaeology_report');
 
     document.getElementById('btnStartKml').addEventListener('click', () => startUploadByType('kml'));
+    document.getElementById('btnStartZip').addEventListener('click', () => startUploadByType('misc_zip'));
     document.getElementById('btnStartPhoto').addEventListener('click', () => startUploadByType('field_photo'));
     document.getElementById('btnStartPdf').addEventListener('click', () => startUploadByType('archaeology_report'));
     document.getElementById('btnClearQueue').addEventListener('click', clearFinishedQueue);

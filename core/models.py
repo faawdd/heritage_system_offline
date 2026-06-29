@@ -268,9 +268,10 @@ class LandUseProjectApproval(models.Model):
     # 收文登记
     project_name = models.CharField('用地项目名称', max_length=255)
     company_name = models.CharField('企业单位名称', max_length=255)
-    incoming_doc_num = models.CharField('企业来函字号', max_length=120)
+    incoming_doc_date = models.DateField('企业来函日期', default=timezone.localdate)
     receive_date = models.DateField('收文日期', default=timezone.localdate)
     kml_file_path = models.CharField('原始KML文件路径', max_length=500, blank=True, default='')
+    misc_zip_path = models.CharField('杂项ZIP文件路径', max_length=500, blank=True, default='')
 
     # 空间核验结果
     is_overlap_artifact = models.BooleanField('是否涉及文物', default=False)
