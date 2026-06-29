@@ -24,7 +24,7 @@ import hmac
 import json
 import csv
 from datetime import datetime
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit, urlunsplit, parse_qsl, urlencode
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth import get_user_model, login as auth_login
 from django.db import OperationalError, ProgrammingError
@@ -150,8 +150,28 @@ def mobile_kml_entry_view(request):
         return HttpResponseForbidden('当前账号无权使用KML叠加检查')
 
     auth_login(request, user, backend='django.contrib.auth.backends.ModelBackend')
-    separator = '&' if '?' in target_path else '?'
-    return redirect(f"{target_path}{separator}token={quote(token)}")
+
+    # 兼容 App 端不同版本的 URL 组装：若 app_loc_* 先挂在 entry URL，需在这里透传到 next。
+    split_result = urlsplit(target_path)
+    query_pairs = parse_qsl(split_result.query, keep_blank_values=True)
+    query_map = dict(query_pairs)
+
+    for key in ('app_loc_lon', 'app_loc_lat', 'app_loc_alt', 'app_loc_accuracy', 'app_loc_ts'):
+        value = (request.GET.get(key) or '').strip()
+        if value and key not in query_map:
+            query_pairs.append((key, value))
+
+    if 'token' not in query_map:
+        query_pairs.append(('token', token))
+
+    redirect_url = urlunsplit((
+        split_result.scheme,
+        split_result.netloc,
+        split_result.path,
+        urlencode(query_pairs),
+        split_result.fragment,
+    ))
+    return redirect(redirect_url)
 
 
 def mobile_collect_entry_view(request):
