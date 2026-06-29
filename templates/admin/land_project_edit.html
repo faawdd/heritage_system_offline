@@ -90,6 +90,26 @@
         .detail { padding: 12px; overflow: auto; display: grid; gap: 10px; }
         .section { border: 1px solid #dbe5f1; border-radius: 10px; background: #fff; padding: 10px; }
         .section h4 { margin: 0 0 8px; font-size: 14px; color: #174a76; }
+        .kml-embed-wrap {
+            border: 1px solid #dbe7f3;
+            border-radius: 10px;
+            overflow: hidden;
+            background: #f8fbff;
+        }
+        .kml-embed-tip {
+            padding: 9px 10px;
+            font-size: 12px;
+            color: var(--sub);
+            border-bottom: 1px solid #e6eef7;
+            background: #f3f8ff;
+        }
+        .kml-embed-frame {
+            width: 100%;
+            height: 430px;
+            border: 0;
+            display: block;
+            background: #eef3f9;
+        }
         .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
         .timeline-h { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; }
         .tl-card { min-width: 190px; border: 1px solid #d9e4f1; border-radius: 10px; background: #f8fbff; padding: 8px; }
@@ -172,6 +192,14 @@
                 <div class="section">
                     <h4>流程时间轴（横向）</h4>
                     <div class="timeline-h" id="timeline"></div>
+                </div>
+
+                <div class="section">
+                    <h4>当前项目KML叠加检查</h4>
+                    <div class="kml-embed-wrap">
+                        <div class="kml-embed-tip" id="kmlEmbedTip">请先选择项目并确保已上传KML文件。</div>
+                        <iframe id="kmlEmbedFrame" class="kml-embed-frame" title="当前项目KML叠加检查窗口" loading="lazy"></iframe>
+                    </div>
                 </div>
 
                 <div class="section">
@@ -280,6 +308,8 @@ const el = {
     workflowModal: document.getElementById('workflowModal'),
     modalTitle: document.getElementById('modalTitle'),
     modalBody: document.getElementById('modalBody'),
+    kmlEmbedFrame: document.getElementById('kmlEmbedFrame'),
+    kmlEmbedTip: document.getElementById('kmlEmbedTip'),
 };
 
 function msg(text, ok=true) {
@@ -340,6 +370,37 @@ function timelineEvents(d) {
 
 function renderTimeline(d) {
     el.timeline.innerHTML = timelineEvents(d).map(x => `<div class="tl-card"><div class="tl-title">${x.t}</div><div class="tl-meta">${x.m || '-'}</div></div>`).join('');
+}
+
+function buildProjectKmlFileUrl(detail) {
+    const rawPath = (detail && detail.kml_file_path ? String(detail.kml_file_path) : '').trim();
+    if (!rawPath) return '';
+    const cleanPath = rawPath.replace(/^\/+/, '');
+    const parts = cleanPath.split('/').filter(Boolean).map(seg => encodeURIComponent(seg));
+    if (!parts.length) return '';
+    return `/media/${parts.join('/')}`;
+}
+
+function renderProjectKmlEmbed(detail) {
+    if (!el.kmlEmbedFrame || !el.kmlEmbedTip) return;
+    const sourceKmlUrl = buildProjectKmlFileUrl(detail);
+    if (!sourceKmlUrl) {
+        el.kmlEmbedTip.textContent = '当前项目暂无KML文件，上传后可在此直接叠加检查。';
+        el.kmlEmbedFrame.removeAttribute('src');
+        return;
+    }
+
+    const sourceName = `${detail.project_name || '当前项目'}-KML`;
+    const params = new URLSearchParams({
+        embedded: '1',
+        source_kml_url: sourceKmlUrl,
+        source_kml_name: sourceName,
+    });
+    el.kmlEmbedTip.textContent = `当前文件：${sourceKmlUrl}`;
+    const frameUrl = `/admin/kml-overlay-check/?${params.toString()}`;
+    if (el.kmlEmbedFrame.src !== new URL(frameUrl, window.location.origin).toString()) {
+        el.kmlEmbedFrame.src = frameUrl;
+    }
 }
 
 function showStage(id, show) {
@@ -406,6 +467,7 @@ async function loadDetail() {
     el.detailTitle.textContent = `编辑内容 - ${currentDetail.project_name}`;
     el.statusBadge.textContent = currentDetail.status_label;
     renderTimeline(currentDetail);
+    renderProjectKmlEmbed(currentDetail);
     renderStagePanels(currentDetail);
     setActionEnabled(currentDetail.controls || {});
     msg(`已加载项目: ${currentDetail.project_name}`);
