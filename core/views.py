@@ -27,6 +27,7 @@ from datetime import datetime
 from urllib.parse import quote
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth import get_user_model, login as auth_login
+from django.db import OperationalError, ProgrammingError
 from django.db.models import Count, Q
 from django.http import JsonResponse, HttpResponse, HttpResponseForbidden, FileResponse
 from django.utils import timezone
@@ -2065,24 +2066,46 @@ def land_project_create_api(request):
     except ValueError as exc:
         return JsonResponse({'success': False, 'message': str(exc)}, status=400)
 
-    project = LandUseProjectApproval.objects.create(
-        project_name=project_name,
-        company_name=company_name,
-        incoming_doc_date=incoming_doc_date,
-        receive_date=receive_date,
-    )
-    _record_land_project_operation(
-        project=project,
-        user=request.user,
-        action='create',
-        payload={
-            'project_name': project_name,
-            'company_name': company_name,
-            'incoming_doc_date': incoming_doc_date.isoformat(),
-        },
-        status_before='',
-        status_after=project.status,
-    )
+    try:
+        project = LandUseProjectApproval.objects.create(
+            project_name=project_name,
+            company_name=company_name,
+            incoming_doc_date=incoming_doc_date,
+            receive_date=receive_date,
+        )
+        _record_land_project_operation(
+            project=project,
+            user=request.user,
+            action='create',
+            payload={
+                'project_name': project_name,
+                'company_name': company_name,
+                'incoming_doc_date': incoming_doc_date.isoformat(),
+            },
+            status_before='',
+            status_after=project.status,
+        )
+    except (OperationalError, ProgrammingError) as exc:
+        logger.exception('创建项目失败，疑似数据库结构未就绪: %s', exc)
+        return JsonResponse(
+            {
+                'success': False,
+                'message': '数据库结构未就绪，请在服务器执行 python manage.py migrate 后重试',
+                'error_type': exc.__class__.__name__,
+            },
+            status=500,
+        )
+    except Exception as exc:
+        logger.exception('创建项目失败: %s', exc)
+        return JsonResponse(
+            {
+                'success': False,
+                'message': '创建项目失败，请查看服务端日志',
+                'error_type': exc.__class__.__name__,
+            },
+            status=500,
+        )
+
     return JsonResponse({'success': True, 'project_id': str(project.id), 'status': project.status})
 
 
