@@ -838,6 +838,16 @@
             );
         }
 
+        .dot-current {
+            width: 12px;
+            height: 12px;
+            margin-right: 8px;
+            border-radius: 50%;
+            border: 2px solid #0f172a;
+            background: #22c55e;
+            box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.35);
+        }
+
         body.panel-collapsed .floating-panel {
             width: 56px;
             height: 56px;
@@ -1150,6 +1160,7 @@
         <div class="legend-row"><span class="dot-overlap-point"></span>KML重叠点</div>
         <div class="legend-row"><span class="line-overlap"></span>KML重叠线</div>
         <div class="legend-row"><span class="poly-overlap"></span>KML重叠面（斜线）</div>
+        <div class="legend-row"><span class="dot-current"></span>当前位置</div>
     </div>
 
     <aside id="overlapPopup" class="overlap-popup" aria-live="polite">
@@ -1168,6 +1179,31 @@
         const isEmbeddedMode = pageParams.get('embedded') === '1';
         const embeddedSourceKmlUrl = (pageParams.get('source_kml_url') || '').trim();
         const embeddedSourceKmlName = (pageParams.get('source_kml_name') || '').trim() || '当前项目KML';
+
+        function parseFloatParam(name) {
+            const raw = (pageParams.get(name) || '').trim();
+            if (!raw) {
+                return null;
+            }
+            const value = Number(raw);
+            return Number.isFinite(value) ? value : null;
+        }
+
+        const appCurrentLocation = {
+            longitude: parseFloatParam('app_loc_lon'),
+            latitude: parseFloatParam('app_loc_lat'),
+            altitude: parseFloatParam('app_loc_alt'),
+            accuracy: parseFloatParam('app_loc_accuracy'),
+        };
+
+        function hasAppCurrentLocation() {
+            return Number.isFinite(appCurrentLocation.longitude)
+                && Number.isFinite(appCurrentLocation.latitude)
+                && appCurrentLocation.longitude >= -180
+                && appCurrentLocation.longitude <= 180
+                && appCurrentLocation.latitude >= -90
+                && appCurrentLocation.latitude <= 90;
+        }
 
         const checkAll = document.getElementById('checkAll');
         const rowChecks = Array.from(document.querySelectorAll('.record-check'));
@@ -1657,6 +1693,7 @@
         const overlayLayer = L.featureGroup().addTo(map);
         const overlapLayer = L.layerGroup().addTo(map);
         const conflictLayer = L.layerGroup().addTo(map);
+        const appLocationLayer = L.layerGroup().addTo(map);
         const kmlBadgeLayer = L.layerGroup().addTo(map);
         const measureLayer = L.layerGroup().addTo(map);
         let isMeasureMode = false;
@@ -1923,6 +1960,57 @@
             }
             map.setView([42.84, 90.21], 10, { animate: true });
             return true;
+        }
+
+        function renderAppCurrentLocation(options) {
+            appLocationLayer.clearLayers();
+            if (!hasAppCurrentLocation()) {
+                return;
+            }
+
+            const lat = Number(appCurrentLocation.latitude);
+            const lon = Number(appCurrentLocation.longitude);
+            const accuracy = Number(appCurrentLocation.accuracy);
+            const altitude = Number(appCurrentLocation.altitude);
+
+            if (Number.isFinite(accuracy) && accuracy > 0) {
+                L.circle([lat, lon], {
+                    radius: Math.max(3, accuracy),
+                    color: '#22c55e',
+                    weight: 1,
+                    fillColor: '#22c55e',
+                    fillOpacity: 0.16,
+                }).addTo(appLocationLayer);
+            }
+
+            const marker = L.circleMarker([lat, lon], {
+                radius: 7,
+                color: '#0f172a',
+                weight: 2,
+                fillColor: '#22c55e',
+                fillOpacity: 0.95,
+            }).addTo(appLocationLayer);
+
+            const infoRows = [
+                '经纬度: ' + lon.toFixed(6) + ', ' + lat.toFixed(6),
+            ];
+            if (Number.isFinite(altitude)) {
+                infoRows.push('海拔: ' + altitude.toFixed(2) + 'm');
+            }
+            if (Number.isFinite(accuracy) && accuracy > 0) {
+                infoRows.push('精度: ±' + Math.round(accuracy) + 'm');
+            }
+            marker.bindPopup('<strong>App当前位置</strong><br>' + infoRows.join('<br>'));
+
+            if (mapStatusEl) {
+                mapStatusEl.textContent = '已显示当前位置：' + lon.toFixed(6) + ', ' + lat.toFixed(6);
+            }
+
+            const shouldFocus = !options || options.focus !== false;
+            if (shouldFocus) {
+                const zoom = Number.isFinite(accuracy) && accuracy > 100 ? 15 : 17;
+                map.setView([lat, lon], zoom, { animate: true });
+            }
         }
 
         function addKmlRangeBadge(layer, fileName, color, index) {
@@ -3202,6 +3290,9 @@
                 const overlapCounts = renderOverlapLayer(allFeatures);
                 renderOverlapPopup(overlapCounts);
                 const conflictCount = renderConflictPoints(allFeatures, threshold);
+                if (hasAppCurrentLocation()) {
+                    renderAppCurrentLocation({ focus: false });
+                }
                 if (failedCount > 0) {
                     mapStatusEl.textContent = '已叠加 ' + renderedCount + ' 个 KML 文件，失败 ' + failedCount + ' 个；文物冲突点位 ' + conflictCount + ' 个，KML重叠 ' + overlapCounts.total + ' 处（点 ' + overlapCounts.point + ' / 线 ' + overlapCounts.line + ' / 面 ' + overlapCounts.polygon + '），阈值 ' + threshold + 'm。';
                 } else {
@@ -3268,6 +3359,10 @@
                 } catch (e) {
                     // ignore invalid bounds
                 }
+            }
+
+            if (hasAppCurrentLocation()) {
+                renderAppCurrentLocation();
             }
 
             if (embeddedSourceKmlUrl) {
