@@ -620,6 +620,8 @@
         .measure-btn-primary:hover { background: #1d4ed8; }
         .measure-btn-danger { background: #ef4444; }
         .measure-btn-danger:hover { background: #dc2626; }
+        .measure-btn-locate { background: #16a34a; }
+        .measure-btn-locate:hover { background: #15803d; }
 
         .measure-status {
             min-width: 0;
@@ -1143,6 +1145,7 @@
         <div class="measure-toolbar">
             <button type="button" class="measure-btn measure-btn-primary" id="measureToggleBtn">开始测距</button>
             <button type="button" class="measure-btn measure-btn-danger" id="measureClearBtn">清空</button>
+            <button type="button" class="measure-btn measure-btn-locate" id="measureLocateBtn">浏览器定位</button>
             <div class="measure-status" id="measureStatus">测距未开始</div>
         </div>
         <div class="measure-scale-wrap">
@@ -1205,6 +1208,74 @@
                 && appCurrentLocation.latitude <= 90;
         }
 
+        function setAppCurrentLocation(payload) {
+            appCurrentLocation.longitude = Number(payload.longitude);
+            appCurrentLocation.latitude = Number(payload.latitude);
+            appCurrentLocation.altitude = Number.isFinite(Number(payload.altitude)) ? Number(payload.altitude) : null;
+            appCurrentLocation.accuracy = Number.isFinite(Number(payload.accuracy)) ? Number(payload.accuracy) : null;
+        }
+
+        function locateByBrowserGeolocation(options) {
+            const opts = options || {};
+            const silent = !!opts.silent;
+
+            if (!navigator.geolocation) {
+                if (!silent && mapStatusEl) {
+                    mapStatusEl.textContent = '当前浏览器不支持定位，请使用 HTTPS 或升级浏览器。';
+                }
+                return;
+            }
+
+            if (measureLocateBtn) {
+                measureLocateBtn.disabled = true;
+                measureLocateBtn.textContent = '定位中...';
+            }
+
+            navigator.geolocation.getCurrentPosition(
+                function(position) {
+                    const coords = position && position.coords ? position.coords : {};
+                    const lon = Number(coords.longitude);
+                    const lat = Number(coords.latitude);
+                    if (!Number.isFinite(lon) || !Number.isFinite(lat)) {
+                        if (!silent && mapStatusEl) {
+                            mapStatusEl.textContent = '浏览器定位失败：未获取到有效经纬度。';
+                        }
+                    } else {
+                        setAppCurrentLocation({
+                            longitude: lon,
+                            latitude: lat,
+                            altitude: coords.altitude,
+                            accuracy: coords.accuracy,
+                        });
+                        renderAppCurrentLocation();
+                    }
+
+                    if (measureLocateBtn) {
+                        measureLocateBtn.disabled = false;
+                        measureLocateBtn.textContent = '浏览器定位';
+                    }
+                },
+                function(error) {
+                    if (!silent && mapStatusEl) {
+                        let reason = '未知错误';
+                        if (error && error.code === 1) reason = '用户拒绝了定位权限';
+                        if (error && error.code === 2) reason = '无法获取位置，请检查网络/GPS';
+                        if (error && error.code === 3) reason = '定位超时，请重试';
+                        mapStatusEl.textContent = '浏览器定位失败：' + reason;
+                    }
+                    if (measureLocateBtn) {
+                        measureLocateBtn.disabled = false;
+                        measureLocateBtn.textContent = '浏览器定位';
+                    }
+                },
+                {
+                    enableHighAccuracy: true,
+                    timeout: 12000,
+                    maximumAge: 0,
+                }
+            );
+        }
+
         const checkAll = document.getElementById('checkAll');
         const rowChecks = Array.from(document.querySelectorAll('.record-check'));
         const mapStatusEl = document.getElementById('mapStatus');
@@ -1222,6 +1293,7 @@
         const overlapPopupCloseEl = document.getElementById('overlapPopupClose');
         const measureToggleBtn = document.getElementById('measureToggleBtn');
         const measureClearBtn = document.getElementById('measureClearBtn');
+        const measureLocateBtn = document.getElementById('measureLocateBtn');
         const measureStatusEl = document.getElementById('measureStatus');
         const measureScaleBarEl = document.getElementById('measureScaleBar');
         const measureScaleLabelEl = document.getElementById('measureScaleLabel');
@@ -1246,6 +1318,7 @@
         let currentOverlapView = 'group';
         let overlapPopupCollapsed = false;
         let renderTaskId = 0;
+        let browserLocateTried = false;
 
         if (isEmbeddedMode) {
             document.body.classList.add('embedded-mode');
@@ -1908,6 +1981,12 @@
         if (measureClearBtn) {
             measureClearBtn.addEventListener('click', function() {
                 clearMeasureResult();
+            });
+        }
+
+        if (measureLocateBtn) {
+            measureLocateBtn.addEventListener('click', function() {
+                locateByBrowserGeolocation({ silent: false });
             });
         }
 
@@ -3363,6 +3442,9 @@
 
             if (hasAppCurrentLocation()) {
                 renderAppCurrentLocation();
+            } else if (!browserLocateTried) {
+                browserLocateTried = true;
+                locateByBrowserGeolocation({ silent: true });
             }
 
             if (embeddedSourceKmlUrl) {
