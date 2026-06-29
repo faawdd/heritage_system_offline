@@ -31,7 +31,12 @@ from core.views import (heritage_map_view, heritage_dashboard_view, heritage_sta
                         system_version_api, heritage_collect_view,
                         dem_elevation_lookup_api,
                         heritage_detail_preview_view,
-                        export_immovable_heritage_docx_view)
+                        export_immovable_heritage_docx_view,
+                        land_project_management_view,
+                        land_project_list_api, land_project_detail_api,
+                        land_project_create_api, land_project_upload_api,
+                        verify_project_spatial_safety_api, land_project_next_doc_num_api,
+                        land_project_workflow_action_api, land_project_controls_api)
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 urlpatterns = [
@@ -45,6 +50,7 @@ urlpatterns = [
     path('admin/heritage/<int:pk>/boundary-export/', heritage_boundary_export_view, name='heritage_boundary_export'),
     path('admin/ovkml-converter/', ovkml_converter_view, name='ovkml_converter'),
     path('admin/kml-process-convert/', kml_process_convert_view, name='kml_process_convert'),
+    path('admin/land-projects/', land_project_management_view, name='land_project_management'),
     path('admin/heritage-map/', heritage_map_view, name='heritage_map'),
     path('admin/kml-overlay-check/', kml_overlay_check_view, name='kml_overlay_check'),
     path('admin/kml-management/', RedirectView.as_view(pattern_name='kml_overlay_check', permanent=True, query_string=True), name='kml_management_alias'),
@@ -63,5 +69,13 @@ urlpatterns = [
     path('api/kanerjing-stats/', kanerjing_stats_api, name='kanerjing_stats_api'),  # 坎儿井统计API
     path('api/dem-elevation-lookup/', dem_elevation_lookup_api, name='dem_elevation_lookup_api'),
     path('api/system-version/', system_version_api, name='system_version_api'),  # 系统版本号API
+    path('api/land-projects/', land_project_list_api, name='land_project_list_api'),
+    path('api/land-projects/<uuid:project_id>/', land_project_detail_api, name='land_project_detail_api'),
+    path('api/land-projects/create/', land_project_create_api, name='land_project_create_api'),
+    path('api/land-projects/<uuid:project_id>/upload/', land_project_upload_api, name='land_project_upload_api'),
+    path('api/land-projects/<uuid:project_id>/verify-spatial-safety/', verify_project_spatial_safety_api, name='verify_project_spatial_safety_api'),
+    path('api/land-projects/next-shanshan-doc/', land_project_next_doc_num_api, name='land_project_next_doc_num_api'),
+    path('api/land-projects/<uuid:project_id>/workflow-action/', land_project_workflow_action_api, name='land_project_workflow_action_api'),
+    path('api/land-projects/<uuid:project_id>/controls/', land_project_controls_api, name='land_project_controls_api'),
     path('admin/', admin.site.urls),
 ] + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT) + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
