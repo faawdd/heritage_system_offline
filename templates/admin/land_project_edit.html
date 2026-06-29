@@ -105,7 +105,7 @@
         }
         .kml-embed-frame {
             width: 100%;
-            height: 430px;
+            height: clamp(340px, 56vh, 800px);
             border: 0;
             display: block;
             background: #eef3f9;
@@ -155,6 +155,7 @@
             .layout { grid-template-columns: 1fr; }
             .grid3 { grid-template-columns: 1fr; }
             .toolbar { grid-template-columns: 1fr; }
+            .kml-embed-frame { height: clamp(300px, 46vh, 540px); }
         }
     </style>
 </head>
