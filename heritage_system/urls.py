@@ -35,6 +35,7 @@ from core.views import (heritage_map_view, heritage_dashboard_view, heritage_sta
                         land_project_management_view,
                         land_project_list_api, land_project_detail_api,
                         land_project_create_api, land_project_upload_api,
+                        land_project_download_misc_zip_api,
                         verify_project_spatial_safety_api, land_project_next_doc_num_api,
                         land_project_workflow_action_api, land_project_controls_api)
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
@@ -75,6 +76,7 @@ urlpatterns = [
     path('api/land-projects/<uuid:project_id>/', land_project_detail_api, name='land_project_detail_api'),
     path('api/land-projects/create/', land_project_create_api, name='land_project_create_api'),
     path('api/land-projects/<uuid:project_id>/upload/', land_project_upload_api, name='land_project_upload_api'),
+    path('api/land-projects/<uuid:project_id>/download-misc-zip/', land_project_download_misc_zip_api, name='land_project_download_misc_zip_api'),
     path('api/land-projects/<uuid:project_id>/verify-spatial-safety/', verify_project_spatial_safety_api, name='verify_project_spatial_safety_api'),
     path('api/land-projects/next-shanshan-doc/', land_project_next_doc_num_api, name='land_project_next_doc_num_api'),
     path('api/land-projects/<uuid:project_id>/workflow-action/', land_project_workflow_action_api, name='land_project_workflow_action_api'),

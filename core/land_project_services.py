@@ -281,6 +281,7 @@ def get_status_controls(status: str) -> Dict[str, bool]:
     """前端按钮控制：基于状态机输出可用操作。"""
     return {
         'upload_kml': status == LandUseProjectApproval.STATUS_RECEIVED,
+        'upload_misc_zip': True,
         'verify_spatial': status == LandUseProjectApproval.STATUS_RECEIVED,
         'upload_field_photos': status in {
             LandUseProjectApproval.STATUS_PRELIM_SAFE,
