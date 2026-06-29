@@ -1896,7 +1896,7 @@ def ovkml_converter_view(request):
 
 @staff_member_required
 def land_project_management_view(request):
-    """独立项目管理页面（非Django原生Admin表单）。"""
+    """项目管理查看页（只读）。"""
     if not is_management_admin(request.user):
         return HttpResponseForbidden('当前账号无权使用项目管理页面')
 
@@ -1905,10 +1905,28 @@ def land_project_management_view(request):
         for value, label in LandUseProjectApproval.STATUS_CHOICES
     ]
     context = {
-        'title': '用地项目审批与文档登记',
+        'title': '用地项目审批与文档登记（查看）',
         'status_choices_json': json.dumps(status_choices, ensure_ascii=False),
     }
     return render(request, 'admin/land_project_management.html', context)
+
+
+@staff_member_required
+def land_project_edit_view(request):
+    """项目管理编辑页（按阶段显示可操作内容）。"""
+    if not is_management_admin(request.user):
+        return HttpResponseForbidden('当前账号无权使用项目管理编辑页面')
+
+    status_choices = [
+        {'value': value, 'label': label}
+        for value, label in LandUseProjectApproval.STATUS_CHOICES
+    ]
+    context = {
+        'title': '用地项目审批与文档登记（编辑）',
+        'status_choices_json': json.dumps(status_choices, ensure_ascii=False),
+        'initial_project_id': request.GET.get('project_id', ''),
+    }
+    return render(request, 'admin/land_project_edit.html', context)
 
 
 @staff_member_required

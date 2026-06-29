@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>用地项目审批与文档登记（编辑）</title>
+    <style>
+        :root {
+            --bg: #f4f8fc;
+            --panel: #fff;
+            --line: #d9e3ef;
+            --text: #1f2a37;
+            --sub: #5c6d83;
+            --brand: #0b6aa5;
+            --brand2: #094d7b;
+            --ok: #178a63;
+            --warn: #b05f08;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            color: var(--text);
+            background: radial-gradient(circle at 9% 12%, #eaf3ff 0, #f4f8fc 44%), linear-gradient(180deg, #f4f8fc, #edf3fb);
+            font-family: "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+        }
+        .wrap { width: min(1450px, 96vw); margin: 18px auto 30px; }
+        .top {
+            border-radius: 14px;
+            background: linear-gradient(120deg, #0b6aa5, #1c88c7 58%, #2b97b8);
+            color: #fff;
+            padding: 16px 18px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+        }
+        .top h1 { margin: 0; font-size: 22px; }
+        .top p { margin: 6px 0 0; font-size: 13px; opacity: .92; }
+        .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        .btn {
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 700;
+            padding: 9px 12px;
+            background: var(--brand);
+            color: #fff;
+        }
+        .btn:hover { background: var(--brand2); }
+        .btn.secondary { background: #e7eef8; color: #334155; }
+        .btn.secondary:hover { background: #d6e1ef; }
+        .btn.warn { background: var(--warn); }
+
+        .layout {
+            margin-top: 12px;
+            display: grid;
+            grid-template-columns: 360px 1fr;
+            gap: 12px;
+            min-height: calc(100vh - 170px);
+        }
+        .panel {
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            background: var(--panel);
+            box-shadow: 0 6px 14px rgba(15, 23, 42, 0.06);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        .head { padding: 12px; border-bottom: 1px solid var(--line); background: #f8fbff; }
+        .head h3 { margin: 0 0 8px; font-size: 15px; }
+        .toolbar { display: grid; grid-template-columns: 1fr 140px 70px; gap: 8px; }
+
+        input, select, textarea {
+            width: 100%;
+            border: 1px solid #b8c8dd;
+            border-radius: 8px;
+            padding: 8px 10px;
+            font-size: 13px;
+        }
+        textarea { min-height: 90px; resize: vertical; }
+
+        .list { padding: 8px; overflow: auto; display: grid; gap: 8px; }
+        .item { border: 1px solid #d7e2ef; border-radius: 10px; padding: 10px; cursor: pointer; }
+        .item.active { border-color: #0b6aa5; background: #f2f8ff; }
+        .item .name { font-size: 14px; font-weight: 700; }
+        .meta { font-size: 12px; color: var(--sub); margin-top: 4px; }
+
+        .detail { padding: 12px; overflow: auto; display: grid; gap: 10px; }
+        .section { border: 1px solid #dbe5f1; border-radius: 10px; background: #fff; padding: 10px; }
+        .section h4 { margin: 0 0 8px; font-size: 14px; color: #174a76; }
+        .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+        .timeline-h { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; }
+        .tl-card { min-width: 190px; border: 1px solid #d9e4f1; border-radius: 10px; background: #f8fbff; padding: 8px; }
+        .tl-title { font-size: 12px; color: #1d466f; font-weight: 700; }
+        .tl-meta { font-size: 12px; color: #5f738a; margin-top: 3px; }
+
+        .stage { display: none; }
+        .stage.show { display: block; }
+        .stage-hint { font-size: 12px; color: var(--sub); margin-bottom: 8px; }
+        .msg { padding: 8px 10px; border-radius: 8px; font-size: 13px; }
+        .msg.ok { background: #edf9f3; border: 1px solid #bde7ce; color: #166548; }
+        .msg.err { background: #fff1f2; border: 1px solid #fecfd3; color: #9d1c35; }
+
+        .drop {
+            border: 1px dashed #9bb5d3;
+            border-radius: 10px;
+            background: #f8fbff;
+            padding: 10px;
+        }
+
+        .modal-mask {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, .45);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 999;
+            padding: 12px;
+        }
+        .modal-mask.show { display: flex; }
+        .modal {
+            width: min(640px, 96vw);
+            background: #fff;
+            border: 1px solid #d7e2ef;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        .modal-h { padding: 10px 12px; border-bottom: 1px solid #e5edf7; background: #f4f9ff; display: flex; justify-content: space-between; }
+        .modal-b { padding: 12px; display: grid; gap: 8px; }
+
+        @media (max-width: 1100px) {
+            .layout { grid-template-columns: 1fr; }
+            .grid3 { grid-template-columns: 1fr; }
+            .toolbar { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+<div class="wrap">
+    <div class="top">
+        <div>
+            <h1>项目管理编辑页</h1>
+            <p>编辑页按阶段展示内容：只显示当前状态相关操作，避免跨阶段误操作。</p>
+        </div>
+        <div class="row">
+            <button class="btn secondary" id="btnBackView">返回查看页</button>
+            <span id="statusBadge"></span>
+        </div>
+    </div>
+
+    <div class="layout">
+        <section class="panel">
+            <div class="head">
+                <h3>项目选择</h3>
+                <div class="toolbar">
+                    <input id="searchInput" placeholder="搜索项目名 / 企业 / 来函日期">
+                    <select id="statusFilter"></select>
+                    <button class="btn" id="btnSearch">查找</button>
+                </div>
+            </div>
+            <div class="list" id="projectList"></div>
+        </section>
+
+        <section class="panel">
+            <div class="head"><h3 id="detailTitle">编辑内容</h3></div>
+            <div class="detail">
+                <div id="msgBox" class="msg ok">请先选择项目或先创建项目。</div>
+
+                <div class="section">
+                    <h4>流程时间轴（横向）</h4>
+                    <div class="timeline-h" id="timeline"></div>
+                </div>
+
+                <div class="section">
+                    <h4>新建项目</h4>
+                    <div class="grid3">
+                        <input id="createProjectName" placeholder="用地项目名称">
+                        <input id="createCompanyName" placeholder="企业单位名称">
+                        <input id="createIncomingDate" type="date" placeholder="企业来函日期">
+                    </div>
+                    <div class="row" style="margin-top:8px;">
+                        <button class="btn" id="btnCreate">创建项目</button>
+                    </div>
+                </div>
+
+                <div class="section stage" id="stageReceived">
+                    <h4>阶段1：收文与初审</h4>
+                    <div class="stage-hint">适用状态：10_已收文。可上传KML/杂项ZIP并执行空间核验。</div>
+                    <div class="grid3">
+                        <div class="drop">
+                            <div class="meta">KML/KMZ</div>
+                            <input id="kmlFile" type="file" accept=".kml,.kmz,.ovkml,.ovkmz" multiple>
+                            <button class="btn secondary" id="btnUploadKml" type="button">上传KML</button>
+                        </div>
+                        <div class="drop">
+                            <div class="meta">杂项ZIP</div>
+                            <input id="zipFile" type="file" accept=".zip,application/zip" multiple>
+                            <button class="btn secondary" id="btnUploadZip" type="button">上传ZIP</button>
+                        </div>
+                        <div class="drop">
+                            <div class="meta">空间核验</div>
+                            <button class="btn" id="btnVerify" type="button">执行KML叠加核验</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section stage" id="stageFlowA">
+                    <h4>阶段2A：不涉及文物流转</h4>
+                    <div class="stage-hint">适用状态：20_初审安全 / 30_现场勘查完成 / 40_市局审批中。</div>
+                    <div class="row">
+                        <input id="photoFile" type="file" accept="image/*" multiple style="max-width:320px;">
+                        <button class="btn secondary" id="btnUploadPhoto" type="button">上传现场照片</button>
+                        <button class="btn secondary" id="actFieldDone" type="button">提交现场勘查完成</button>
+                        <button class="btn secondary" id="actSubmitCity" type="button">录入县局请示并提交市局</button>
+                        <button class="btn secondary" id="actCityReply" type="button">录入市局复函</button>
+                    </div>
+                </div>
+
+                <div class="section stage" id="stageFlowB">
+                    <h4>阶段2B：涉及文物流转</h4>
+                    <div class="stage-hint">适用状态：21_初审涉及 / 45_考古流转中。</div>
+                    <div class="row">
+                        <button class="btn secondary" id="actArchaeologyReq" type="button">发起考古流转</button>
+                        <input id="pdfFile" type="file" accept="application/pdf" multiple style="max-width:320px;">
+                        <button class="btn warn" id="btnUploadPdf" type="button">上传考古报告</button>
+                        <button class="btn secondary" id="actArchaeologyReply" type="button">录入考古批复结果</button>
+                    </div>
+                </div>
+
+                <div class="section stage" id="stageArchive">
+                    <h4>阶段3：办结归档</h4>
+                    <div class="stage-hint">适用状态：50_批复已收到 / 60_已结案归档。</div>
+                    <button class="btn" id="actArchive" type="button">办结归档</button>
+                </div>
+            </div>
+        </section>
+    </div>
+</div>
+
+<div class="modal-mask" id="workflowModal">
+    <div class="modal">
+        <div class="modal-h">
+            <strong id="modalTitle">流程操作</strong>
+            <button class="btn secondary" id="modalClose" type="button">关闭</button>
+        </div>
+        <div class="modal-b" id="modalBody"></div>
+        <div class="modal-b" style="display:flex; justify-content:flex-end;">
+            <button class="btn" id="modalSubmit" type="button">确认提交</button>
+        </div>
+    </div>
+</div>
+
+<script>
+const STATUS_CHOICES = {{ status_choices_json|safe }};
+const INITIAL_PROJECT_ID = '{{ initial_project_id|default:"" }}';
+let currentProjectId = INITIAL_PROJECT_ID || null;
+let currentDetail = null;
+let currentAction = '';
+
+const ACTION_SCHEMAS = {
+    complete_field_check: { title: '提交现场勘查完成', fields: [{ key: 'field_check_date', label: '现场勘查日期', type: 'date', required: true }] },
+    submit_city_request: { title: '录入县局请示并提交市局', fields: [{ key: 'shanshan_request_num', label: '县局请示文号', type: 'text', required: true, placeholder: '鄯文旅字-2026-xx号' }] },
+    record_city_reply: { title: '录入市局复函', fields: [{ key: 'city_reply_num', label: '市局复函号', type: 'text', required: true }] },
+    submit_archaeology_request: { title: '发起考古流转', fields: [{ key: 'archaeology_request_num', label: '考古请示文号', type: 'text', required: true }] },
+    record_archaeology_reply: { title: '录入考古批复结果', fields: [{ key: 'region_approval_num', label: '自治区文物局批复文号', type: 'text', required: true }, { key: 'city_final_reply_num', label: '市文物局最终复函号', type: 'text', required: true }] },
+    archive_case: { title: '办结归档', fields: [{ key: 'final_reply_to_company', label: '给企业最终复函号', type: 'text', required: true }] },
+};
+
+const el = {
+    searchInput: document.getElementById('searchInput'),
+    statusFilter: document.getElementById('statusFilter'),
+    projectList: document.getElementById('projectList'),
+    msgBox: document.getElementById('msgBox'),
+    detailTitle: document.getElementById('detailTitle'),
+    timeline: document.getElementById('timeline'),
+    statusBadge: document.getElementById('statusBadge'),
+    workflowModal: document.getElementById('workflowModal'),
+    modalTitle: document.getElementById('modalTitle'),
+    modalBody: document.getElementById('modalBody'),
+};
+
+function msg(text, ok=true) {
+    el.msgBox.className = ok ? 'msg ok' : 'msg err';
+    el.msgBox.textContent = text;
+}
+
+function initStatusFilter() {
+    const opts = ['<option value="">全部状态</option>'];
+    STATUS_CHOICES.forEach(x => opts.push(`<option value="${x.value}">${x.label}</option>`));
+    el.statusFilter.innerHTML = opts.join('');
+}
+
+function requireProjectId() {
+    if (!currentProjectId) {
+        msg('请先选择项目。', false);
+        return false;
+    }
+    return true;
+}
+
+function renderList(rows) {
+    if (!rows.length) {
+        el.projectList.innerHTML = '<div class="meta">暂无数据</div>';
+        return;
+    }
+    el.projectList.innerHTML = rows.map(r => `
+        <div class="item ${r.id===currentProjectId?'active':''}" data-id="${r.id}">
+            <div class="name">${r.project_name}</div>
+            <div class="meta">${r.company_name}</div>
+            <div class="meta">来函日期: ${r.incoming_doc_date || '-'} | ${r.status_label}</div>
+        </div>
+    `).join('');
+    el.projectList.querySelectorAll('.item').forEach(node => {
+        node.addEventListener('click', async () => {
+            currentProjectId = node.dataset.id;
+            await loadDetail();
+            await loadList();
+        });
+    });
+}
+
+function timelineEvents(d) {
+    const events = [];
+    events.push({ t: '收文登记', m: `${d.receive_date || '-'} | 来函日期: ${d.incoming_doc_date || '-'}` });
+    if (d.kml_file_path) events.push({ t: 'KML归档', m: d.kml_file_path });
+    if (d.misc_zip_path) events.push({ t: '杂项ZIP归档', m: d.misc_zip_path });
+    events.push({ t: '空间核验', m: d.is_overlap_artifact ? '涉及文物' : '初审安全' });
+    if (d.field_check_date) events.push({ t: '现场勘查', m: d.field_check_date });
+    if (d.shanshan_request_num) events.push({ t: '县局请示', m: d.shanshan_request_num });
+    if (d.city_reply_num) events.push({ t: '市局复函', m: d.city_reply_num });
+    if (d.archaeology_request_num) events.push({ t: '考古流转', m: d.archaeology_request_num });
+    if (d.archaeology_report_path) events.push({ t: '考古报告', m: d.archaeology_report_path });
+    if (d.final_reply_to_company) events.push({ t: '办结归档', m: d.final_reply_to_company });
+    events.push({ t: '当前状态', m: d.status_label });
+    return events;
+}
+
+function renderTimeline(d) {
+    el.timeline.innerHTML = timelineEvents(d).map(x => `<div class="tl-card"><div class="tl-title">${x.t}</div><div class="tl-meta">${x.m || '-'}</div></div>`).join('');
+}
+
+function showStage(id, show) {
+    const node = document.getElementById(id);
+    if (!node) return;
+    node.classList.toggle('show', !!show);
+}
+
+function renderStagePanels(d) {
+    const s = d.status;
+    showStage('stageReceived', s === '10_已收文');
+    showStage('stageFlowA', ['20_初审安全', '30_现场勘查完成', '40_市局审批中'].includes(s));
+    showStage('stageFlowB', ['21_CHECK_OVERLAP', '45_考古流转中'].includes(s));
+    showStage('stageArchive', ['50_批复已收到', '60_已结案归档'].includes(s));
+}
+
+function setActionEnabled(controls) {
+    const map = {
+        btnUploadKml: controls.upload_kml,
+        btnVerify: controls.verify_spatial,
+        btnUploadPhoto: controls.upload_field_photos,
+        actFieldDone: currentDetail && currentDetail.status === '20_初审安全',
+        actSubmitCity: currentDetail && currentDetail.status === '30_现场勘查完成',
+        actCityReply: controls.input_city_reply,
+        actArchaeologyReq: controls.submit_archaeology,
+        btnUploadPdf: controls.upload_archaeology_report,
+        actArchaeologyReply: currentDetail && currentDetail.status === '45_考古流转中',
+        actArchive: controls.close_archive,
+    };
+    Object.entries(map).forEach(([id, enabled]) => {
+        const n = document.getElementById(id);
+        if (n) n.disabled = !enabled;
+    });
+}
+
+async function loadList() {
+    const params = new URLSearchParams();
+    if (el.searchInput.value.trim()) params.set('q', el.searchInput.value.trim());
+    if (el.statusFilter.value) params.set('status', el.statusFilter.value);
+    const resp = await fetch(`/api/land-projects/?${params.toString()}`);
+    const data = await resp.json();
+    if (!data.success) {
+        msg(data.message || '加载列表失败', false);
+        return;
+    }
+    const rows = data.rows || [];
+    renderList(rows);
+    if (!currentProjectId && rows.length) {
+        currentProjectId = rows[0].id;
+        await loadDetail();
+        renderList(rows);
+    }
+}
+
+async function loadDetail() {
+    if (!requireProjectId()) return;
+    const resp = await fetch(`/api/land-projects/${currentProjectId}/`);
+    const payload = await resp.json();
+    if (!payload.success) {
+        msg(payload.message || '加载详情失败', false);
+        return;
+    }
+    currentDetail = payload.data;
+    el.detailTitle.textContent = `编辑内容 - ${currentDetail.project_name}`;
+    el.statusBadge.textContent = currentDetail.status_label;
+    renderTimeline(currentDetail);
+    renderStagePanels(currentDetail);
+    setActionEnabled(currentDetail.controls || {});
+    msg(`已加载项目: ${currentDetail.project_name}`);
+}
+
+async function createProject() {
+    const project_name = document.getElementById('createProjectName').value.trim();
+    const company_name = document.getElementById('createCompanyName').value.trim();
+    const incoming_doc_date = document.getElementById('createIncomingDate').value.trim();
+    if (!project_name || !company_name || !incoming_doc_date) {
+        msg('请完整填写新建项目信息。', false);
+        return;
+    }
+    const resp = await fetch('/api/land-projects/create/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_name, company_name, incoming_doc_date }),
+    });
+    const data = await resp.json();
+    if (!data.success) {
+        msg(data.message || '创建失败', false);
+        return;
+    }
+    currentProjectId = data.project_id;
+    msg('项目创建成功。');
+    await loadList();
+    await loadDetail();
+}
+
+async function uploadFiles(fileType, inputId) {
+    if (!requireProjectId()) return;
+    const input = document.getElementById(inputId);
+    const files = Array.from(input.files || []);
+    if (!files.length) {
+        msg('请先选择文件。', false);
+        return;
+    }
+    let ok = 0;
+    for (const file of files) {
+        const form = new FormData();
+        form.append('file_type', fileType);
+        form.append('file', file);
+        const resp = await fetch(`/api/land-projects/${currentProjectId}/upload/`, { method: 'POST', body: form });
+        const data = await resp.json();
+        if (data.success) ok += 1;
+    }
+    msg(`${fileType} 上传完成：成功 ${ok}/${files.length}` , ok === files.length);
+    input.value = '';
+    await loadDetail();
+    await loadList();
+}
+
+async function verifySpatial() {
+    if (!requireProjectId()) return;
+    const resp = await fetch(`/api/land-projects/${currentProjectId}/verify-spatial-safety/`, { method: 'POST' });
+    const data = await resp.json();
+    if (!data.success) {
+        msg(data.message || '核验失败', false);
+        return;
+    }
+    msg('空间核验完成。');
+    await loadDetail();
+    await loadList();
+}
+
+function openActionModal(action) {
+    if (!requireProjectId()) return;
+    const schema = ACTION_SCHEMAS[action];
+    if (!schema) return;
+    currentAction = action;
+    el.modalTitle.textContent = schema.title;
+    el.modalBody.innerHTML = schema.fields.map(f => `
+        <label>
+            <div class="meta">${f.label}</div>
+            <input data-key="${f.key}" type="${f.type || 'text'}" placeholder="${f.placeholder || ''}">
+        </label>
+    `).join('');
+    el.workflowModal.classList.add('show');
+}
+
+async function submitModal() {
+    const schema = ACTION_SCHEMAS[currentAction];
+    if (!schema) return;
+    const payload = { action: currentAction };
+    for (const f of schema.fields) {
+        const node = el.modalBody.querySelector(`[data-key="${f.key}"]`);
+        const value = (node ? node.value : '').trim();
+        if (f.required && !value) {
+            msg(`${f.label}不能为空`, false);
+            return;
+        }
+        payload[f.key] = value;
+    }
+    const resp = await fetch(`/api/land-projects/${currentProjectId}/workflow-action/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+    const data = await resp.json();
+    if (!data.success) {
+        msg(data.message || '流转失败', false);
+        return;
+    }
+    el.workflowModal.classList.remove('show');
+    msg('流程推进成功。');
+    await loadDetail();
+    await loadList();
+}
+
+function bindEvents() {
+    document.getElementById('btnBackView').addEventListener('click', () => {
+        const url = currentProjectId ? `/admin/land-projects/?project_id=${currentProjectId}` : '/admin/land-projects/';
+        window.location.href = url;
+    });
+    document.getElementById('btnSearch').addEventListener('click', loadList);
+    document.getElementById('btnCreate').addEventListener('click', createProject);
+
+    document.getElementById('btnUploadKml').addEventListener('click', () => uploadFiles('kml', 'kmlFile'));
+    document.getElementById('btnUploadZip').addEventListener('click', () => uploadFiles('misc_zip', 'zipFile'));
+    document.getElementById('btnUploadPhoto').addEventListener('click', () => uploadFiles('field_photo', 'photoFile'));
+    document.getElementById('btnUploadPdf').addEventListener('click', () => uploadFiles('archaeology_report', 'pdfFile'));
+    document.getElementById('btnVerify').addEventListener('click', verifySpatial);
+
+    document.getElementById('actFieldDone').addEventListener('click', () => openActionModal('complete_field_check'));
+    document.getElementById('actSubmitCity').addEventListener('click', () => openActionModal('submit_city_request'));
+    document.getElementById('actCityReply').addEventListener('click', () => openActionModal('record_city_reply'));
+    document.getElementById('actArchaeologyReq').addEventListener('click', () => openActionModal('submit_archaeology_request'));
+    document.getElementById('actArchaeologyReply').addEventListener('click', () => openActionModal('record_archaeology_reply'));
+    document.getElementById('actArchive').addEventListener('click', () => openActionModal('archive_case'));
+
+    document.getElementById('modalClose').addEventListener('click', () => el.workflowModal.classList.remove('show'));
+    document.getElementById('modalSubmit').addEventListener('click', submitModal);
+}
+
+(async function init() {
+    initStatusFilter();
+    bindEvents();
+    await loadList();
+    if (currentProjectId) await loadDetail();
+})();
+</script>
+</body>
+</html>
