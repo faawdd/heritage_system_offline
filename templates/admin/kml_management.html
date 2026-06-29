@@ -80,6 +80,27 @@
             overflow: hidden;
         }
 
+        body.embedded-mode .floating-panel,
+        body.embedded-mode .bubble-switch,
+        body.embedded-mode .legend {
+            display: none !important;
+        }
+
+        body.embedded-mode .map-status-pill {
+            top: 10px;
+            left: 10px;
+            transform: none;
+            min-width: 0;
+            max-width: calc(100% - 20px);
+            border-radius: 10px;
+            text-align: left;
+        }
+
+        body.embedded-mode .measure-control {
+            right: 10px;
+            bottom: 10px;
+        }
+
         .panel-head {
             display: flex;
             align-items: center;
@@ -1143,6 +1164,11 @@
     </aside>
 
     <script>
+        const pageParams = new URLSearchParams(window.location.search);
+        const isEmbeddedMode = pageParams.get('embedded') === '1';
+        const embeddedSourceKmlUrl = (pageParams.get('source_kml_url') || '').trim();
+        const embeddedSourceKmlName = (pageParams.get('source_kml_name') || '').trim() || '当前项目KML';
+
         const checkAll = document.getElementById('checkAll');
         const rowChecks = Array.from(document.querySelectorAll('.record-check'));
         const mapStatusEl = document.getElementById('mapStatus');
@@ -1184,6 +1210,10 @@
         let currentOverlapView = 'group';
         let overlapPopupCollapsed = false;
         let renderTaskId = 0;
+
+        if (isEmbeddedMode) {
+            document.body.classList.add('embedded-mode');
+        }
 
         function setLoadingState(visible, text, detail) {
             if (!loadingOverlayEl) {
@@ -3032,6 +3062,28 @@
             };
         }
 
+        function getSelectedKmlSources() {
+            const selectedRows = rowChecks.filter(function(item) {
+                return item.checked && item.dataset.fileUrl;
+            });
+
+            if (selectedRows.length > 0) {
+                return selectedRows;
+            }
+
+            if (embeddedSourceKmlUrl) {
+                return [{
+                    checked: true,
+                    dataset: {
+                        fileUrl: embeddedSourceKmlUrl,
+                        fileName: embeddedSourceKmlName,
+                    },
+                }];
+            }
+
+            return [];
+        }
+
         async function renderSelectedKmlLayers() {
             const currentTaskId = ++renderTaskId;
             overlayLayer.clearLayers();
@@ -3039,13 +3091,15 @@
             conflictLayer.clearLayers();
             kmlBadgeLayer.clearLayers();
             setReturnPanoramaVisible(false);
-            const selected = rowChecks.filter(item => item.checked && item.dataset.fileUrl);
+            const selected = getSelectedKmlSources();
             const threshold = getThresholdValue();
 
             if (!selected.length) {
                 setLoadingState(false);
                 hideOverlapPopup();
-                mapStatusEl.textContent = '地图已就绪，默认显示全部文物点。';
+                mapStatusEl.textContent = embeddedSourceKmlUrl
+                    ? '当前项目未配置可用KML文件。'
+                    : '地图已就绪，默认显示全部文物点。';
                 return;
             }
 
@@ -3214,6 +3268,10 @@
                 } catch (e) {
                     // ignore invalid bounds
                 }
+            }
+
+            if (embeddedSourceKmlUrl) {
+                scheduleRenderSelectedKmlLayers();
             }
         });
     </script>
