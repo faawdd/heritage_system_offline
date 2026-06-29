@@ -40,7 +40,7 @@ else:
 
     env = _SimpleEnv()
 
-SYSTEM_VERSION_PREFIX = env('SYSTEM_VERSION_PREFIX', default='v1.2')
+SYSTEM_VERSION_PREFIX = env('SYSTEM_VERSION_PREFIX', default='v1.3')
 
 
 def build_system_version():
