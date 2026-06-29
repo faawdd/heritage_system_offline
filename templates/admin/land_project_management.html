@@ -1051,20 +1051,32 @@ async function createProject() {
         return;
     }
 
-    const resp = await fetch('/api/land-projects/create/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project_name, company_name, incoming_doc_date }),
-    });
-    const data = await resp.json();
-    if (!data.success) {
-        msg(data.message || '创建失败', false);
-        return;
+    try {
+        const resp = await fetch('/api/land-projects/create/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ project_name, company_name, incoming_doc_date }),
+        });
+
+        let data = null;
+        try {
+            data = await resp.json();
+        } catch (_) {
+            data = { success: false, message: `服务返回异常(${resp.status})，请刷新后重试` };
+        }
+
+        if (!resp.ok || !data.success) {
+            msg(data.message || '创建失败', false);
+            return;
+        }
+
+        currentProjectId = data.project_id;
+        msg('项目创建成功。');
+        await loadList();
+        await loadDetail();
+    } catch (err) {
+        msg(`创建请求失败: ${err.message || '网络异常'}`, false);
     }
-    currentProjectId = data.project_id;
-    msg('项目创建成功。');
-    await loadList();
-    await loadDetail();
 }
 
 async function verifySpatial() {
