@@ -408,7 +408,7 @@ async function loadDashboardData() {
       inspectionStats.abnormal_count = inspectionRes.data.abnormal_count
     }
 
-    if (levelStatsRes?.success) {
+    if (levelStatsRes && typeof levelStatsRes === 'object') {
       levelGroupField.value = levelStatsRes.group_by_field || 'level'
       if (Array.isArray(levelStatsRes.rows) && levelStatsRes.rows.length > 0) {
         levelLabels.value = levelStatsRes.rows.map((item) => item.label)
@@ -419,7 +419,7 @@ async function loadDashboardData() {
       }
     }
 
-    if (categoryStatsRes?.success) {
+    if (categoryStatsRes && typeof categoryStatsRes === 'object') {
       if (Array.isArray(categoryStatsRes.rows) && categoryStatsRes.rows.length > 0) {
         const total = categoryStatsRes.rows.reduce((sum, item) => sum + Number(item.count || 0), 0)
         categoryRows.value = categoryStatsRes.rows
