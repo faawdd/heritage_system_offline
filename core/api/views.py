@@ -5,10 +5,11 @@ import uuid
 import zipfile
 import csv
 import re
+from datetime import timedelta
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db.models import Q
+from django.db.models import Q, Count
 from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -54,6 +55,33 @@ class DashboardOverviewAPIView(APIView):
         abnormal_inspections = InspectionRecord.objects.filter(is_normal=False).count()
         heritage_total = HeritageSite.objects.count()
 
+        # 近7天巡查趋势（含异常数量）。
+        start_date = today - timedelta(days=6)
+        total_by_day = {
+            item['inspect_time__date']: item['count']
+            for item in InspectionRecord.objects.filter(inspect_time__date__range=[start_date, today])
+            .values('inspect_time__date')
+            .annotate(count=Count('id'))
+        }
+        abnormal_by_day = {
+            item['inspect_time__date']: item['count']
+            for item in InspectionRecord.objects.filter(is_normal=False, inspect_time__date__range=[start_date, today])
+            .values('inspect_time__date')
+            .annotate(count=Count('id'))
+        }
+
+        inspection_trend_7d = []
+        for i in range(7):
+            current = start_date + timedelta(days=i)
+            inspection_trend_7d.append(
+                {
+                    'date': current.isoformat(),
+                    'label': current.strftime('%m-%d'),
+                    'total_count': total_by_day.get(current, 0),
+                    'abnormal_count': abnormal_by_day.get(current, 0),
+                }
+            )
+
         # 2.0流程：处于审批/流转中的项目视为“待审批项目”。
         pending_project_count = LandUseProjectApproval.objects.filter(
             status__in=[
@@ -67,6 +95,56 @@ class DashboardOverviewAPIView(APIView):
         if pending_project_count == 0:
             pending_project_count = ProjectAudit.objects.filter(status='Pending').count()
 
+        # 项目审批漏斗（按新流程状态）。
+        project_status_count_map = {
+            item['status']: item['count']
+            for item in LandUseProjectApproval.objects.values('status').annotate(count=Count('id'))
+        }
+        project_funnel = [
+            {
+                'status': status,
+                'label': label,
+                'count': project_status_count_map.get(status, 0),
+            }
+            for status, label in LandUseProjectApproval.STATUS_CHOICES
+        ]
+
+        # 兼容老数据：新流程为空时用旧项目状态提供最小漏斗。
+        if sum(item['count'] for item in project_funnel) == 0:
+            legacy_status_map = {
+                item['status']: item['count']
+                for item in ProjectAudit.objects.values('status').annotate(count=Count('id'))
+            }
+            project_funnel = [
+                {'status': 'Pending', 'label': '待审', 'count': legacy_status_map.get('Pending', 0)},
+                {'status': 'Pass', 'label': '通过', 'count': legacy_status_map.get('Pass', 0)},
+                {'status': 'Reject', 'label': '驳回', 'count': legacy_status_map.get('Reject', 0)},
+            ]
+
+        abnormal_inspection_points = []
+        abnormal_qs = (
+            InspectionRecord.objects.select_related('site')
+            .filter(is_normal=False, longitude__isnull=False, latitude__isnull=False)
+            .order_by('-inspect_time')[:600]
+        )
+        for item in abnormal_qs:
+            try:
+                lon = float(item.longitude)
+                lat = float(item.latitude)
+            except (TypeError, ValueError):
+                continue
+            abnormal_inspection_points.append(
+                {
+                    'id': item.id,
+                    'site_id': item.site_id,
+                    'site_name': item.site.name if item.site else '-',
+                    'longitude': lon,
+                    'latitude': lat,
+                    'inspect_time': item.inspect_time.strftime('%Y-%m-%d %H:%M'),
+                    'issue_details': item.issue_details or '',
+                }
+            )
+
         return Response(
             {
                 'success': True,
@@ -75,6 +153,9 @@ class DashboardOverviewAPIView(APIView):
                     'today_inspection_count': today_inspections,
                     'heritage_total_count': heritage_total,
                     'risk_warning_count': abnormal_inspections,
+                    'inspection_trend_7d': inspection_trend_7d,
+                    'project_funnel': project_funnel,
+                    'abnormal_inspection_points': abnormal_inspection_points,
                 },
             }
         )
