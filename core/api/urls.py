@@ -1,6 +1,7 @@
 from django.urls import path
 
 from core.api.views import (
+    GisKmlBatchKmlContentAPIView,
     GisKmlManagementActionAPIView,
     GisKmlProcessConvertAPIView,
     GisKmlRecordKmlContentAPIView,
@@ -50,6 +51,7 @@ urlpatterns = [
     path('inspections/stats/', InspectionStatsAPIView.as_view(), name='inspection_stats'),
     path('inspections/<int:inspection_id>/', InspectionDetailAPIView.as_view(), name='inspection_detail'),
     path('gis/kml-records/', GisKmlRecordsAPIView.as_view(), name='gis_kml_records'),
+    path('gis/kml-records/batch-kml-content/', GisKmlBatchKmlContentAPIView.as_view(), name='gis_kml_batch_kml_content'),
     path('gis/kml-records/<int:record_id>/kml-content/', GisKmlRecordKmlContentAPIView.as_view(), name='gis_kml_record_kml_content'),
     path('gis/kml-management/action/', GisKmlManagementActionAPIView.as_view(), name='gis_kml_management_action'),
     path('gis/kml-process-convert/', GisKmlProcessConvertAPIView.as_view(), name='gis_kml_process_convert'),
