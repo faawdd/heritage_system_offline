@@ -1091,6 +1091,7 @@
                                                     name="selected_ids"
                                                     value="{{ record.id }}"
                                                     class="record-check"
+                                                    data-record-id="{{ record.id }}"
                                                     data-file-url="{% if record.source_file %}{{ record.source_file.url }}{% endif %}"
                                                     data-file-name="{{ record.title }}"
                                                 >
@@ -1582,6 +1583,18 @@
                     fn.apply(null, args);
                 }, wait);
             };
+        }
+
+        function getCsrfToken() {
+            const name = 'csrftoken=';
+            const chunks = (document.cookie || '').split(';');
+            for (let i = 0; i < chunks.length; i += 1) {
+                const item = chunks[i].trim();
+                if (item.indexOf(name) === 0) {
+                    return decodeURIComponent(item.substring(name.length));
+                }
+            }
+            return '';
         }
 
         function yieldToUI() {
@@ -3176,6 +3189,14 @@
             return toGeoJSON.kml(xml);
         }
 
+        function parseKmlFromText(kmlText) {
+            const xml = new DOMParser().parseFromString(String(kmlText || ''), 'text/xml');
+            if (xml.getElementsByTagName('parsererror').length > 0) {
+                throw new Error('KML 内容格式错误');
+            }
+            return toGeoJSON.kml(xml);
+        }
+
         function cloneGeoJson(geojson) {
             return JSON.parse(JSON.stringify(geojson || { type: 'FeatureCollection', features: [] }));
         }
@@ -3208,6 +3229,41 @@
             } finally {
                 kmlLoadPromiseCache.delete(fileUrl);
             }
+        }
+
+        async function fetchBatchKmlContents(recordIds) {
+            const ids = Array.isArray(recordIds) ? recordIds : [];
+            if (!ids.length) {
+                return { items: [], failedItems: [] };
+            }
+
+            const response = await fetch('/api/v1/gis/kml-records/batch-kml-content/', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCsrfToken(),
+                },
+                body: JSON.stringify({ record_ids: ids }),
+            });
+
+            let payload = null;
+            try {
+                payload = await response.json();
+            } catch (_error) {
+                payload = null;
+            }
+
+            if (!response.ok || !payload || payload.success !== true) {
+                const message = payload && payload.message ? payload.message : '批量 KML 内容接口请求失败';
+                throw new Error(message);
+            }
+
+            const data = payload.data || {};
+            return {
+                items: Array.isArray(data.items) ? data.items : [],
+                failedItems: Array.isArray(data.failed_items) ? data.failed_items : [],
+            };
         }
 
         function decorateGeoJsonForRender(rawGeoJson, fileMeta) {
@@ -3274,6 +3330,39 @@
                 setLoadingState(true, '正在加载 KML 文件...', '已完成 0/' + selected.length);
                 mapStatusEl.textContent = '正在加载 ' + selected.length + ' 个 KML 文件...';
 
+                const selectedRecordIds = selected
+                    .map(function(item) {
+                        const rawId = item && item.dataset ? Number(item.dataset.recordId) : NaN;
+                        return Number.isInteger(rawId) && rawId > 0 ? rawId : null;
+                    })
+                    .filter(function(id) {
+                        return id != null;
+                    });
+
+                const batchContentMap = new Map();
+                const batchFailedMap = new Map();
+
+                if (selectedRecordIds.length > 0) {
+                    try {
+                        setLoadingState(true, '正在批量获取 KML 内容...', '等待后端解析 ' + selectedRecordIds.length + ' 条记录');
+                        const batchResult = await fetchBatchKmlContents(selectedRecordIds);
+                        batchResult.items.forEach(function(item) {
+                            const rid = Number(item && item.record_id);
+                            if (Number.isInteger(rid) && rid > 0) {
+                                batchContentMap.set(rid, String(item.kml_text || ''));
+                            }
+                        });
+                        batchResult.failedItems.forEach(function(item) {
+                            const rid = Number(item && item.record_id);
+                            if (Number.isInteger(rid) && rid > 0) {
+                                batchFailedMap.set(rid, String(item.message || '批量接口返回失败'));
+                            }
+                        });
+                    } catch (error) {
+                        mapStatusEl.textContent = '批量内容接口失败，自动回退逐个加载：' + (error && error.message ? error.message : '未知错误');
+                    }
+                }
+
                 await yieldToUI();
 
                 const loadResults = await mapWithConcurrency(
@@ -3282,12 +3371,24 @@
                     async function(checkbox, index) {
                         const fileUrl = checkbox.dataset.fileUrl;
                         const fileName = checkbox.dataset.fileName || ('文件' + (index + 1));
+                        const recordId = Number(checkbox.dataset.recordId);
                         const color = COLORS[index % COLORS.length];
-                        if (!fileUrl) {
+                        if (!fileUrl && !(Number.isInteger(recordId) && recordId > 0)) {
                             return { ok: false, fileName: fileName, color: color, index: index, fileUrl: fileUrl, error: '缺少文件地址' };
                         }
                         try {
-                            const rawGeoJson = await loadGeoJsonByUrl(fileUrl, fileName);
+                            let rawGeoJson = null;
+                            if (Number.isInteger(recordId) && recordId > 0 && batchContentMap.has(recordId)) {
+                                const batchText = batchContentMap.get(recordId);
+                                const parsed = normalizeClosedLines(parseKmlFromText(batchText));
+                                rawGeoJson = {
+                                    type: parsed && parsed.type ? parsed.type : 'FeatureCollection',
+                                    features: Array.isArray(parsed && parsed.features) ? parsed.features : [],
+                                };
+                            } else {
+                                rawGeoJson = await loadGeoJsonByUrl(fileUrl, fileName);
+                            }
+
                             return {
                                 ok: true,
                                 fileName: fileName,
@@ -3303,7 +3404,7 @@
                                 color: color,
                                 index: index,
                                 fileUrl: fileUrl,
-                                error: error && error.message ? error.message : '加载失败',
+                                error: batchFailedMap.get(recordId) || (error && error.message ? error.message : '加载失败'),
                             };
                         }
                     },
