@@ -41,6 +41,37 @@
       <div class="measure-text" v-if="measureText">{{ measureText }}</div>
       <div class="measure-text" v-if="overlapEntries.length > 0">检测到叠加 {{ overlapEntries.length }} 处</div>
     </div>
+    <div class="kml-legend-panel">
+      <div class="legend-title">图例</div>
+      <div class="legend-item">
+        <span class="legend-swatch swatch-kml"></span>
+        <span>普通 KML 要素</span>
+      </div>
+      <div class="legend-item">
+        <span class="legend-swatch swatch-overlap"></span>
+        <span>元素间叠加冲突</span>
+      </div>
+      <div class="legend-item">
+        <span class="legend-swatch swatch-heritage"></span>
+        <span>元素与文物点冲突</span>
+      </div>
+      <div class="legend-item">
+        <span class="legend-swatch swatch-both"></span>
+        <span>双重冲突（优先关注）</span>
+      </div>
+      <div class="legend-item">
+        <span class="legend-swatch swatch-hatch"></span>
+        <span>叠加面斜线阴影</span>
+      </div>
+      <div class="legend-item">
+        <span class="legend-dot dot-heritage"></span>
+        <span>文物点</span>
+      </div>
+      <div class="legend-item">
+        <span class="legend-dot dot-conflict"></span>
+        <span>冲突点</span>
+      </div>
+    </div>
     <div class="kml-overlay-tip" v-if="tips.length > 0">
       <div v-for="(item, idx) in tips" :key="idx">{{ item }}</div>
     </div>
@@ -136,24 +167,101 @@ let overlapToken = 0
 const overlapEntries = ref([])
 const kmlStyleCache = new Map()
 const kmlTextCache = new Map()
+const hatchPatternCache = new Map()
 
-const palette = ['#0ea5e9', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#14b8a6']
-
-function kmlStyleByIndex(index) {
-  if (kmlStyleCache.has(index)) {
-    return kmlStyleCache.get(index)
+function kmlBaseColorByIndex(index) {
+  // 使用黄金角生成高区分度色相，避免批量加载时颜色过于相近。
+  const hue = Math.round((index * 137.508) % 360)
+  const lightness = [46, 58, 40, 64][index % 4]
+  return {
+    stroke: `hsl(${hue} 82% ${lightness}%)`,
+    fill: `hsla(${hue} 82% ${lightness}%, 0.2)`,
+    point: `hsl(${hue} 85% ${Math.max(32, lightness - 8)}%)`
   }
-  const color = palette[index % palette.length]
+}
+
+function buildHatchPattern(patternKey, lineColor, backgroundColor) {
+  if (hatchPatternCache.has(patternKey)) {
+    return hatchPatternCache.get(patternKey)
+  }
+  if (typeof document === 'undefined') {
+    return backgroundColor
+  }
+
+  const canvas = document.createElement('canvas')
+  canvas.width = 12
+  canvas.height = 12
+  const ctx = canvas.getContext('2d')
+  if (!ctx) {
+    return backgroundColor
+  }
+
+  ctx.fillStyle = backgroundColor
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  ctx.strokeStyle = lineColor
+  ctx.lineWidth = 1.4
+  ctx.beginPath()
+  ctx.moveTo(-2, 10)
+  ctx.lineTo(10, -2)
+  ctx.moveTo(2, 14)
+  ctx.lineTo(14, 2)
+  ctx.stroke()
+
+  const pattern = ctx.createPattern(canvas, 'repeat') || backgroundColor
+  hatchPatternCache.set(patternKey, pattern)
+  return pattern
+}
+
+function kmlStyleByFeature(feature) {
+  const index = Number(feature.get('kmlColorIndex') || 0)
+  const geometryType = String(feature.getGeometry()?.getType?.() || '')
+  const isOverlapConflict = Boolean(feature.get('isOverlapConflict'))
+  const isHeritageConflict = Boolean(feature.get('isHeritageConflict'))
+
+  const state = isOverlapConflict && isHeritageConflict ? 'both' : isOverlapConflict ? 'overlap' : isHeritageConflict ? 'heritage' : 'base'
+  const cacheKey = `${index}|${state}|${geometryType}`
+  if (kmlStyleCache.has(cacheKey)) {
+    return kmlStyleCache.get(cacheKey)
+  }
+
+  const baseColor = kmlBaseColorByIndex(index)
+  const overlapColor = '#d900ff'
+  const heritageColor = '#ff6a00'
+  const bothColor = '#ff1744'
+  const highlightStroke =
+    state === 'both' ? bothColor : state === 'overlap' ? overlapColor : state === 'heritage' ? heritageColor : baseColor.stroke
+  const highlightFill =
+    state === 'both'
+      ? 'rgba(255, 23, 68, 0.2)'
+      : state === 'overlap'
+        ? 'rgba(217, 0, 255, 0.2)'
+        : state === 'heritage'
+          ? 'rgba(255, 106, 0, 0.18)'
+          : baseColor.fill
+  const strokeWidth = state === 'base' ? 2 : 3
+
+  const isPolygon = geometryType === 'Polygon' || geometryType === 'MultiPolygon'
+  const isPoint = geometryType === 'Point' || geometryType === 'MultiPoint'
+
+  const fillColor =
+    isPolygon && (state === 'overlap' || state === 'both')
+      ? buildHatchPattern(`hatch:${state}:${highlightStroke}`, highlightStroke, 'rgba(255, 255, 255, 0.06)')
+      : highlightFill
+
   const style = new Style({
     image: new CircleStyle({
-      radius: 5,
-      fill: new Fill({ color }),
-      stroke: new Stroke({ color: '#ffffff', width: 1.5 })
+      radius: isPoint && state !== 'base' ? 6.5 : 5,
+      fill: new Fill({ color: state === 'base' ? baseColor.point : highlightStroke }),
+      stroke: new Stroke({ color: '#ffffff', width: state === 'base' ? 1.5 : 2.4 })
     }),
-    stroke: new Stroke({ color, width: 2 }),
-    fill: new Fill({ color: `${color}33` })
+    stroke: new Stroke({
+      color: highlightStroke,
+      width: strokeWidth,
+      lineDash: state === 'overlap' ? [8, 5] : undefined
+    }),
+    fill: new Fill({ color: fillColor })
   })
-  kmlStyleCache.set(index, style)
+  kmlStyleCache.set(cacheKey, style)
   return style
 }
 
@@ -202,12 +310,12 @@ function conflictActiveStyle() {
 }
 
 function overlapStyle(kind) {
-  const color = kind === 'point' ? '#7c3aed' : kind === 'line' ? '#0ea5e9' : '#ef4444'
+  const color = kind === 'point' ? '#d900ff' : kind === 'line' ? '#ff6a00' : '#ff1744'
   return new Style({
     image: new CircleStyle({
-      radius: 6,
+      radius: 7,
       fill: new Fill({ color }),
-      stroke: new Stroke({ color: '#ffffff', width: 2 })
+      stroke: new Stroke({ color: '#ffffff', width: 2.2 })
     })
   })
 }
@@ -641,6 +749,7 @@ function reloadConflictLayer() {
     conflictSource.addFeature(feature)
   })
   applyFocusConflictStyle()
+  applyKmlHighlightStates()
   fitAll()
 }
 
@@ -670,6 +779,41 @@ function buildOverlapKey(sourceA, sourceB, featureA, featureB, kind) {
   return `${kind}|${sourcePair}|${featurePair}`
 }
 
+function applyKmlHighlightStates(entries = overlapEntries.value) {
+  const overlapFeatureKeySet = new Set()
+  ;(entries || []).forEach((row) => {
+    const sourceA = String(row?.source_a || '')
+    const sourceB = String(row?.source_b || '')
+    const featureA = String(row?.feature_a || '')
+    const featureB = String(row?.feature_b || '')
+    if (sourceA && featureA) {
+      overlapFeatureKeySet.add(`${sourceA}|${featureA}`)
+    }
+    if (sourceB && featureB) {
+      overlapFeatureKeySet.add(`${sourceB}|${featureB}`)
+    }
+  })
+
+  const conflictSourceSet = new Set(
+    (props.conflictRows || [])
+      .map((row) => String(row?.feature_source || '').trim())
+      .filter((name) => Boolean(name))
+  )
+
+  kmlSource.getFeatures().forEach((feature) => {
+    const sourceName = String(feature.get('sourceName') || '')
+    const featureName = String(feature.get('featureName') || '')
+    const overlapFlag = overlapFeatureKeySet.has(`${sourceName}|${featureName}`)
+    const heritageConflictFlag = conflictSourceSet.has(sourceName)
+    feature.set('isOverlapConflict', overlapFlag)
+    feature.set('isHeritageConflict', heritageConflictFlag)
+  })
+
+  if (kmlLayerRef.value) {
+    kmlLayerRef.value.changed()
+  }
+}
+
 async function reloadOverlapLayer() {
   overlapToken += 1
   const currentToken = overlapToken
@@ -678,6 +822,7 @@ async function reloadOverlapLayer() {
 
   const features = kmlSource.getFeatures()
   if (!features || features.length < 2) {
+    applyKmlHighlightStates([])
     emit('overlap-update', [])
     return
   }
@@ -685,6 +830,7 @@ async function reloadOverlapLayer() {
     appendTipOnce(
       `当前渲染要素 ${features.length} 个，已跳过叠加检测以避免页面卡顿（阈值 ${OVERLAP_DETECT_LIMIT}）。`
     )
+    applyKmlHighlightStates([])
     emit('overlap-update', [])
     return
   }
@@ -805,6 +951,7 @@ async function reloadOverlapLayer() {
   })
 
   overlapEntries.value = entries
+  applyKmlHighlightStates(entries)
   emit('overlap-update', entries)
 }
 
@@ -1157,7 +1304,7 @@ onMounted(() => {
 
   const kmlLayer = new VectorLayer({
     source: kmlSource,
-    style: (feature) => kmlStyleByIndex(Number(feature.get('kmlColorIndex') || 0))
+    style: (feature) => kmlStyleByFeature(feature)
   })
   const heritageLayer = new VectorLayer({ source: heritageSource })
   const conflictLayer = new VectorLayer({ source: conflictSource })
@@ -1447,5 +1594,116 @@ watch(
 .measure-text {
   font-size: 12px;
   color: #0f172a;
+}
+
+.kml-legend-panel {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 6;
+  min-width: 196px;
+  max-width: 250px;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.16);
+  padding: 10px 10px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.legend-title {
+  font-size: 12px;
+  color: #0f172a;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #334155;
+  line-height: 1.2;
+}
+
+.legend-swatch {
+  width: 20px;
+  height: 12px;
+  border-radius: 3px;
+  border: 2px solid transparent;
+  flex: none;
+}
+
+.swatch-kml {
+  border-color: #0ea5e9;
+  background: rgba(14, 165, 233, 0.18);
+}
+
+.swatch-overlap {
+  border-color: #d900ff;
+  background: rgba(217, 0, 255, 0.18);
+}
+
+.swatch-heritage {
+  border-color: #ff6a00;
+  background: rgba(255, 106, 0, 0.18);
+}
+
+.swatch-both {
+  border-color: #ff1744;
+  background: rgba(255, 23, 68, 0.2);
+}
+
+.swatch-hatch {
+  border-color: #d900ff;
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgba(217, 0, 255, 0.85) 0,
+    rgba(217, 0, 255, 0.85) 2px,
+    rgba(255, 255, 255, 0) 2px,
+    rgba(255, 255, 255, 0) 6px
+  );
+  background-color: rgba(255, 255, 255, 0.72);
+}
+
+.legend-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.18);
+  flex: none;
+}
+
+.dot-heritage {
+  background: #2563eb;
+}
+
+.dot-conflict {
+  background: #dc2626;
+}
+
+@media (max-width: 768px) {
+  .kml-legend-panel {
+    right: 10px;
+    bottom: 10px;
+    min-width: 168px;
+    max-width: 188px;
+    padding: 8px;
+    gap: 6px;
+  }
+
+  .legend-item {
+    font-size: 11px;
+    gap: 6px;
+  }
+
+  .legend-swatch {
+    width: 18px;
+    height: 10px;
+  }
 }
 </style>
