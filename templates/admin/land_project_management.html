@@ -13,7 +13,9 @@
             --sub: #64748b;
             --brand: #0f5f8f;
             --brand-2: #1e7db8;
+            --accent: #0b4a6e;
             --ok: #15803d;
+            --warn: #c2410c;
             --risk: #b91c1c;
         }
         * { box-sizing: border-box; }
@@ -23,44 +25,79 @@
             color: var(--text);
             font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
         }
-        .wrap { width: min(1440px, 96vw); margin: 18px auto 28px; }
-        .hero {
-            background: linear-gradient(120deg, var(--brand), var(--brand-2));
-            color: #fff;
-            border-radius: 14px;
-            padding: 16px 18px;
-            box-shadow: 0 14px 28px rgba(15, 95, 143, .24);
+        .wrap { width: min(1480px, 96vw); margin: 12px auto 20px; }
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            background: #f8fbff;
+            padding: 8px 12px;
         }
-        .hero h1 { margin: 0; font-size: 22px; }
-        .hero p { margin: 6px 0 0; opacity: .92; }
-        .hero .ops { margin-top: 10px; }
+        .crumb {
+            font-size: 13px;
+            color: #475569;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .crumb strong {
+            color: var(--accent);
+            font-size: 14px;
+        }
         .btn {
-            border: none;
+            border: 1px solid #b8cbe0;
             border-radius: 8px;
             background: #fff;
-            color: var(--brand);
+            color: var(--accent);
             padding: 8px 12px;
             font-weight: 700;
             cursor: pointer;
         }
+        .btn:hover { background: #eef6ff; }
+        .alert-strip {
+            margin-top: 8px;
+            border: 1px solid #c7d9ec;
+            border-radius: 10px;
+            padding: 8px 10px;
+            background: #f4f9ff;
+            color: #1e3a5f;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+        .alert-close {
+            border: none;
+            background: transparent;
+            color: #5f7692;
+            font-size: 16px;
+            cursor: pointer;
+            line-height: 1;
+        }
         .layout {
-            margin-top: 14px;
+            margin-top: 10px;
             display: grid;
             grid-template-columns: minmax(330px, 34%) 1fr;
             gap: 14px;
-            min-height: calc(100vh - 170px);
+            min-height: calc(100vh - 112px);
         }
         .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; box-shadow: 0 5px 14px rgba(15,23,42,.06); }
         .panel-head { padding: 12px; border-bottom: 1px solid var(--line); background: #f7fbff; }
-        .toolbar { display: grid; grid-template-columns: 1fr 140px 80px; gap: 8px; }
+        .toolbar { display: flex; align-items: center; gap: 10px; }
+        .toolbar input { flex: 1; min-width: 140px; }
+        .toolbar select { width: 176px; }
+        .toolbar button { width: 84px; }
         input, select { width: 100%; border: 1px solid #bacadd; border-radius: 8px; padding: 8px 9px; }
-        .list { max-height: calc(100vh - 260px); overflow: auto; padding: 8px; display: grid; gap: 8px; }
+        .list { max-height: calc(100vh - 210px); overflow: auto; padding: 8px; display: grid; gap: 8px; }
         .item { border: 1px solid #d5e1ef; border-radius: 10px; padding: 10px; cursor: pointer; }
         .item.active { border-color: var(--brand); background: #f2f9ff; }
         .item-name { font-weight: 700; }
         .item-meta { margin-top: 4px; color: var(--sub); font-size: 12px; }
         .tag { display: inline-block; margin-top: 8px; border-radius: 999px; font-size: 12px; padding: 3px 8px; background: #e8eff8; color: #334155; }
-        .detail { padding: 12px; display: grid; gap: 10px; max-height: calc(100vh - 200px); overflow: auto; }
+        .detail { padding: 12px; display: grid; gap: 10px; max-height: calc(100vh - 130px); overflow: auto; }
         .section { border: 1px solid #dae6f3; border-radius: 10px; padding: 10px; background: #fff; }
         .section h3 { margin: 0 0 8px; color: #1d4f78; font-size: 15px; }
         .kml-embed-wrap {
@@ -83,15 +120,83 @@
             display: block;
             background: #eef3f9;
         }
-        .grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-        .kv { border: 1px solid #e4edf7; border-radius: 8px; padding: 8px; background: #fbfdff; }
-        .kv small { color: var(--sub); display: block; margin-bottom: 3px; }
-        .timeline-horizontal { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 3px; }
-        .tl-node { min-width: 190px; border: 1px solid #dbe8f5; border-radius: 10px; padding: 8px; background: #f9fcff; position: relative; }
-        .tl-node::after { content: ""; position: absolute; right: -10px; top: 50%; width: 10px; height: 2px; background: #c3d3e7; }
+        .timeline-horizontal { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 6px; scrollbar-width: thin; }
+        .tl-node {
+            --tone: #c3d3e7;
+            flex: 0 0 clamp(220px, 24vw, 280px);
+            min-width: 220px;
+            border: 1px solid #dbe8f5;
+            border-radius: 10px;
+            padding: 8px;
+            background: #f9fcff;
+            position: relative;
+        }
+        .tl-node::after { content: ""; position: absolute; right: -12px; top: 50%; width: 12px; height: 2px; background: #c3d3e7; }
         .tl-node:last-child::after { display: none; }
+        .tl-node.to-current::after { background: var(--tone); }
+        .tl-node.is-current {
+            border-color: var(--tone);
+            box-shadow: 0 0 0 2px color-mix(in srgb, var(--tone) 24%, #ffffff 76%);
+            background: #fff;
+        }
+        .tl-node.tone-success { --tone: var(--ok); }
+        .tl-node.tone-warning { --tone: var(--warn); }
+        .tl-node.tone-danger { --tone: var(--risk); }
         .tl-title { font-size: 13px; font-weight: 700; color: #1e3a5f; }
-        .tl-meta { font-size: 12px; color: #64748b; margin-top: 3px; }
+        .tl-meta { font-size: 12px; color: #64748b; margin-top: 3px; white-space: normal; word-break: break-all; }
+        .desc-grid {
+            margin: 0;
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 8px 10px;
+        }
+        .desc-item {
+            border: 1px solid #e4edf7;
+            border-radius: 8px;
+            padding: 8px;
+            background: #fbfdff;
+        }
+        .desc-item dt {
+            margin: 0;
+            color: var(--sub);
+            font-size: 12px;
+        }
+        .desc-item dd {
+            margin: 4px 0 0;
+            font-size: 14px;
+            color: #0f172a;
+            word-break: break-all;
+        }
+        .metric-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+        .metric-card {
+            border: 1px solid #dce9f7;
+            border-radius: 10px;
+            background: #f8fcff;
+            padding: 10px;
+        }
+        .metric-title { font-size: 12px; color: #64748b; margin-bottom: 5px; }
+        .metric-value { font-size: 24px; line-height: 1; font-weight: 800; letter-spacing: .2px; }
+        .metric-value.safe { color: var(--ok); }
+        .metric-value.warning { color: var(--warn); }
+        .metric-value.risk { color: var(--risk); }
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            border-radius: 999px;
+            padding: 3px 10px;
+            font-size: 12px;
+            font-weight: 700;
+            margin-top: 6px;
+            border: 1px solid transparent;
+        }
+        .status-pill.safe { background: #e7f8ee; color: var(--ok); border-color: #b5e1c7; }
+        .status-pill.warning { background: #fff2e8; color: var(--warn); border-color: #ffd2b3; }
+        .status-pill.danger { background: #fde9e9; color: var(--risk); border-color: #f5b5b5; }
         .photo-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
         .photo-grid a { border: 1px solid #d9e3ef; border-radius: 8px; overflow: hidden; display: block; }
         .photo-grid img { width: 100%; height: 110px; object-fit: cover; display: block; }
@@ -104,21 +209,32 @@
         .safe { color: var(--ok); }
         @media (max-width: 980px) {
             .layout { grid-template-columns: 1fr; }
-            .toolbar { grid-template-columns: 1fr; }
-            .grid3 { grid-template-columns: 1fr; }
+            .topbar { align-items: flex-start; flex-direction: column; gap: 8px; }
+            .toolbar { flex-wrap: wrap; }
+            .toolbar select, .toolbar button { width: 100%; }
+            .desc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .metric-row { grid-template-columns: 1fr; }
             .photo-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             .kml-embed-frame { height: clamp(300px, 48vh, 560px); }
+        }
+        @media (max-width: 720px) {
+            .desc-grid { grid-template-columns: 1fr; }
         }
     </style>
 </head>
 <body>
 <div class="wrap">
-    <div class="hero">
-        <h1>用地项目审批与文档登记 · 查看页</h1>
-        <p>该页面仅查看项目全貌与流程轨迹；编辑操作已拆分到独立编辑页。</p>
-        <div class="ops">
-            <button class="btn" id="btnGotoEditTop">进入编辑页</button>
+    <div class="topbar">
+        <div class="crumb">
+            <span>项目管理</span>
+            <span>/</span>
+            <strong>用地项目审批与文档登记 · 查看页</strong>
         </div>
+        <button class="btn" id="btnGotoEditTop">进入编辑页</button>
+    </div>
+    <div class="alert-strip" id="viewAlert">
+        <span>本页用于查看项目全貌与流程轨迹，编辑动作请前往编辑页处理。</span>
+        <button class="alert-close" id="closeViewAlert" aria-label="关闭提示">×</button>
     </div>
 
     <div class="layout">
@@ -144,7 +260,8 @@
 
                 <div class="section">
                     <h3>项目概览</h3>
-                    <div class="grid3" id="overviewBox"></div>
+                    <div class="metric-row" id="metricBox"></div>
+                    <dl class="desc-grid" id="overviewBox"></dl>
                 </div>
 
                 <div class="section">
@@ -172,9 +289,6 @@
                     </div>
                 </div>
 
-                <div class="section">
-                    <button id="btnGotoEditBottom">进入编辑页处理当前项目</button>
-                </div>
             </div>
         </section>
     </div>
@@ -191,16 +305,48 @@ const el = {
     projectList: document.getElementById('projectList'),
     messageBox: document.getElementById('messageBox'),
     timelineBox: document.getElementById('timelineBox'),
+    metricBox: document.getElementById('metricBox'),
     overviewBox: document.getElementById('overviewBox'),
     photoGrid: document.getElementById('photoGrid'),
     logBody: document.getElementById('logBody'),
     kmlEmbedFrame: document.getElementById('kmlEmbedFrame'),
     kmlEmbedTip: document.getElementById('kmlEmbedTip'),
+    viewAlert: document.getElementById('viewAlert'),
+    closeViewAlert: document.getElementById('closeViewAlert'),
 };
+
+// 过滤状态值中的数字枚举前缀，统一显示业务中文。
+function formatStatusLabel(raw) {
+    const text = String(raw || '').trim();
+    if (!text) return '-';
+    if (/^\d+_/.test(text)) return text.replace(/^\d+_/, '');
+    return text;
+}
+
+function statusTone(raw) {
+    const s = formatStatusLabel(raw);
+    if (/初审安全|归档|结案/.test(s)) return 'safe';
+    if (/初审涉及/.test(s)) return 'danger';
+    if (/考古流转/.test(s)) return 'warning';
+    return 'warning';
+}
+
+function statusToneClass(raw) {
+    const tone = statusTone(raw);
+    if (tone === 'safe') return 'tone-success';
+    if (tone === 'danger') return 'tone-danger';
+    return 'tone-warning';
+}
+
+function statusPill(raw) {
+    const tone = statusTone(raw);
+    const cls = tone === 'safe' ? 'safe' : (tone === 'danger' ? 'danger' : 'warning');
+    return `<span class="status-pill ${cls}">${formatStatusLabel(raw)}</span>`;
+}
 
 function setStatusFilter() {
     const html = ['<option value="">全部状态</option>'];
-    STATUS_CHOICES.forEach(s => html.push(`<option value="${s.value}">${s.label}</option>`));
+    STATUS_CHOICES.forEach(s => html.push(`<option value="${s.value}">${formatStatusLabel(s.label || s.value)}</option>`));
     el.statusFilter.innerHTML = html.join('');
 }
 
@@ -250,7 +396,7 @@ function renderList(rows) {
             <div class="item-name">${r.project_name}</div>
             <div class="item-meta">${r.company_name} | 来函: ${r.incoming_doc_date || '-'}</div>
             <div class="item-meta">收文: ${r.receive_date || '-'} | 更新: ${r.updated_at || '-'}</div>
-            <span class="tag">${r.status_label}</span>
+            ${statusPill(r.status_label || r.status)}
         </div>
     `).join('');
 
@@ -273,24 +419,51 @@ function timelineEvents(d) {
     if (d.archaeology_request_num) arr.push({ title: '考古请示', meta: d.archaeology_request_num });
     if (d.region_approval_num || d.city_final_reply_num) arr.push({ title: '考古批复', meta: `${d.region_approval_num || '-'} / ${d.city_final_reply_num || '-'}` });
     if (d.final_reply_to_company) arr.push({ title: '企业最终复函', meta: d.final_reply_to_company });
-    arr.push({ title: '当前状态', meta: d.status_label });
+    arr.push({ title: '当前状态', meta: formatStatusLabel(d.status_label || d.status), isCurrentStatus: true });
     return arr;
 }
 
 function renderTimeline(d) {
     const events = timelineEvents(d);
-    el.timelineBox.innerHTML = events.map(x => `<div class="tl-node"><div class="tl-title">${x.title}</div><div class="tl-meta">${x.meta}</div></div>`).join('');
+    const currentTone = statusToneClass(d.status_label || d.status);
+    el.timelineBox.innerHTML = events.map((x, idx) => {
+        const isCurrent = !!x.isCurrentStatus;
+        const nextIsCurrent = !!(events[idx + 1] && events[idx + 1].isCurrentStatus);
+        const extra = [
+            isCurrent ? `is-current ${currentTone}` : '',
+            nextIsCurrent ? `to-current ${currentTone}` : '',
+        ].join(' ').trim();
+        return `<div class="tl-node ${extra}"><div class="tl-title">${x.title}</div><div class="tl-meta">${x.meta}</div></div>`;
+    }).join('');
 }
 
 function renderOverview(d) {
     const overlap = (d.overlapped_relics_info || []).length;
+    const overlapSafe = overlap === 0;
+    const overlapLabel = overlapSafe ? '无重叠/安全' : '存在重叠/高危';
+    const overlapCls = overlapSafe ? 'safe' : 'danger';
+    const statusToneValue = statusTone(d.status_label || d.status);
+    const statusMetricClass = statusToneValue === 'safe' ? 'safe' : (statusToneValue === 'warning' ? 'warning' : 'risk');
+    el.metricBox.innerHTML = `
+        <div class="metric-card">
+            <div class="metric-title">重叠数量</div>
+            <div class="metric-value ${overlapSafe ? 'safe' : 'risk'}">${overlap}</div>
+            <span class="status-pill ${overlapCls}">${overlapLabel}</span>
+        </div>
+        <div class="metric-card">
+            <div class="metric-title">当前状态</div>
+            <div class="metric-value ${statusMetricClass}">${formatStatusLabel(d.status_label || d.status)}</div>
+            ${statusPill(d.status_label || d.status)}
+        </div>
+    `;
+
     el.overviewBox.innerHTML = `
-        <div class="kv"><small>项目名称</small>${d.project_name}</div>
-        <div class="kv"><small>企业单位</small>${d.company_name}</div>
-        <div class="kv"><small>项目状态</small>${d.status_label}</div>
-        <div class="kv"><small>空间核验</small><span class="${d.is_overlap_artifact ? 'risk' : 'safe'}">${d.is_overlap_artifact ? '涉及文物' : '初审安全'}</span></div>
-        <div class="kv"><small>重叠数量</small>${overlap}</div>
-        <div class="kv"><small>更新时间</small>${d.updated_at || '-'}</div>
+        <div class="desc-item"><dt>项目名称</dt><dd>${d.project_name || '-'}</dd></div>
+        <div class="desc-item"><dt>企业单位</dt><dd>${d.company_name || '-'}</dd></div>
+        <div class="desc-item"><dt>空间核验</dt><dd><span class="${d.is_overlap_artifact ? 'risk' : 'safe'}">${d.is_overlap_artifact ? '涉及文物' : '初审安全'}</span></dd></div>
+        <div class="desc-item"><dt>来函日期</dt><dd>${d.incoming_doc_date || '-'}</dd></div>
+        <div class="desc-item"><dt>收文日期</dt><dd>${d.receive_date || '-'}</dd></div>
+        <div class="desc-item"><dt>更新时间</dt><dd>${d.updated_at || '-'}</dd></div>
     `;
 }
 
@@ -312,7 +485,7 @@ function renderLogs(rows) {
             <td>${l.created_at}</td>
             <td>${l.operator}</td>
             <td>${l.action_label || l.action}</td>
-            <td>${l.status_before || '-'} -> ${l.status_after || '-'}</td>
+            <td>${formatStatusLabel(l.status_before || '-')} -> ${formatStatusLabel(l.status_after || '-')}</td>
             <td>${l.payload ? JSON.stringify(l.payload) : '-'}</td>
         </tr>
     `).join('');
@@ -354,7 +527,11 @@ async function loadList() {
 document.getElementById('btnSearch').addEventListener('click', loadList);
 el.searchInput.addEventListener('keydown', e => { if (e.key === 'Enter') loadList(); });
 document.getElementById('btnGotoEditTop').addEventListener('click', gotoEditPage);
-document.getElementById('btnGotoEditBottom').addEventListener('click', gotoEditPage);
+if (el.closeViewAlert) {
+    el.closeViewAlert.addEventListener('click', () => {
+        el.viewAlert.style.display = 'none';
+    });
+}
 
 (async function init() {
     setStatusFilter();
