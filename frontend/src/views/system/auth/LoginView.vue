@@ -1,96 +1,46 @@
 <template>
-  <section class="heritage-login-page">
-    <header class="login-header">
-      <h1>鄯善县文物综合管理平台</h1>
-      <p>Django + Vue 一体化管理入口</p>
-    </header>
+  <section class="w3l-hotair-form">
+    <h1>鄯善县文物综合管理平台</h1>
+    <div class="container">
+      <div class="workinghny-form-grid">
+        <div class="main-hotair">
+          <div class="content-wthree">
+            <h2>系统登录</h2>
+            <form @submit.prevent="submitLogin">
+              <input v-model="form.username" type="text" class="text" name="username" placeholder="用户名" required autofocus>
+              <input
+                v-model="form.password"
+                type="password"
+                class="password"
+                name="password"
+                placeholder="密码"
+                required
+              >
+              <button class="btn" type="submit" :disabled="loading">{{ loading ? '登录中...' : '登录' }}</button>
+            </form>
 
-    <div class="login-shell" role="main">
-      <div class="login-form-panel">
-        <div class="panel-brand">
-          <span class="brand-dot"></span>
-          <span class="brand-text">HERITAGE CONTROL CENTER</span>
-        </div>
-
-        <h2>登录系统</h2>
-        <p class="panel-desc">请使用管理员或授权账户登录平台。</p>
-
-        <el-form class="login-form" @submit.prevent>
-          <el-form-item>
-            <el-input
-              v-model="form.username"
-              placeholder="用户名"
-              size="large"
-              @keyup.enter="submitLogin"
-            >
-              <template #prefix>
-                <span class="input-icon">账号</span>
-              </template>
-            </el-input>
-          </el-form-item>
-
-          <el-form-item>
-            <el-input
-              v-model="form.password"
-              type="password"
-              placeholder="密码"
-              show-password
-              size="large"
-              @keyup.enter="submitLogin"
-            >
-              <template #prefix>
-                <span class="input-icon">密钥</span>
-              </template>
-            </el-input>
-          </el-form-item>
-
-          <el-button
-            class="login-btn"
-            type="primary"
-            :loading="loading"
-            @click="submitLogin"
-          >
-            进入控制台
-          </el-button>
-        </el-form>
-
-        <div class="panel-footnote">
-          <span>建议使用 Chrome / Edge 最新版本访问</span>
-          <span>如无法登录，请联系系统管理员</span>
+            <p class="account">如无账号请联系 <a href="javascript:void(0)">系统管理员</a></p>
+          </div>
+          <div class="w3l_form align-self">
+            <div class="left_grid_info">
+              <img :src="loginIllustration" alt="登录插图" class="img-fluid">
+            </div>
+          </div>
         </div>
       </div>
-
-      <aside class="login-visual-panel" aria-hidden="true">
-        <div class="visual-badge">文物保护 · 数字治理</div>
-        <div class="visual-title">守护文化遗产</div>
-        <p class="visual-subtitle">巡查、研判、审批一体化协同。</p>
-
-        <div class="version-pill">
-          <span>系统版本</span>
-          <strong>v{{ versionText }}</strong>
-        </div>
-
-        <div class="heritage-icons">
-          <div class="icon-card icon-guard" title="安全巡查"></div>
-          <div class="icon-card icon-relic" title="文物档案"></div>
-          <div class="icon-card icon-map" title="一张图定位"></div>
-        </div>
-
-        <div class="visual-deco visual-deco-a"></div>
-        <div class="visual-deco visual-deco-b"></div>
-      </aside>
     </div>
-
-    <footer class="login-footer">© {{ new Date().getFullYear() }} 鄯善县文物综合管理平台</footer>
+    <div class="copyright text-center">
+      <p class="copy-footer-29">© {{ new Date().getFullYear() }} 鄯善县文物综合管理平台。保留所有权利</p>
+    </div>
   </section>
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { reactive, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 
-import { fetchSystemVersion } from '../../../api/dashboardApi'
+import loginIllustration from '../../../assets/login-illustration.png'
 import { useAuthStore } from '../../../stores/system/authStore'
 
 const router = useRouter()
@@ -98,20 +48,10 @@ const route = useRoute()
 const authStore = useAuthStore()
 
 const loading = ref(false)
-const versionText = ref('-')
 const form = reactive({
   username: '',
   password: ''
 })
-
-async function loadVersion() {
-  try {
-    const versionRes = await fetchSystemVersion()
-    versionText.value = versionRes?.data?.version || '-'
-  } catch (_error) {
-    versionText.value = '-'
-  }
-}
 
 async function submitLogin() {
   if (!form.username || !form.password) {
@@ -131,342 +71,301 @@ async function submitLogin() {
     loading.value = false
   }
 }
-
-onMounted(() => {
-  loadVersion()
-})
 </script>
 
 <style scoped>
-@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;900&display=swap');
 
-.heritage-login-page {
+html {
+  scroll-behavior: smooth;
+}
+
+body,
+html {
+  margin: 0;
+  padding: 0;
+  font-family: 'Noto Sans SC', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.text-center {
+  text-align: center;
+}
+
+button,
+input,
+select {
+  -webkit-appearance: none;
+  outline: none;
+  font-family: 'Noto Sans SC', sans-serif;
+}
+
+button,
+.btn,
+select {
+  cursor: pointer;
+}
+
+a {
+  text-decoration: none;
+}
+
+img {
+  max-width: 100%;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p {
+  margin: 0;
+  padding: 0;
+}
+
+p {
+  color: #666;
+  font-size: 16px;
+  line-height: 25px;
+  opacity: .6;
+  text-align: center;
+}
+
+.btn,
+button,
+.actionbg,
+input {
+  border-radius: 36px;
+  -webkit-border-radius: 36px;
+  -moz-border-radius: 36px;
+  -o-border-radius: 36px;
+  -ms-border-radius: 36px;
+}
+
+.btn:hover,
+button:hover {
+  transition: 0.5s ease;
+  -webkit-transition: 0.5s ease;
+  -o-transition: 0.5s ease;
+  -ms-transition: 0.5s ease;
+  -moz-transition: 0.5s ease;
+}
+
+.w3l-hotair-form {
+  position: relative;
   min-height: 100vh;
-  padding: 26px 18px 14px;
-  display: grid;
-  grid-template-rows: auto 1fr auto;
-  gap: 14px;
-  background:
-    radial-gradient(circle at 12% 18%, rgba(14, 165, 233, 0.2) 0, rgba(14, 165, 233, 0) 42%),
-    radial-gradient(circle at 88% 82%, rgba(59, 130, 246, 0.2) 0, rgba(59, 130, 246, 0) 40%),
-    linear-gradient(135deg, #0b5cab 0%, #1b7fd8 48%, #0ea5e9 100%);
-  font-family: 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
-}
-
-.login-header {
-  text-align: center;
-  color: #f1f7ff;
-}
-
-.login-header h1 {
-  margin: 0;
-  font-size: clamp(22px, 2.9vw, 32px);
-  line-height: 1.2;
-  font-weight: 800;
-  letter-spacing: 0.8px;
-}
-
-.login-header p {
-  margin: 8px 0 0;
-  color: rgba(241, 247, 255, 0.86);
-  font-size: 13px;
-}
-
-.login-shell {
-  width: min(900px, 100%);
-  margin: 0 auto;
-  border-radius: 14px;
-  overflow: hidden;
-  box-shadow: 0 14px 34px rgba(5, 23, 52, 0.3);
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  background: rgba(255, 255, 255, 0.09);
-  display: grid;
-  grid-template-columns: 1.08fr 0.92fr;
-}
-
-.login-form-panel {
-  padding: clamp(20px, 3.2vw, 30px);
-  background: rgba(255, 255, 255, 0.96);
-  display: flex;
-  flex-direction: column;
-}
-
-.panel-brand {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #0f3e6e;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.7px;
-}
-
-.brand-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #0ea5e9, #1d4ed8);
-}
-
-.panel-brand .brand-text {
-  opacity: 0.85;
-}
-
-.login-form-panel h2 {
-  margin: 12px 0 6px;
-  font-size: clamp(22px, 2.9vw, 30px);
-  color: #102a43;
-  font-weight: 800;
-}
-
-.panel-desc {
-  margin: 0;
-  color: #5d748f;
-  line-height: 1.6;
-  font-size: 13px;
-}
-
-.login-form {
-  margin-top: 18px;
-}
-
-.login-form :deep(.el-input__wrapper) {
-  border-radius: 30px;
-  padding: 1px 16px;
-  box-shadow: 0 0 0 1px #d6e3f2 inset;
-  background: #f7fbff;
-}
-
-.login-form :deep(.el-input__wrapper.is-focus) {
-  box-shadow: 0 0 0 1.4px #1d74c7 inset;
-  background: #ffffff;
-}
-
-.input-icon {
-  font-size: 11px;
-  color: #5d748f;
-  letter-spacing: 0.5px;
-}
-
-.login-btn {
-  width: 100%;
-  margin-top: 6px;
-  height: 42px;
-  border-radius: 30px;
-  border: none;
-  background: linear-gradient(90deg, #0b67bd 0%, #1492e6 100%);
-  box-shadow: 0 10px 20px rgba(13, 116, 194, 0.28);
-  font-size: 15px;
-  font-weight: 700;
-}
-
-.login-btn:hover {
-  filter: brightness(1.06);
-}
-
-.panel-footnote {
-  margin-top: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  color: #7388a0;
-  font-size: 12px;
-}
-
-.login-visual-panel {
-  position: relative;
-  background: linear-gradient(155deg, rgba(10, 44, 86, 0.85), rgba(20, 109, 184, 0.82));
-  padding: clamp(18px, 2.8vw, 26px);
-  color: #f1f8ff;
-  display: flex;
-  flex-direction: column;
+  z-index: 0;
+  background: #0568c1;
+  padding: 40px 40px;
   justify-content: center;
-  overflow: hidden;
-}
-
-.visual-badge {
-  width: fit-content;
-  padding: 7px 12px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  font-size: 12px;
-  letter-spacing: 0.4px;
-}
-
-.visual-title {
-  margin-top: 14px;
-  font-size: clamp(20px, 2.2vw, 28px);
-  line-height: 1.3;
-  font-weight: 800;
-  max-width: 320px;
-}
-
-.visual-subtitle {
-  margin: 8px 0 0;
-  font-size: 13px;
-  color: rgba(241, 248, 255, 0.88);
-}
-
-.version-pill {
-  margin-top: 14px;
-  width: fit-content;
-  display: inline-flex;
+  display: grid;
+  grid-template-rows: 1fr auto 1fr;
   align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  font-size: 12px;
 }
 
-.version-pill strong {
-  font-size: 13px;
-  letter-spacing: 0.3px;
+.container {
+  max-width: 890px;
+  margin: 0 auto;
 }
 
-.heritage-icons {
-  margin-top: 16px;
-  display: flex;
-  gap: 10px;
+.w3l_form {
+  flex-basis: 50%;
+  -webkit-flex-basis: 50%;
+  background: #f4f9fd;
+  background-size: cover;
+  -webkit-background-size: cover;
+  -moz-background-size: cover;
+  -o-background-size: cover;
+  -ms-background-size: cover;
+  padding: 40px;
+  border-top-right-radius: 8px;
+  border-bottom-right-radius: 8px;
+  align-items: center;
+  display: grid;
 }
 
-.icon-card {
-  width: 64px;
-  height: 64px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.22);
+.content-wthree {
+  flex-basis: 50%;
+  -webkit-flex-basis: 50%;
+  box-sizing: border-box;
+  padding: 3em 3em;
+  background: #fff;
+  box-shadow: 2px 9px 49px -17px rgba(0, 0, 0, 0.1);
+  border-top-left-radius: 8px;
+  border-bottom-left-radius: 8px;
+}
+
+.w3l-hotair-form .main-hotair {
   position: relative;
+  display: -webkit-box;
+  display: -moz-box;
+  display: -ms-flexbox;
+  display: -webkit-flex;
+  display: flex;
+  margin: 40px 0;
 }
 
-.icon-guard::before {
-  content: '';
-  position: absolute;
-  left: 50%;
-  top: 12px;
-  width: 22px;
-  height: 28px;
-  transform: translateX(-50%);
-  background: rgba(241, 248, 255, 0.9);
-  clip-path: polygon(50% 0%, 100% 15%, 88% 80%, 50% 100%, 12% 80%, 0% 15%);
+.w3l-hotair-form form {
+  margin-top: 30px;
+  margin-bottom: 30px;
 }
 
-.icon-relic::before,
-.icon-relic::after {
-  content: '';
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  background: rgba(241, 248, 255, 0.9);
-  border-radius: 2px;
-}
-
-.icon-relic::before {
-  top: 14px;
-  width: 28px;
-  height: 6px;
-}
-
-.icon-relic::after {
-  top: 24px;
-  width: 36px;
-  height: 24px;
-  clip-path: polygon(12% 100%, 20% 18%, 32% 18%, 28% 100%, 44% 100%, 48% 18%, 60% 18%, 56% 100%, 72% 100%, 80% 18%, 90% 18%, 88% 100%);
-}
-
-.icon-map::before {
-  content: '';
-  position: absolute;
-  left: 50%;
-  top: 12px;
-  width: 24px;
-  height: 32px;
-  transform: translateX(-50%);
-  background: rgba(241, 248, 255, 0.9);
-  border-radius: 50% 50% 50% 50% / 42% 42% 58% 58%;
-  clip-path: polygon(50% 0%, 85% 22%, 86% 56%, 50% 100%, 14% 56%, 15% 22%);
-}
-
-.icon-map::after {
-  content: '';
-  position: absolute;
-  left: 50%;
-  top: 23px;
-  width: 8px;
-  height: 8px;
-  transform: translateX(-50%);
-  border-radius: 50%;
-  background: rgba(17, 83, 143, 0.95);
-}
-
-.visual-deco {
-  position: absolute;
-  border-radius: 50%;
-  pointer-events: none;
-}
-
-.visual-deco-a {
-  width: 150px;
-  height: 150px;
-  right: -38px;
-  top: -42px;
-  background: radial-gradient(circle, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0) 70%);
-}
-
-.visual-deco-b {
-  width: 170px;
-  height: 170px;
-  left: -72px;
-  bottom: -78px;
-  background: radial-gradient(circle, rgba(14, 165, 233, 0.35) 0%, rgba(14, 165, 233, 0) 72%);
-}
-
-.login-footer {
+p.account,
+p.account a {
   text-align: center;
-  color: rgba(241, 247, 255, 0.78);
-  font-size: 12px;
+  padding-top: 20px;
+  padding-bottom: 0;
+  font-size: 16px;
+  color: #333;
 }
 
-@media (max-width: 980px) {
-  .heritage-login-page {
-    padding: 16px 10px 10px;
+p.account a {
+  color: #0568c1;
+}
+
+p.account a:hover {
+  text-decoration: underline;
+}
+
+.w3l-hotair-form h1 {
+  text-align: center;
+  font-size: 40px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.w3l-hotair-form h2 {
+  font-size: 30px;
+  line-height: 40px;
+  margin-bottom: 5px;
+  font-weight: 900;
+  color: #272346;
+  text-align: center;
+}
+
+.w3l-hotair-form input {
+  outline: none;
+  margin-bottom: 15px;
+  font-size: 16px;
+  color: #999;
+  text-align: left;
+  padding: 14px 20px;
+  width: 100%;
+  display: inline-block;
+  box-sizing: border-box;
+  border: none;
+  background: #f7fafc;
+  border: 1px solid #e5e5e5;
+  transition: .3s ease;
+  -webkit-transition: .3s ease;
+  -moz-transition: .3s ease;
+  -ms-transition: .3s ease;
+  -o-transition: .3s ease;
+}
+
+.w3l-hotair-form input:focus {
+  background: transparent;
+  border: 1px solid #0568c1;
+}
+
+.w3l-hotair-form button {
+  font-size: 18px;
+  color: #fff;
+  width: 100%;
+  background: #0568c1;
+  border: none;
+  padding: 14px 15px;
+  font-weight: 700;
+  transition: .3s ease;
+  -webkit-transition: .3s ease;
+  -moz-transition: .3s ease;
+  -ms-transition: .3s ease;
+  -o-transition: .3s ease;
+}
+
+.w3l-hotair-form button:hover {
+  background: #fdc500;
+}
+
+.copyright p {
+  text-align: center;
+  font-size: 17px;
+  line-height: 26px;
+  color: #fff;
+  opacity: 1;
+}
+
+@media (max-width: 736px) {
+  .w3l-hotair-form .main-hotair {
+    flex-direction: column;
   }
 
-  .login-shell {
-    grid-template-columns: 1fr;
+  .w3l-hotair-form form {
+    margin-top: 30px;
+    margin-bottom: 10px;
   }
 
-  .login-visual-panel {
-    min-height: 220px;
+  .w3l_form {
+    order: 2;
+    border-radius: 0;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+    border-top-right-radius: 0;
+  }
+
+  .content-wthree {
+    order: 1;
+    border-radius: 0;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
   }
 }
 
-@media (max-width: 640px) {
-  .login-header h1 {
-    font-size: 21px;
+@media (max-width: 568px) {
+  .w3l-hotair-form h1 {
+    font-size: 36px;
   }
 
-  .login-header p {
-    font-size: 12px;
+  .w3l-hotair-form .main-hotair {
+    margin: 30px 0;
   }
 
-  .login-form-panel {
-    padding: 18px 14px;
+  .content-wthree {
+    padding: 2.5em;
+  }
+}
+
+@media (max-width: 480px) {
+  .w3l-hotair-form {
+    padding: 40px 30px;
   }
 
-  .visual-title {
+  .w3l-hotair-form h1 {
+    font-size: 26px;
+  }
+}
+
+@media (max-width: 384px) {
+  .w3l-hotair-form {
+    padding: 30px 15px;
+  }
+
+  .content-wthree {
+    padding: 2em;
+  }
+
+  .w3l-hotair-form h2 {
     font-size: 22px;
+    line-height: 32px;
   }
 
-  .heritage-icons {
-    gap: 8px;
-  }
-
-  .icon-card {
-    width: 56px;
-    height: 56px;
+  .copyright p {
+    font-size: 16px;
   }
 }
 </style>
