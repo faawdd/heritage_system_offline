@@ -95,6 +95,9 @@ const props = defineProps({
 const emit = defineEmits(['conflict-click', 'overlap-click', 'overlap-update'])
 
 const MAX_FETCH_CONCURRENCY = 4
+const OVERLAP_DETECT_LIMIT = 2500
+const POINT_RENDER_LIMIT = 1200
+const kmlFormat = new KML({ extractStyles: false })
 
 const mapEl = ref(null)
 const tips = ref([])
@@ -245,6 +248,104 @@ function formatDistance(distance) {
     return `${(distance / 1000).toFixed(2)} km`
   }
   return `${distance.toFixed(1)} m`
+}
+
+function appendTipOnce(message) {
+  if (!message) {
+    return
+  }
+  if (!tips.value.includes(message)) {
+    tips.value.push(message)
+  }
+}
+
+function isPointGeometryType(type) {
+  return type === 'Point' || type === 'MultiPoint'
+}
+
+function isLinearOrAreaGeometryType(type) {
+  return (
+    type === 'LineString' ||
+    type === 'MultiLineString' ||
+    type === 'Polygon' ||
+    type === 'MultiPolygon'
+  )
+}
+
+function chooseRenderPerfLevel(featureCount, fileCount) {
+  if (featureCount > 12000 || fileCount >= 8) {
+    return 3
+  }
+  if (featureCount > 5000 || fileCount >= 4) {
+    return 2
+  }
+  if (featureCount > 2000) {
+    return 1
+  }
+  return 0
+}
+
+function simplifyToleranceByLevel(level) {
+  if (level >= 3) {
+    return 4
+  }
+  if (level >= 2) {
+    return 2
+  }
+  if (level >= 1) {
+    return 0.8
+  }
+  return 0
+}
+
+function optimizeFeaturesForRender(features = [], fileCount = 1) {
+  const perfLevel = chooseRenderPerfLevel(features.length, fileCount)
+  const tolerance = simplifyToleranceByLevel(perfLevel)
+  const pointFeatures = []
+  const nonPointFeatures = []
+
+  features.forEach((feature) => {
+    const geometry = feature?.getGeometry?.()
+    const geometryType = geometry?.getType?.() || ''
+
+    if (isPointGeometryType(geometryType)) {
+      pointFeatures.push(feature)
+      return
+    }
+
+    if (tolerance > 0 && geometry && isLinearOrAreaGeometryType(geometryType)) {
+      try {
+        const simplified = geometry.simplify(tolerance)
+        if (simplified) {
+          nonPointFeatures.push(cloneKmlFeatureWithGeometry(feature, simplified))
+          return
+        }
+      } catch (_error) {
+        // 简化失败时回退原始几何，避免中断渲染。
+      }
+    }
+
+    nonPointFeatures.push(feature)
+  })
+
+  if (pointFeatures.length <= POINT_RENDER_LIMIT || perfLevel === 0) {
+    return {
+      features: [...nonPointFeatures, ...pointFeatures],
+      perfLevel,
+      hiddenPointCount: 0,
+      simplifiedTolerance: tolerance,
+    }
+  }
+
+  const step = Math.max(1, Math.ceil(pointFeatures.length / POINT_RENDER_LIMIT))
+  const sampledPoints = pointFeatures.filter((_, idx) => idx % step === 0)
+
+  return {
+    features: [...nonPointFeatures, ...sampledPoints],
+    perfLevel,
+    hiddenPointCount: Math.max(0, pointFeatures.length - sampledPoints.length),
+    simplifiedTolerance: tolerance,
+  }
 }
 
 function cloneKmlFeatureWithGeometry(feature, geometry) {
@@ -445,7 +546,7 @@ async function reloadKmlLayers() {
     }
 
     try {
-      const features = new KML().readFeatures(item.text, {
+      const features = kmlFormat.readFeatures(item.text, {
         dataProjection: 'EPSG:4326',
         featureProjection: 'EPSG:3857'
       })
@@ -456,7 +557,18 @@ async function reloadKmlLayers() {
         feature.set('sourceName', item.title)
         feature.set('featureName', String(feature.get('name') || `要素#${featureIndex + 1}`))
       })
-      kmlSource.addFeatures(renderFeatures)
+      const optimized = optimizeFeaturesForRender(renderFeatures, selectedRecords.length)
+      kmlSource.addFeatures(optimized.features)
+      if (optimized.hiddenPointCount > 0) {
+        appendTipOnce(
+          `性能模式已开启：自动抽稀点注记 ${optimized.hiddenPointCount} 个，以提升批量渲染速度。`
+        )
+      }
+      if (optimized.simplifiedTolerance > 0) {
+        appendTipOnce(
+          `性能模式已开启：线/面要素已做几何简化（容差 ${optimized.simplifiedTolerance}m）。`
+        )
+      }
       if (i % 1 === 0) {
         await new Promise((resolve) => setTimeout(resolve, 0))
       }
@@ -566,6 +678,13 @@ async function reloadOverlapLayer() {
 
   const features = kmlSource.getFeatures()
   if (!features || features.length < 2) {
+    emit('overlap-update', [])
+    return
+  }
+  if (features.length > OVERLAP_DETECT_LIMIT) {
+    appendTipOnce(
+      `当前渲染要素 ${features.length} 个，已跳过叠加检测以避免页面卡顿（阈值 ${OVERLAP_DETECT_LIMIT}）。`
+    )
     emit('overlap-update', [])
     return
   }
@@ -992,6 +1111,37 @@ function showFeaturePopup(feature, coordinate) {
   }
 }
 
+function showHeritagePointPopup(feature, coordinate) {
+  const geometry = feature.getGeometry()
+  popupTitle.value = String(feature.get('site_name') || '文物点')
+  popupContent.value = [
+    `文物ID: ${String(feature.get('site_id') || '-')}`,
+    `级别: ${String(feature.get('site_level') || '-')}`,
+    geometrySummaryText(geometry)
+  ].join('\n')
+  popupVisible.value = true
+  if (popupOverlayRef.value) {
+    popupOverlayRef.value.setPosition(coordinate)
+  }
+}
+
+function showConflictPointPopup(feature, coordinate) {
+  const geometry = feature.getGeometry()
+  const distanceM = Number(feature.get('distance_m'))
+  popupTitle.value = String(feature.get('site_name') || '冲突文物点')
+  popupContent.value = [
+    `文物ID: ${String(feature.get('site_id') || '-')}`,
+    `来源文件: ${String(feature.get('sourceName') || '-')}`,
+    `冲突关系: ${String(feature.get('relation') || '-')}`,
+    `距离: ${Number.isFinite(distanceM) ? `${distanceM.toFixed(2)} m` : '-'}`,
+    geometrySummaryText(geometry)
+  ].join('\n')
+  popupVisible.value = true
+  if (popupOverlayRef.value) {
+    popupOverlayRef.value.setPosition(coordinate)
+  }
+}
+
 function closeFeaturePopup() {
   popupVisible.value = false
   if (popupOverlayRef.value) {
@@ -1061,6 +1211,7 @@ onMounted(() => {
       return
     }
     if (feature && feature.get('isHeritage')) {
+      showHeritagePointPopup(feature, evt.coordinate)
       return
     }
     if (feature && feature.get('isKmlFeature')) {
@@ -1068,7 +1219,7 @@ onMounted(() => {
       return
     }
     if (feature && feature.get('site_id')) {
-      closeFeaturePopup()
+      showConflictPointPopup(feature, evt.coordinate)
       emit('conflict-click', {
         site_id: feature.get('site_id'),
         site_name: feature.get('site_name'),
