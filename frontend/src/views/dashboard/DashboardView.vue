@@ -385,8 +385,8 @@ async function loadDashboardData() {
       fetchDashboardOverview(),
       fetchSystemVersion(),
       fetchInspectionStats(),
-      fetchHeritageClassificationStats({ group_by: 'protection_level', source: 'auto', kanerjing_scope: 'all' }),
-      fetchHeritageClassificationStats({ group_by: 'category', source: 'auto', kanerjing_scope: 'all' }),
+      fetchHeritageClassificationStats({ group_by: 'level', source: 'legacy', kanerjing_scope: 'all' }),
+      fetchHeritageClassificationStats({ group_by: 'category', source: 'legacy', kanerjing_scope: 'all' }),
       fetchHeritageMapPoints()
     ])
 
