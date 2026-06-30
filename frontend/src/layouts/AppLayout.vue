@@ -1,14 +1,55 @@
 <template>
-  <div class="app-shell">
-    <aside class="sidebar">
+  <div class="app-shell" :class="{ 'is-sidebar-collapsed': isSidebarCollapsed }">
+    <aside class="sidebar" :class="{ 'is-collapsed': isSidebarCollapsed }">
       <div class="brand-row">
-        <div class="brand">鄯善县文物管理平台</div>
-        <el-button link type="info" class="logout-btn" @click="logout">退出</el-button>
+        <div class="brand" :title="isSidebarCollapsed ? '鄯善县文物管理平台' : ''">
+          {{ isSidebarCollapsed ? '文保' : '鄯善县文物管理平台' }}
+        </div>
+        <div class="header-actions" v-if="!isSidebarCollapsed">
+          <el-button
+            link
+            type="info"
+            class="theme-btn"
+            :title="`当前主题：${themeModeLabel}`"
+            @click="cycleThemeMode"
+          >
+            {{ themeModeLabel }}
+          </el-button>
+          <el-button link type="info" class="collapse-btn" @click="toggleSidebar">折叠</el-button>
+          <el-button link type="info" class="logout-btn" @click="logout">退出</el-button>
+        </div>
       </div>
 
-      <div class="sidebar-group" v-for="group in menuGroups" :key="group.key">
+      <div class="sidebar-mini-actions" v-if="isSidebarCollapsed">
+        <el-button link type="info" class="theme-btn" :title="`当前主题：${themeModeLabel}`" @click="cycleThemeMode">
+          主题
+        </el-button>
+        <el-button link type="info" class="expand-btn" @click="toggleSidebar">展开</el-button>
+      </div>
+
+      <div class="collapsed-icon-nav" v-if="isSidebarCollapsed">
+        <router-link
+          v-for="group in collapsedShortcutGroups"
+          :key="group.key"
+          class="collapsed-icon-item"
+          :class="{ active: group.active }"
+          :to="group.to"
+          :data-title="group.title"
+        >
+          <span class="menu-icon" :class="`menu-icon--${getGroupIconType(group.title)}`" aria-hidden="true">
+            {{ getGroupIconLabel(group.title) }}
+          </span>
+        </router-link>
+      </div>
+
+      <div class="sidebar-group" v-for="group in menuGroups" :key="group.key" v-show="!isSidebarCollapsed">
         <button class="sidebar-group-title" type="button" @click="toggleGroup(group.key)">
-          <span>{{ group.title }}</span>
+          <span class="group-title-main">
+            <span class="menu-icon" :class="`menu-icon--${getGroupIconType(group.title)}`" aria-hidden="true">
+              {{ getGroupIconLabel(group.title) }}
+            </span>
+            <span>{{ group.title }}</span>
+          </span>
           <span class="sidebar-group-arrow" :class="{ open: isGroupOpen(group.key) }">▾</span>
         </button>
         <div class="sidebar-submenu" v-show="isGroupOpen(group.key)">
@@ -30,13 +71,18 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/system/authStore'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+const THEME_MODE_KEY = 'heritage_theme_mode'
+const SIDEBAR_COLLAPSE_KEY = 'heritage_sidebar_collapsed'
+const themeMode = ref('system')
+const isSidebarCollapsed = ref(false)
+let mediaQueryList = null
 
 const staticMenuGroups = [
   {
@@ -131,6 +177,17 @@ const menuGroups = computed(() => {
   return ensureImmovableEntry(staticMenuGroups)
 })
 
+const collapsedShortcutGroups = computed(() => {
+  return menuGroups.value
+    .filter((group) => Array.isArray(group.items) && group.items.length > 0)
+    .map((group) => ({
+      key: group.key,
+      title: group.title,
+      to: group.items[0].to,
+      active: group.items.some((item) => route.path.startsWith(item.to))
+    }))
+})
+
 const manuallyOpened = ref({})
 
 const autoOpened = computed(() => {
@@ -147,6 +204,88 @@ const isFullscreenRoute = computed(() => {
   return fullscreenRoutePrefixes.some((prefix) => route.path.startsWith(prefix))
 })
 
+const themeModeLabel = computed(() => {
+  if (themeMode.value === 'dark') {
+    return '暗色'
+  }
+  if (themeMode.value === 'light') {
+    return '亮色'
+  }
+  return '跟随'
+})
+
+function getResolvedTheme(mode) {
+  if (mode === 'dark' || mode === 'light') {
+    return mode
+  }
+  if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    return 'dark'
+  }
+  return 'light'
+}
+
+function applyTheme(mode) {
+  const resolved = getResolvedTheme(mode)
+  document.documentElement.setAttribute('data-theme', resolved)
+}
+
+function cycleThemeMode() {
+  const modeOrder = ['system', 'light', 'dark']
+  const currentIndex = modeOrder.indexOf(themeMode.value)
+  const nextMode = modeOrder[(currentIndex + 1) % modeOrder.length]
+  themeMode.value = nextMode
+}
+
+function toggleSidebar() {
+  isSidebarCollapsed.value = !isSidebarCollapsed.value
+}
+
+function getGroupIconType(title = '') {
+  const text = String(title || '').trim()
+  if (text.includes('文物')) {
+    return 'heritage'
+  }
+  if (text.includes('项目')) {
+    return 'project'
+  }
+  if (text.toUpperCase().includes('GIS') || text.includes('地图')) {
+    return 'gis'
+  }
+  if (text.includes('系统')) {
+    return 'system'
+  }
+  if (text.includes('工作台')) {
+    return 'workspace'
+  }
+  return 'default'
+}
+
+function getGroupIconLabel(title = '') {
+  const type = getGroupIconType(title)
+  if (type === 'heritage') {
+    return '文'
+  }
+  if (type === 'project') {
+    return '项'
+  }
+  if (type === 'gis') {
+    return 'G'
+  }
+  if (type === 'system') {
+    return '系'
+  }
+  if (type === 'workspace') {
+    return '台'
+  }
+  return '•'
+}
+
+function handleSystemThemeChange() {
+  if (themeMode.value === 'system') {
+    applyTheme('system')
+  }
+}
+
 function isGroupOpen(key) {
   if (Object.prototype.hasOwnProperty.call(manuallyOpened.value, key)) {
     return manuallyOpened.value[key]
@@ -161,6 +300,43 @@ function toggleGroup(key) {
     [key]: !current
   }
 }
+
+watch(
+  () => themeMode.value,
+  (value) => {
+    localStorage.setItem(THEME_MODE_KEY, value)
+    applyTheme(value)
+  },
+  { immediate: true }
+)
+
+watch(
+  () => isSidebarCollapsed.value,
+  (value) => {
+    localStorage.setItem(SIDEBAR_COLLAPSE_KEY, value ? '1' : '0')
+  },
+  { immediate: false }
+)
+
+onMounted(() => {
+  const savedMode = localStorage.getItem(THEME_MODE_KEY)
+  if (savedMode === 'light' || savedMode === 'dark' || savedMode === 'system') {
+    themeMode.value = savedMode
+  }
+
+  isSidebarCollapsed.value = localStorage.getItem(SIDEBAR_COLLAPSE_KEY) === '1'
+
+  mediaQueryList = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null
+  if (mediaQueryList) {
+    mediaQueryList.addEventListener('change', handleSystemThemeChange)
+  }
+})
+
+onUnmounted(() => {
+  if (mediaQueryList) {
+    mediaQueryList.removeEventListener('change', handleSystemThemeChange)
+  }
+})
 
 async function logout() {
   await authStore.logout()

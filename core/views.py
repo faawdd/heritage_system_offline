@@ -2508,15 +2508,16 @@ def _resolve_heritage_stats_source(source):
             'supports_kanerjing': False,
         }
 
-    if ImmovableHeritage.objects.exists():
+    # 统一口径：auto 模式固定回退到 HeritageSite（legacy）。
+    if source_key == 'auto':
         return {
-            'source': 'immovable',
-            'model': ImmovableHeritage,
+            'source': 'legacy',
+            'model': HeritageSite,
             'category_field': 'category',
-            'level_field': 'protection_level',
-            'township_field': 'township',
+            'level_field': 'level',
+            'township_field': '',
             'address_field': 'address',
-            'supports_kanerjing': False,
+            'supports_kanerjing': True,
         }
 
     return {
