@@ -20,8 +20,8 @@
     <aside v-show="menuVisible" class="kml-floating-menu">
       <div class="floating-menu-header">
         <div>
-          <h3>KML 文件管理</h3>
-          <p>全屏地图 + 悬浮菜单</p>
+          <h3>KML叠加检查</h3>
+          <p>多文件叠加渲染 + 文物点冲突检查</p>
         </div>
         <el-button link type="primary" @click="menuVisible = false">收起</el-button>
       </div>
@@ -37,7 +37,7 @@
               </div>
               <el-switch v-model="immediateAnalyze" active-text="立即分析" inactive-text="仅上传" />
               <el-button type="primary" :loading="uploading" @click="uploadFiles">开始上传</el-button>
-              <p class="hint-text">点/线按阈值，面按包含与边界距离规则，保持旧系统一致。</p>
+              <p class="hint-text">支持一个或多个KML叠加渲染，自动与文物点坐标进行冲突检查。</p>
             </div>
           </el-collapse-item>
 
@@ -181,7 +181,7 @@ const activeOverlap = ref(null)
 const forceReanalyze = ref(false)
 const renameDraft = reactive({})
 const menuVisible = ref(true)
-const activePanels = ref(['upload', 'batch', 'records', 'conflicts'])
+const activePanels = ref(['upload', 'batch', 'overlap', 'records', 'conflicts'])
 
 const filteredConflicts = computed(() => {
   const keyword = conflictKeyword.value.trim()

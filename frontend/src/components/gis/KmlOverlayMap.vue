@@ -11,6 +11,7 @@
       <div class="toolbar-row">
         <span class="toolbar-label">图层</span>
         <button type="button" class="toolbar-btn" :class="{ active: showKmlLayer }" @click="toggleKmlLayer">KML</button>
+        <button type="button" class="toolbar-btn" :class="{ active: showHeritageLayer }" @click="toggleHeritageLayer">文物点</button>
         <button type="button" class="toolbar-btn" :class="{ active: showConflictLayer }" @click="toggleConflictLayer">冲突点</button>
         <button type="button" class="toolbar-btn" :class="{ active: showOverlapLayer }" @click="toggleOverlapLayer">叠加点</button>
       </div>
@@ -55,6 +56,7 @@ import Style from 'ol/style/Style'
 
 import { createTiandituLayerGroup } from '../../utils/tianditu'
 import { fetchGisKmlRecordKmlContent } from '../../api/gisApi'
+import { fetchHeritageMapPoints } from '../../api/heritageApi'
 
 const props = defineProps({
   selectedRecords: {
@@ -81,6 +83,7 @@ const mapEl = ref(null)
 const tips = ref([])
 const baseMode = ref('img')
 const showKmlLayer = ref(true)
+const showHeritageLayer = ref(true)
 const showConflictLayer = ref(true)
 const showOverlapLayer = ref(true)
 const measureMode = ref(false)
@@ -89,11 +92,13 @@ const activeConflictGroup = ref('ALL')
 const conflictGroupOptions = ref([])
 
 const kmlSource = new VectorSource()
+const heritageSource = new VectorSource()
 const conflictSource = new VectorSource()
 const overlapSource = new VectorSource()
 const measureSource = new VectorSource()
 const mapRef = ref(null)
 const kmlLayerRef = ref(null)
+const heritageLayerRef = ref(null)
 const conflictLayerRef = ref(null)
 const overlapLayerRef = ref(null)
 const measureLayerRef = ref(null)
@@ -118,6 +123,16 @@ function conflictStyle() {
       radius: 6,
       fill: new Fill({ color: '#dc2626' }),
       stroke: new Stroke({ color: '#ffffff', width: 2 })
+    })
+  })
+}
+
+function heritagePointStyle() {
+  return new Style({
+    image: new CircleStyle({
+      radius: 4,
+      fill: new Fill({ color: '#2563eb' }),
+      stroke: new Stroke({ color: '#ffffff', width: 1.5 })
     })
   })
 }
@@ -453,6 +468,13 @@ function toggleKmlLayer() {
   }
 }
 
+function toggleHeritageLayer() {
+  showHeritageLayer.value = !showHeritageLayer.value
+  if (heritageLayerRef.value) {
+    heritageLayerRef.value.setVisible(showHeritageLayer.value)
+  }
+}
+
 function toggleConflictLayer() {
   showConflictLayer.value = !showConflictLayer.value
   if (conflictLayerRef.value) {
@@ -464,6 +486,32 @@ function toggleOverlapLayer() {
   showOverlapLayer.value = !showOverlapLayer.value
   if (overlapLayerRef.value) {
     overlapLayerRef.value.setVisible(showOverlapLayer.value)
+  }
+}
+
+async function loadHeritageLayer() {
+  try {
+    const result = await fetchHeritageMapPoints()
+    const rows = result?.rows || []
+    heritageSource.clear()
+
+    rows.forEach((row) => {
+      const lon = Number(row?.longitude)
+      const lat = Number(row?.latitude)
+      if (!Number.isFinite(lon) || !Number.isFinite(lat)) {
+        return
+      }
+
+      const feature = new Feature({ geometry: new Point(fromLonLat([lon, lat])) })
+      feature.set('isHeritage', true)
+      feature.set('site_id', String(row?.id || ''))
+      feature.set('site_name', String(row?.name || ''))
+      feature.set('site_level', String(row?.level || ''))
+      feature.setStyle(heritagePointStyle())
+      heritageSource.addFeature(feature)
+    })
+  } catch (error) {
+    tips.value.push('文物点图层加载失败，已跳过显示')
   }
 }
 
@@ -609,6 +657,7 @@ onMounted(() => {
   ;[...vecLayers, ...terLayers].forEach((layer) => layer.setVisible(false))
 
   const kmlLayer = new VectorLayer({ source: kmlSource })
+  const heritageLayer = new VectorLayer({ source: heritageSource })
   const conflictLayer = new VectorLayer({ source: conflictSource })
   const overlapLayer = new VectorLayer({ source: overlapSource })
   const measureLayer = new VectorLayer({ source: measureSource })
@@ -620,6 +669,7 @@ onMounted(() => {
       ...vecLayers,
       ...terLayers,
       kmlLayer,
+      heritageLayer,
       conflictLayer,
       overlapLayer,
       measureLayer
@@ -637,6 +687,9 @@ onMounted(() => {
       if (idx >= 0 && idx < overlapEntries.value.length) {
         emit('overlap-click', overlapEntries.value[idx])
       }
+      return
+    }
+    if (feature && feature.get('isHeritage')) {
       return
     }
     if (feature && feature.get('site_id')) {
@@ -657,6 +710,7 @@ onMounted(() => {
 
   mapRef.value = map
   kmlLayerRef.value = kmlLayer
+  heritageLayerRef.value = heritageLayer
   conflictLayerRef.value = conflictLayer
   overlapLayerRef.value = overlapLayer
   measureLayerRef.value = measureLayer
@@ -665,6 +719,8 @@ onMounted(() => {
     vec: vecLayers,
     ter: terLayers
   }
+
+  loadHeritageLayer()
 })
 
 watch(
