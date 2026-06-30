@@ -12,6 +12,7 @@
         <span class="toolbar-label">图层</span>
         <button type="button" class="toolbar-btn" :class="{ active: showKmlLayer }" @click="toggleKmlLayer">KML</button>
         <button type="button" class="toolbar-btn" :class="{ active: showConflictLayer }" @click="toggleConflictLayer">冲突点</button>
+        <button type="button" class="toolbar-btn" :class="{ active: showOverlapLayer }" @click="toggleOverlapLayer">叠加点</button>
       </div>
       <div class="toolbar-row">
         <span class="toolbar-label">分组</span>
@@ -27,6 +28,7 @@
         <button type="button" class="toolbar-btn" @click="clearMeasure">清除</button>
       </div>
       <div class="measure-text" v-if="measureText">{{ measureText }}</div>
+      <div class="measure-text" v-if="overlapEntries.length > 0">检测到叠加 {{ overlapEntries.length }} 处</div>
     </div>
     <div class="kml-overlay-tip" v-if="tips.length > 0">
       <div v-for="(item, idx) in tips" :key="idx">{{ item }}</div>
@@ -36,6 +38,7 @@
 
 <script setup>
 import { onMounted, ref, watch } from 'vue'
+import { getCenter, intersects as intersectsExtent } from 'ol/extent'
 import Feature from 'ol/Feature'
 import Map from 'ol/Map'
 import View from 'ol/View'
@@ -65,16 +68,21 @@ const props = defineProps({
   focusConflict: {
     type: Object,
     default: null
+  },
+  focusOverlap: {
+    type: Object,
+    default: null
   }
 })
 
-const emit = defineEmits(['conflict-click'])
+const emit = defineEmits(['conflict-click', 'overlap-click', 'overlap-update'])
 
 const mapEl = ref(null)
 const tips = ref([])
 const baseMode = ref('img')
 const showKmlLayer = ref(true)
 const showConflictLayer = ref(true)
+const showOverlapLayer = ref(true)
 const measureMode = ref(false)
 const measureText = ref('')
 const activeConflictGroup = ref('ALL')
@@ -82,14 +90,17 @@ const conflictGroupOptions = ref([])
 
 const kmlSource = new VectorSource()
 const conflictSource = new VectorSource()
+const overlapSource = new VectorSource()
 const measureSource = new VectorSource()
 const mapRef = ref(null)
 const kmlLayerRef = ref(null)
 const conflictLayerRef = ref(null)
+const overlapLayerRef = ref(null)
 const measureLayerRef = ref(null)
 const baseLayersRef = ref({ img: [], vec: [], ter: [] })
 let measurePoints = []
 let loadToken = 0
+const overlapEntries = ref([])
 
 const palette = ['#0ea5e9', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#14b8a6']
 
@@ -130,6 +141,17 @@ function conflictActiveStyle() {
     image: new CircleStyle({
       radius: 8,
       fill: new Fill({ color: '#f59e0b' }),
+      stroke: new Stroke({ color: '#ffffff', width: 2 })
+    })
+  })
+}
+
+function overlapStyle(kind) {
+  const color = kind === 'point' ? '#7c3aed' : kind === 'line' ? '#0ea5e9' : '#ef4444'
+  return new Style({
+    image: new CircleStyle({
+      radius: 6,
+      fill: new Fill({ color }),
       stroke: new Stroke({ color: '#ffffff', width: 2 })
     })
   })
@@ -205,13 +227,18 @@ async function reloadKmlLayers() {
         dataProjection: 'EPSG:4326',
         featureProjection: 'EPSG:3857'
       })
-      features.forEach((feature) => feature.setStyle(kmlStyleByIndex(idx)))
+      features.forEach((feature, featureIndex) => {
+        feature.setStyle(kmlStyleByIndex(idx))
+        feature.set('sourceName', title)
+        feature.set('featureName', String(feature.get('name') || `要素#${featureIndex + 1}`))
+      })
       kmlSource.addFeatures(features)
     } catch (error) {
       tips.value.push(`${title}: 解析失败（${error?.message || '未知错误'}）`)
     }
   }
 
+  reloadOverlapLayer()
   fitAll()
 }
 
@@ -255,6 +282,128 @@ function reloadConflictLayer() {
   })
   applyFocusConflictStyle()
   fitAll()
+}
+
+function normalizeKind(geometryType) {
+  if (geometryType === 'Point' || geometryType === 'MultiPoint') {
+    return 'point'
+  }
+  if (geometryType === 'LineString' || geometryType === 'MultiLineString') {
+    return 'line'
+  }
+  return 'polygon'
+}
+
+function midpoint(a, b) {
+  return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]
+}
+
+function distanceInMetersBy3857(a, b) {
+  const dx = a[0] - b[0]
+  const dy = a[1] - b[1]
+  return Math.sqrt(dx * dx + dy * dy)
+}
+
+function buildOverlapKey(sourceA, sourceB, featureA, featureB, kind) {
+  const sourcePair = [String(sourceA || ''), String(sourceB || '')].sort().join('|')
+  const featurePair = [String(featureA || ''), String(featureB || '')].sort().join('|')
+  return `${kind}|${sourcePair}|${featurePair}`
+}
+
+function reloadOverlapLayer() {
+  overlapSource.clear()
+  overlapEntries.value = []
+
+  const features = kmlSource.getFeatures()
+  if (!features || features.length < 2) {
+    emit('overlap-update', [])
+    return
+  }
+
+  const entries = []
+  const keySet = new Set()
+
+  for (let i = 0; i < features.length; i += 1) {
+    const a = features[i]
+    const geomA = a.getGeometry()
+    if (!geomA) {
+      continue
+    }
+    const sourceA = String(a.get('sourceName') || '')
+    const featureA = String(a.get('featureName') || '')
+    const extentA = geomA.getExtent()
+    const centerA = getCenter(extentA)
+    const kindA = normalizeKind(geomA.getType())
+
+    for (let j = i + 1; j < features.length; j += 1) {
+      const b = features[j]
+      const geomB = b.getGeometry()
+      if (!geomB) {
+        continue
+      }
+
+      const sourceB = String(b.get('sourceName') || '')
+      if (!sourceA || !sourceB || sourceA === sourceB) {
+        continue
+      }
+
+      const extentB = geomB.getExtent()
+      if (!intersectsExtent(extentA, extentB)) {
+        continue
+      }
+
+      const centerB = getCenter(extentB)
+      const kindB = normalizeKind(geomB.getType())
+      const kind = kindA === 'point' && kindB === 'point' ? 'point' : kindA === 'polygon' || kindB === 'polygon' ? 'polygon' : 'line'
+
+      let overlapped = false
+      let distanceM = null
+      if (kind === 'point') {
+        const lonLatA = toLonLat(centerA)
+        const lonLatB = toLonLat(centerB)
+        distanceM = haversineMeters(lonLatA, lonLatB)
+        overlapped = distanceM <= 1
+      } else {
+        const nearestOnB = geomB.getClosestPoint(centerA)
+        const nearestOnA = geomA.getClosestPoint(nearestOnB)
+        distanceM = distanceInMetersBy3857(nearestOnA, nearestOnB)
+        overlapped = distanceM <= 1
+      }
+
+      if (!overlapped) {
+        continue
+      }
+
+      const featureB = String(b.get('featureName') || '')
+      const overlapKey = buildOverlapKey(sourceA, sourceB, featureA, featureB, kind)
+      if (keySet.has(overlapKey)) {
+        continue
+      }
+      keySet.add(overlapKey)
+
+      entries.push({
+        overlap_key: overlapKey,
+        kind,
+        source_a: sourceA,
+        source_b: sourceB,
+        feature_a: featureA,
+        feature_b: featureB,
+        distance_m: distanceM == null ? null : Number(distanceM.toFixed(2)),
+        coordinate: midpoint(centerA, centerB)
+      })
+    }
+  }
+
+  entries.forEach((entry, index) => {
+    const marker = new Feature({ geometry: new Point(entry.coordinate) })
+    marker.set('overlapIndex', index)
+    marker.set('overlapKey', entry.overlap_key)
+    marker.setStyle(overlapStyle(entry.kind))
+    overlapSource.addFeature(marker)
+  })
+
+  overlapEntries.value = entries
+  emit('overlap-update', entries)
 }
 
 function fitAll() {
@@ -308,6 +457,13 @@ function toggleConflictLayer() {
   showConflictLayer.value = !showConflictLayer.value
   if (conflictLayerRef.value) {
     conflictLayerRef.value.setVisible(showConflictLayer.value)
+  }
+}
+
+function toggleOverlapLayer() {
+  showOverlapLayer.value = !showOverlapLayer.value
+  if (overlapLayerRef.value) {
+    overlapLayerRef.value.setVisible(showOverlapLayer.value)
   }
 }
 
@@ -431,6 +587,21 @@ function focusConflictOnMap(rowLike) {
   mapRef.value.getView().animate({ center: point, zoom: 15, duration: 220 })
 }
 
+function focusOverlapOnMap(rowLike) {
+  if (!mapRef.value || !rowLike?.overlap_key) {
+    return
+  }
+  const target = overlapSource.getFeatures().find((item) => item.get('overlapKey') === rowLike.overlap_key)
+  if (!target) {
+    return
+  }
+  mapRef.value.getView().animate({
+    center: target.getGeometry().getCoordinates(),
+    zoom: 15,
+    duration: 220
+  })
+}
+
 onMounted(() => {
   const imgLayers = createTiandituLayerGroup('img')
   const vecLayers = createTiandituLayerGroup('vec')
@@ -439,6 +610,7 @@ onMounted(() => {
 
   const kmlLayer = new VectorLayer({ source: kmlSource })
   const conflictLayer = new VectorLayer({ source: conflictSource })
+  const overlapLayer = new VectorLayer({ source: overlapSource })
   const measureLayer = new VectorLayer({ source: measureSource })
 
   const map = new Map({
@@ -449,6 +621,7 @@ onMounted(() => {
       ...terLayers,
       kmlLayer,
       conflictLayer,
+      overlapLayer,
       measureLayer
     ],
     view: new View({
@@ -459,6 +632,13 @@ onMounted(() => {
 
   map.on('click', (evt) => {
     const feature = map.forEachFeatureAtPixel(evt.pixel, (item) => item)
+    if (feature && Number.isInteger(feature.get('overlapIndex'))) {
+      const idx = feature.get('overlapIndex')
+      if (idx >= 0 && idx < overlapEntries.value.length) {
+        emit('overlap-click', overlapEntries.value[idx])
+      }
+      return
+    }
     if (feature && feature.get('site_id')) {
       emit('conflict-click', {
         site_id: feature.get('site_id'),
@@ -478,6 +658,7 @@ onMounted(() => {
   mapRef.value = map
   kmlLayerRef.value = kmlLayer
   conflictLayerRef.value = conflictLayer
+  overlapLayerRef.value = overlapLayer
   measureLayerRef.value = measureLayer
   baseLayersRef.value = {
     img: imgLayers,
@@ -507,6 +688,14 @@ watch(
   (value) => {
     applyFocusConflictStyle()
     focusConflictOnMap(value)
+  },
+  { deep: true }
+)
+
+watch(
+  () => props.focusOverlap,
+  (value) => {
+    focusOverlapOnMap(value)
   },
   { deep: true }
 )

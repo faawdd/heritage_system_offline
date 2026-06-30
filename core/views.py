@@ -681,12 +681,31 @@ def _is_point_in_polygon(lon, lat, polygon_rings):
     return True
 
 
-def _analyze_conflicts(features, threshold_m):
-    site_points = list(
-        HeritageSite.objects.exclude(longitude__isnull=True).exclude(latitude__isnull=True).values(
-            'id', 'name', 'level', 'longitude', 'latitude'
-        )
+def _load_conflict_site_points():
+    rows = HeritageSite.objects.exclude(longitude__isnull=True).exclude(latitude__isnull=True).values(
+        'id', 'name', 'level', 'longitude', 'latitude'
     )
+    site_points = []
+    for row in rows:
+        try:
+            site_points.append(
+                {
+                    'id': row['id'],
+                    'name': row['name'],
+                    'level': row['level'],
+                    'longitude': float(row['longitude']),
+                    'latitude': float(row['latitude']),
+                }
+            )
+        except (TypeError, ValueError):
+            continue
+    return site_points
+
+
+def _analyze_conflicts(features, threshold_m, site_points=None):
+    if site_points is None:
+        site_points = _load_conflict_site_points()
+
     threshold = float(threshold_m)
     conflicts = []
 
@@ -697,8 +716,8 @@ def _analyze_conflicts(features, threshold_m):
         coords = feature.get('coordinates')
 
         for site in site_points:
-            site_lon = float(site['longitude'])
-            site_lat = float(site['latitude'])
+            site_lon = site['longitude']
+            site_lat = site['latitude']
 
             matched = False
             relation = ''
@@ -854,14 +873,24 @@ def _build_conflict_sites_kml(conflicts, threshold_m, records=None):
     return response
 
 
-def _reanalyze_kml_records(records, threshold):
+def _reanalyze_kml_records(records, threshold, use_cache=True):
     combined_conflicts = []
     updated_count = 0
     failed_count = 0
     failed_items = []
+    records_to_update = []
+    site_points = _load_conflict_site_points()
 
     for record in records:
         try:
+            if use_cache and int(record.threshold_m or 0) == int(threshold) and record.report_json:
+                cached_payload = json.loads(record.report_json)
+                cached_conflicts = cached_payload.get('conflicts', [])
+                if isinstance(cached_conflicts, list):
+                    combined_conflicts.extend(cached_conflicts)
+                    updated_count += 1
+                    continue
+
             if not record.source_file or not record.source_file.name:
                 raise FileNotFoundError('记录未绑定源文件')
             try:
@@ -875,7 +904,7 @@ def _reanalyze_kml_records(records, threshold):
                 content = source.read()
             file_name_for_parse = record.source_file.name or record.title or ''
             features = _extract_features_from_upload(file_name_for_parse, content)
-            conflicts = _analyze_conflicts(features, threshold)
+            conflicts = _analyze_conflicts(features, threshold, site_points=site_points)
         except Exception as exc:
             logger.exception('KML重分析失败: record_id=%s title=%s source=%s', record.id, record.title, getattr(record.source_file, 'name', ''))
             failed_count += 1
@@ -895,10 +924,16 @@ def _reanalyze_kml_records(records, threshold):
             'generated_at': timezone.now().isoformat(),
             'conflicts': conflicts,
         }, ensure_ascii=False)
-        record.save(update_fields=['threshold_m', 'feature_count', 'conflict_count', 'report_json', 'updated_at'])
+        records_to_update.append(record)
 
         updated_count += 1
         combined_conflicts.extend(conflicts)
+
+    if records_to_update:
+        KmlUploadRecord.objects.bulk_update(
+            records_to_update,
+            ['threshold_m', 'feature_count', 'conflict_count', 'report_json', 'updated_at'],
+        )
 
     return combined_conflicts, updated_count, failed_count, failed_items
 
