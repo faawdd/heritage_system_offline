@@ -175,7 +175,7 @@ function kmlBaseColorByIndex(index) {
   const lightness = [46, 58, 40, 64][index % 4]
   return {
     stroke: `hsl(${hue} 82% ${lightness}%)`,
-    fill: `hsla(${hue} 82% ${lightness}%, 0.2)`,
+    fill: `hsl(${hue} 82% ${lightness}% / 0.2)`,
     point: `hsl(${hue} 85% ${Math.max(32, lightness - 8)}%)`
   }
 }
@@ -247,6 +247,7 @@ function kmlStyleByFeature(feature) {
     isPolygon && (state === 'overlap' || state === 'both')
       ? buildHatchPattern(`hatch:${state}:${highlightStroke}`, highlightStroke, 'rgba(255, 255, 255, 0.06)')
       : highlightFill
+  const safeFillColor = fillColor || 'rgba(59, 130, 246, 0.18)'
 
   const style = new Style({
     image: new CircleStyle({
@@ -259,7 +260,7 @@ function kmlStyleByFeature(feature) {
       width: strokeWidth,
       lineDash: state === 'overlap' ? [8, 5] : undefined
     }),
-    fill: new Fill({ color: fillColor })
+    fill: new Fill({ color: safeFillColor })
   })
   kmlStyleCache.set(cacheKey, style)
   return style
