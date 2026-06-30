@@ -6,24 +6,12 @@
           {{ isSidebarCollapsed ? '文保' : '鄯善县文物管理平台' }}
         </div>
         <div class="header-actions" v-if="!isSidebarCollapsed">
-          <el-button
-            link
-            type="info"
-            class="theme-btn"
-            :title="`当前主题：${themeModeLabel}`"
-            @click="cycleThemeMode"
-          >
-            {{ themeModeLabel }}
-          </el-button>
           <el-button link type="info" class="collapse-btn" @click="toggleSidebar">折叠</el-button>
           <el-button link type="info" class="logout-btn" @click="logout">退出</el-button>
         </div>
       </div>
 
       <div class="sidebar-mini-actions" v-if="isSidebarCollapsed">
-        <el-button link type="info" class="theme-btn" :title="`当前主题：${themeModeLabel}`" @click="cycleThemeMode">
-          主题
-        </el-button>
         <el-button link type="info" class="expand-btn" @click="toggleSidebar">展开</el-button>
       </div>
 
@@ -61,6 +49,38 @@
           >
             {{ item.label }}
           </router-link>
+        </div>
+      </div>
+
+      <div class="sidebar-footer" :class="{ compact: isSidebarCollapsed }">
+        <div class="theme-segmented" :class="{ compact: isSidebarCollapsed }" :title="`当前主题：${themeModeLabel}`" role="tablist" aria-label="主题模式">
+          <button
+            type="button"
+            class="theme-segment"
+            :class="{ active: themeMode === 'system' }"
+            title="跟随系统"
+            @click="setThemeMode('system')"
+          >
+            A
+          </button>
+          <button
+            type="button"
+            class="theme-segment"
+            :class="{ active: themeMode === 'light' }"
+            title="亮色主题"
+            @click="setThemeMode('light')"
+          >
+            ☀
+          </button>
+          <button
+            type="button"
+            class="theme-segment"
+            :class="{ active: themeMode === 'dark' }"
+            title="暗色主题"
+            @click="setThemeMode('dark')"
+          >
+            ☾
+          </button>
         </div>
       </div>
     </aside>
@@ -229,11 +249,11 @@ function applyTheme(mode) {
   document.documentElement.setAttribute('data-theme', resolved)
 }
 
-function cycleThemeMode() {
-  const modeOrder = ['system', 'light', 'dark']
-  const currentIndex = modeOrder.indexOf(themeMode.value)
-  const nextMode = modeOrder[(currentIndex + 1) % modeOrder.length]
-  themeMode.value = nextMode
+function setThemeMode(mode) {
+  if (!['system', 'light', 'dark'].includes(mode)) {
+    return
+  }
+  themeMode.value = mode
 }
 
 function toggleSidebar() {
