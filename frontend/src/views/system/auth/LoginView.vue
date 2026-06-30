@@ -13,7 +13,7 @@
         </div>
 
         <h2>登录系统</h2>
-        <p class="panel-desc">请使用管理员或授权账户登录，进入项目审批、巡查、KML叠加检查和文物一张图模块。</p>
+        <p class="panel-desc">请使用管理员或授权账户登录平台。</p>
 
         <el-form class="login-form" @submit.prevent>
           <el-form-item>
@@ -61,25 +61,19 @@
       </div>
 
       <aside class="login-visual-panel" aria-hidden="true">
-        <div class="visual-badge">文化遗产 · 安全巡查 · 空间研判</div>
-        <div class="visual-title">让文物管理从“台账”走向“数据驾驶舱”</div>
-        <div class="visual-grid">
-          <div class="visual-card">
-            <strong>项目审批</strong>
-            <span>流程节点可追溯</span>
-          </div>
-          <div class="visual-card">
-            <strong>巡查治理</strong>
-            <span>异常风险快速闭环</span>
-          </div>
-          <div class="visual-card">
-            <strong>KML叠加</strong>
-            <span>冲突点高亮与分析</span>
-          </div>
-          <div class="visual-card">
-            <strong>一张图</strong>
-            <span>文物点位全局掌控</span>
-          </div>
+        <div class="visual-badge">文物保护 · 数字治理</div>
+        <div class="visual-title">守护文化遗产</div>
+        <p class="visual-subtitle">巡查、研判、审批一体化协同。</p>
+
+        <div class="version-pill">
+          <span>系统版本</span>
+          <strong>v{{ versionText }}</strong>
+        </div>
+
+        <div class="heritage-icons">
+          <div class="icon-card icon-guard" title="安全巡查"></div>
+          <div class="icon-card icon-relic" title="文物档案"></div>
+          <div class="icon-card icon-map" title="一张图定位"></div>
         </div>
 
         <div class="visual-deco visual-deco-a"></div>
@@ -92,10 +86,11 @@
 </template>
 
 <script setup>
-import { reactive, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 
+import { fetchSystemVersion } from '../../../api/dashboardApi'
 import { useAuthStore } from '../../../stores/system/authStore'
 
 const router = useRouter()
@@ -103,10 +98,20 @@ const route = useRoute()
 const authStore = useAuthStore()
 
 const loading = ref(false)
+const versionText = ref('-')
 const form = reactive({
   username: '',
   password: ''
 })
+
+async function loadVersion() {
+  try {
+    const versionRes = await fetchSystemVersion()
+    versionText.value = versionRes?.data?.version || '-'
+  } catch (_error) {
+    versionText.value = '-'
+  }
+}
 
 async function submitLogin() {
   if (!form.username || !form.password) {
@@ -126,6 +131,10 @@ async function submitLogin() {
     loading.value = false
   }
 }
+
+onMounted(() => {
+  loadVersion()
+})
 </script>
 
 <style scoped>
@@ -133,10 +142,10 @@ async function submitLogin() {
 
 .heritage-login-page {
   min-height: 100vh;
-  padding: 38px 22px 20px;
+  padding: 26px 18px 14px;
   display: grid;
   grid-template-rows: auto 1fr auto;
-  gap: 18px;
+  gap: 14px;
   background:
     radial-gradient(circle at 12% 18%, rgba(14, 165, 233, 0.2) 0, rgba(14, 165, 233, 0) 42%),
     radial-gradient(circle at 88% 82%, rgba(59, 130, 246, 0.2) 0, rgba(59, 130, 246, 0) 40%),
@@ -151,7 +160,7 @@ async function submitLogin() {
 
 .login-header h1 {
   margin: 0;
-  font-size: clamp(24px, 3.2vw, 36px);
+  font-size: clamp(22px, 2.9vw, 32px);
   line-height: 1.2;
   font-weight: 800;
   letter-spacing: 0.8px;
@@ -160,23 +169,23 @@ async function submitLogin() {
 .login-header p {
   margin: 8px 0 0;
   color: rgba(241, 247, 255, 0.86);
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .login-shell {
-  width: min(1060px, 100%);
+  width: min(900px, 100%);
   margin: 0 auto;
-  border-radius: 18px;
+  border-radius: 14px;
   overflow: hidden;
-  box-shadow: 0 20px 48px rgba(5, 23, 52, 0.34);
+  box-shadow: 0 14px 34px rgba(5, 23, 52, 0.3);
   border: 1px solid rgba(255, 255, 255, 0.22);
   background: rgba(255, 255, 255, 0.09);
   display: grid;
-  grid-template-columns: 1.04fr 1fr;
+  grid-template-columns: 1.08fr 0.92fr;
 }
 
 .login-form-panel {
-  padding: clamp(24px, 4vw, 42px);
+  padding: clamp(20px, 3.2vw, 30px);
   background: rgba(255, 255, 255, 0.96);
   display: flex;
   flex-direction: column;
@@ -204,8 +213,8 @@ async function submitLogin() {
 }
 
 .login-form-panel h2 {
-  margin: 14px 0 8px;
-  font-size: clamp(24px, 3.2vw, 34px);
+  margin: 12px 0 6px;
+  font-size: clamp(22px, 2.9vw, 30px);
   color: #102a43;
   font-weight: 800;
 }
@@ -213,12 +222,12 @@ async function submitLogin() {
 .panel-desc {
   margin: 0;
   color: #5d748f;
-  line-height: 1.7;
-  font-size: 14px;
+  line-height: 1.6;
+  font-size: 13px;
 }
 
 .login-form {
-  margin-top: 24px;
+  margin-top: 18px;
 }
 
 .login-form :deep(.el-input__wrapper) {
@@ -242,7 +251,7 @@ async function submitLogin() {
 .login-btn {
   width: 100%;
   margin-top: 6px;
-  height: 46px;
+  height: 42px;
   border-radius: 30px;
   border: none;
   background: linear-gradient(90deg, #0b67bd 0%, #1492e6 100%);
@@ -256,7 +265,7 @@ async function submitLogin() {
 }
 
 .panel-footnote {
-  margin-top: 18px;
+  margin-top: 14px;
   display: flex;
   flex-direction: column;
   gap: 5px;
@@ -267,7 +276,7 @@ async function submitLogin() {
 .login-visual-panel {
   position: relative;
   background: linear-gradient(155deg, rgba(10, 44, 86, 0.85), rgba(20, 109, 184, 0.82));
-  padding: clamp(22px, 3.4vw, 34px);
+  padding: clamp(18px, 2.8vw, 26px);
   color: #f1f8ff;
   display: flex;
   flex-direction: column;
@@ -286,39 +295,110 @@ async function submitLogin() {
 }
 
 .visual-title {
-  margin-top: 16px;
-  font-size: clamp(22px, 2.8vw, 34px);
-  line-height: 1.35;
+  margin-top: 14px;
+  font-size: clamp(20px, 2.2vw, 28px);
+  line-height: 1.3;
   font-weight: 800;
-  max-width: 460px;
+  max-width: 320px;
 }
 
-.visual-grid {
-  margin-top: 20px;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.visual-subtitle {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: rgba(241, 248, 255, 0.88);
+}
+
+.version-pill {
+  margin-top: 14px;
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  font-size: 12px;
+}
+
+.version-pill strong {
+  font-size: 13px;
+  letter-spacing: 0.3px;
+}
+
+.heritage-icons {
+  margin-top: 16px;
+  display: flex;
   gap: 10px;
 }
 
-.visual-card {
-  border-radius: 12px;
-  padding: 12px 12px;
+.icon-card {
+  width: 64px;
+  height: 64px;
+  border-radius: 14px;
   background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  backdrop-filter: blur(2px);
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  position: relative;
 }
 
-.visual-card strong {
-  font-size: 14px;
-  font-weight: 700;
+.icon-guard::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 12px;
+  width: 22px;
+  height: 28px;
+  transform: translateX(-50%);
+  background: rgba(241, 248, 255, 0.9);
+  clip-path: polygon(50% 0%, 100% 15%, 88% 80%, 50% 100%, 12% 80%, 0% 15%);
 }
 
-.visual-card span {
-  font-size: 12px;
-  color: rgba(241, 248, 255, 0.86);
+.icon-relic::before,
+.icon-relic::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(241, 248, 255, 0.9);
+  border-radius: 2px;
+}
+
+.icon-relic::before {
+  top: 14px;
+  width: 28px;
+  height: 6px;
+}
+
+.icon-relic::after {
+  top: 24px;
+  width: 36px;
+  height: 24px;
+  clip-path: polygon(12% 100%, 20% 18%, 32% 18%, 28% 100%, 44% 100%, 48% 18%, 60% 18%, 56% 100%, 72% 100%, 80% 18%, 90% 18%, 88% 100%);
+}
+
+.icon-map::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 12px;
+  width: 24px;
+  height: 32px;
+  transform: translateX(-50%);
+  background: rgba(241, 248, 255, 0.9);
+  border-radius: 50% 50% 50% 50% / 42% 42% 58% 58%;
+  clip-path: polygon(50% 0%, 85% 22%, 86% 56%, 50% 100%, 14% 56%, 15% 22%);
+}
+
+.icon-map::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 23px;
+  width: 8px;
+  height: 8px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: rgba(17, 83, 143, 0.95);
 }
 
 .visual-deco {
@@ -328,18 +408,18 @@ async function submitLogin() {
 }
 
 .visual-deco-a {
-  width: 210px;
-  height: 210px;
-  right: -54px;
-  top: -64px;
+  width: 150px;
+  height: 150px;
+  right: -38px;
+  top: -42px;
   background: radial-gradient(circle, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0) 70%);
 }
 
 .visual-deco-b {
-  width: 240px;
-  height: 240px;
-  left: -88px;
-  bottom: -98px;
+  width: 170px;
+  height: 170px;
+  left: -72px;
+  bottom: -78px;
   background: radial-gradient(circle, rgba(14, 165, 233, 0.35) 0%, rgba(14, 165, 233, 0) 72%);
 }
 
@@ -351,7 +431,7 @@ async function submitLogin() {
 
 @media (max-width: 980px) {
   .heritage-login-page {
-    padding: 18px 12px 12px;
+    padding: 16px 10px 10px;
   }
 
   .login-shell {
@@ -359,33 +439,34 @@ async function submitLogin() {
   }
 
   .login-visual-panel {
-    min-height: 260px;
-  }
-
-  .visual-grid {
-    grid-template-columns: 1fr 1fr;
+    min-height: 220px;
   }
 }
 
 @media (max-width: 640px) {
   .login-header h1 {
-    font-size: 22px;
+    font-size: 21px;
   }
 
   .login-header p {
-    font-size: 13px;
+    font-size: 12px;
   }
 
   .login-form-panel {
-    padding: 20px 16px;
+    padding: 18px 14px;
   }
 
   .visual-title {
     font-size: 22px;
   }
 
-  .visual-grid {
-    grid-template-columns: 1fr;
+  .heritage-icons {
+    gap: 8px;
+  }
+
+  .icon-card {
+    width: 56px;
+    height: 56px;
   }
 }
 </style>
