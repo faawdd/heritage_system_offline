@@ -42,7 +42,7 @@ else:
 
 SYSTEM_REGION = env('SYSTEM_REGION', default='鄯善县')
 SYSTEM_NAME = env('SYSTEM_NAME', default=f'{SYSTEM_REGION}文物管理平台')
-SYSTEM_VERSION_BASE = env('SYSTEM_VERSION_BASE', default='v1.3')
+SYSTEM_VERSION_BASE = env('SYSTEM_VERSION_BASE', default='v2.0')
 USE_LEGACY_ADMIN_UI = str(env('USE_LEGACY_ADMIN_UI', default='1')).lower() in ('1', 'true', 'yes', 'on')
 
 
