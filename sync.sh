@@ -2,7 +2,7 @@
 # heritage_system 服务器同步和修复脚本
 # 功能：自动同步代码、应用迁移、修复登陆问题、收集静态文件、重启服务
 
-set -e  # 遇到错误立即退出
+set -Eeuo pipefail
 
 echo "=================================="
 echo "heritage_system 服务器同步脚本"
@@ -26,6 +26,16 @@ restore_database() {
     fi
 }
 
+cleanup_on_exit() {
+    local exit_code=$?
+    if [ "$exit_code" -ne 0 ]; then
+        echo "检测到脚本异常退出(ExitCode=$exit_code)，开始回滚数据库..."
+        restore_database
+    fi
+}
+
+trap cleanup_on_exit EXIT
+
 if [ -x ./push_code.sh ]; then
     read -rp "是否先执行上传脚本 push_code.sh 并推送到仓库? [y/N]: " RUN_PUSH
     case "$RUN_PUSH" in
@@ -37,7 +47,6 @@ if [ -x ./push_code.sh ]; then
 fi
 
 backup_database
-trap restore_database EXIT
 
 # 1. 解决可能存在的权限报错
 echo "[1/7] 配置 git 安全目录..."
@@ -52,13 +61,34 @@ CURRENT_BRANCH=$(git symbolic-ref --short -q HEAD || echo "master")
 echo "[3/7] 强制同步远程分支: origin/$CURRENT_BRANCH"
 git reset --hard origin/$CURRENT_BRANCH
 
+# 成功同步代码后立即恢复数据库快照，避免被 git reset 影响
 restore_database
 
 # 4. 权限与环境恢复
 echo "[4/7] 恢复权限和环境..."
 sudo chown -R flower: .
-source venv/bin/activate
+if [ -f .venv/bin/activate ]; then
+    # 新环境优先使用 .venv
+    source .venv/bin/activate
+elif [ -f venv/bin/activate ]; then
+    source venv/bin/activate
+else
+    echo "❌ 未找到可用虚拟环境(.venv/venv)，请先创建并安装依赖"
+    exit 1
+fi
+
 pip install -r requirements.txt -q
+
+# 可选：前端构建（若构建产物不入库，建议开启）
+if [ -f frontend/package.json ]; then
+    read -rp "是否执行前端构建 npm run build? [y/N]: " RUN_FRONTEND_BUILD
+    case "$RUN_FRONTEND_BUILD" in
+        [Yy]*)
+            echo "构建前端静态资源..."
+            (cd frontend && npm ci --silent && npm run build)
+            ;;
+    esac
+fi
 
 # 5. 应用数据库迁移
 echo "[5/7] 应用数据库迁移..."
@@ -66,7 +96,7 @@ python manage.py migrate --no-input
 
 # 6. 修复登陆问题 - 为现有用户创建 UserProfile
 echo "[6/7] 修复用户 Profile 缺失问题..."
-python manage.py shell << 'EOF'
+if ! python manage.py shell << 'EOF'
 from django.contrib.auth.models import User
 from core.models import UserProfile
 import sys
@@ -95,8 +125,7 @@ except Exception as e:
     print(f"错误: {str(e)}")
     sys.exit(1)
 EOF
-
-if [ $? -ne 0 ]; then
+then
     echo "❌ UserProfile 修复失败，但继续重启服务..."
 fi
 
