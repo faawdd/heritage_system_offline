@@ -1,0 +1,55 @@
+from django.urls import path
+
+from core.api.views import (
+    GisKmlManagementActionAPIView,
+    GisKmlProcessConvertAPIView,
+    GisKmlRecordKmlContentAPIView,
+    GisKmlRecordsAPIView,
+    GisOvkmlConvertAPIView,
+    HealthAPIView,
+    HeritageDetailAPIView,
+    HeritageMapPointsAPIView,
+    HeritageStatsMetaAPIView,
+    ImmovableHeritageDetailAPIView,
+    ImmovableHeritageExportAPIView,
+    ImmovableHeritageImportAPIView,
+    ImmovableHeritageListAPIView,
+    InspectionDetailAPIView,
+    InspectionListAPIView,
+    InspectionStatsAPIView,
+    SystemVersionAPIView,
+)
+from core import views as legacy_views
+
+app_name = 'core_api'
+
+urlpatterns = [
+    path('health/', HealthAPIView.as_view(), name='health'),
+    path('system/version/', SystemVersionAPIView.as_view(), name='system_version'),
+    path('heritage/map-points/', HeritageMapPointsAPIView.as_view(), name='heritage_map_points'),
+    path('heritage/stats/meta/', HeritageStatsMetaAPIView.as_view(), name='heritage_stats_meta'),
+    path('heritage/classification-stats/', legacy_views.heritage_classification_stats_api, name='heritage_classification_stats'),
+    path('heritage/<int:site_id>/detail/', HeritageDetailAPIView.as_view(), name='heritage_detail'),
+    path('heritage/<int:pk>/boundary-export/', legacy_views.heritage_boundary_export_view, name='heritage_boundary_export'),
+    path('heritage/immovable/', ImmovableHeritageListAPIView.as_view(), name='heritage_immovable_list'),
+    path('heritage/immovable/import/', ImmovableHeritageImportAPIView.as_view(), name='heritage_immovable_import'),
+    path('heritage/immovable/export/', ImmovableHeritageExportAPIView.as_view(), name='heritage_immovable_export'),
+    path('heritage/immovable/<int:site_id>/', ImmovableHeritageDetailAPIView.as_view(), name='heritage_immovable_detail'),
+    path('projects/', legacy_views.land_project_list_api, name='land_project_list'),
+    path('projects/<uuid:project_id>/', legacy_views.land_project_detail_api, name='land_project_detail'),
+    path('projects/create/', legacy_views.land_project_create_api, name='land_project_create'),
+    path('projects/<uuid:project_id>/upload/', legacy_views.land_project_upload_api, name='land_project_upload'),
+    path('projects/<uuid:project_id>/download-misc-zip/', legacy_views.land_project_download_misc_zip_api, name='land_project_download_misc_zip'),
+    path('projects/<uuid:project_id>/verify-spatial-safety/', legacy_views.verify_project_spatial_safety_api, name='verify_project_spatial_safety'),
+    path('projects/next-shanshan-doc/', legacy_views.land_project_next_doc_num_api, name='land_project_next_doc_num'),
+    path('projects/<uuid:project_id>/workflow-action/', legacy_views.land_project_workflow_action_api, name='land_project_workflow_action'),
+    path('projects/<uuid:project_id>/controls/', legacy_views.land_project_controls_api, name='land_project_controls'),
+    path('inspections/', InspectionListAPIView.as_view(), name='inspection_list'),
+    path('inspections/stats/', InspectionStatsAPIView.as_view(), name='inspection_stats'),
+    path('inspections/<int:inspection_id>/', InspectionDetailAPIView.as_view(), name='inspection_detail'),
+    path('gis/kml-records/', GisKmlRecordsAPIView.as_view(), name='gis_kml_records'),
+    path('gis/kml-records/<int:record_id>/kml-content/', GisKmlRecordKmlContentAPIView.as_view(), name='gis_kml_record_kml_content'),
+    path('gis/kml-management/action/', GisKmlManagementActionAPIView.as_view(), name='gis_kml_management_action'),
+    path('gis/kml-process-convert/', GisKmlProcessConvertAPIView.as_view(), name='gis_kml_process_convert'),
+    path('gis/ovkml-convert/', GisOvkmlConvertAPIView.as_view(), name='gis_ovkml_convert'),
+]

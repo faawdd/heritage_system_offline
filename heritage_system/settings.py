@@ -40,7 +40,10 @@ else:
 
     env = _SimpleEnv()
 
-SYSTEM_VERSION_PREFIX = env('SYSTEM_VERSION_PREFIX', default='v1.3')
+SYSTEM_REGION = env('SYSTEM_REGION', default='鄯善县')
+SYSTEM_NAME = env('SYSTEM_NAME', default=f'{SYSTEM_REGION}文物管理平台')
+SYSTEM_VERSION_BASE = env('SYSTEM_VERSION_BASE', default='v1.3')
+USE_LEGACY_ADMIN_UI = str(env('USE_LEGACY_ADMIN_UI', default='1')).lower() in ('1', 'true', 'yes', 'on')
 
 
 def build_system_version():
@@ -57,7 +60,7 @@ def build_system_version():
         timestamp = int(result.stdout.strip())
         updated_at = datetime.fromtimestamp(timestamp, tz=PROJECT_TIME_ZONE)
         return (
-            f"{SYSTEM_VERSION_PREFIX}-{updated_at.strftime('%Y%m%d.%H%M')}",
+            f"{SYSTEM_VERSION_BASE}+{updated_at.strftime('%Y%m%d.%H%M')}",
             'git_commit',
             updated_at,
         )
@@ -67,14 +70,14 @@ def build_system_version():
     try:
         updated_at = datetime.fromtimestamp(SETTINGS_FILE.stat().st_mtime, tz=PROJECT_TIME_ZONE)
         return (
-            f"{SYSTEM_VERSION_PREFIX}-{updated_at.strftime('%Y%m%d.%H%M')}",
+            f"{SYSTEM_VERSION_BASE}+{updated_at.strftime('%Y%m%d.%H%M')}",
             'settings_mtime',
             updated_at,
         )
     except OSError:
         updated_at = datetime.now(PROJECT_TIME_ZONE)
         return (
-            f"{SYSTEM_VERSION_PREFIX}-Build{updated_at.strftime('%Y%m%d')}",
+            f"{SYSTEM_VERSION_BASE}+{updated_at.strftime('%Y%m%d.%H%M')}",
             'system_time',
             updated_at,
         )
@@ -93,22 +96,23 @@ SECRET_KEY = env(
 )
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = False
+DEBUG = str(env('DJANGO_DEBUG', default='0')).lower() in ('1', 'true', 'yes', 'on')
 ALLOWED_HOSTS = ['beichenhome.top', 'localhost', '127.0.0.1', '[::1]']
 
 # CSRF 信任域名 - 生产环境保持HTTPS配置
 CSRF_TRUSTED_ORIGINS = ['https://beichenhome.top:9081']
-SECURE_SSL_REDIRECT = True
-SESSION_COOKIE_SECURE = True
-CSRF_COOKIE_SECURE = True
+FORCE_HTTPS = str(env('DJANGO_FORCE_HTTPS', default='1')).lower() in ('1', 'true', 'yes', 'on')
+SECURE_SSL_REDIRECT = FORCE_HTTPS
+SESSION_COOKIE_SECURE = FORCE_HTTPS
+CSRF_COOKIE_SECURE = FORCE_HTTPS
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 # 静态文件收集目录
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 INSTALLED_APPS = [
-    'simpleui',
     'core',
+    'system',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -121,6 +125,9 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     'corsheaders',
 ]
+
+if USE_LEGACY_ADMIN_UI:
+    INSTALLED_APPS.insert(0, 'simpleui')
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
@@ -322,7 +329,7 @@ SIMPLEUI_CONFIG = {
 
 
 # 修改后台标题
-SIMPLEUI_HOME_TITLE = f'基层文物管理系统 ({SYS_VERSION})'
+SIMPLEUI_HOME_TITLE = f'{SYSTEM_NAME} ({SYS_VERSION})'
 SIMPLEUI_LOGO = '/static/img/logo.jpg' # 使用本地logo.jpg
 # 隐藏右侧的 Django 官方相关广告和链接（让界面更清爽）
 SIMPLEUI_HOME_INFO = False
@@ -333,7 +340,7 @@ SIMPLEUI_DEFAULT_THEME = 'purple.css'
 SIMPLEUI_CUSTOM_JS = '/static/admin/js/simpleui_custom.js'
 
 # 自定义登录页标题
-SIMPLEUI_LOGIN_TITLE = f'基层文物管理系统 ({SYS_VERSION}) - 请登录'
+SIMPLEUI_LOGIN_TITLE = f'{SYSTEM_NAME} ({SYS_VERSION}) - 请登录'
 # 配置自定义首页 URL 路径 - 显示统计仪表板
 SIMPLEUI_HOME_PAGE = '/admin/home/'
 
@@ -351,6 +358,7 @@ REST_FRAMEWORK = {
 CORS_ALLOWED_ORIGINS = [
     "https://beichenhome.top:9081",
     "http://localhost:8080", # 假设的 Flutter Web 调试地址
+    "http://localhost:5173", # Vue3 + Vite 本地开发地址
 ]
 CORS_ALLOW_CREDENTIALS = True
 
