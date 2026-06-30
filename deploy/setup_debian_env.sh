@@ -191,6 +191,17 @@ setup_python_env() {
   if [ -f fastapi_server/requirements.txt ]; then
     pip install -r fastapi_server/requirements.txt
   fi
+
+  # settings.py 默认 USE_LEGACY_ADMIN_UI=1，会在 INSTALLED_APPS 中启用 simpleui
+  # 这里做显式兜底，避免迁移阶段报 ModuleNotFoundError: simpleui
+  if ! pip show django-simpleui >/dev/null 2>&1; then
+    log "Installing django-simpleui for legacy admin UI compatibility..."
+    if ! pip install django-simpleui; then
+      echo "❌ django-simpleui 安装失败。"
+      echo "如果你不使用 legacy admin UI，请在 $PROJECT_DIR/.env 写入: USE_LEGACY_ADMIN_UI=0"
+      exit 1
+    fi
+  fi
 }
 
 run_django_tasks() {
