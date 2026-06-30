@@ -3,6 +3,7 @@ from django.shortcuts import render, redirect
 from django.template.loader import render_to_string
 from .models import (
     HeritageSite,
+    ImmovableHeritage,
     InspectionRecord,
     ProjectAudit,
     Coordinate,
@@ -2483,61 +2484,164 @@ def _apply_kanerjing_filter(queryset, kanerjing_scope):
     return queryset
 
 
+def _resolve_heritage_stats_source(source):
+    source_key = (source or 'auto').strip().lower()
+    if source_key == 'legacy':
+        return {
+            'source': 'legacy',
+            'model': HeritageSite,
+            'category_field': 'category',
+            'level_field': 'level',
+            'township_field': '',
+            'address_field': 'address',
+            'supports_kanerjing': True,
+        }
+
+    if source_key == 'immovable':
+        return {
+            'source': 'immovable',
+            'model': ImmovableHeritage,
+            'category_field': 'category',
+            'level_field': 'protection_level',
+            'township_field': 'township',
+            'address_field': 'address',
+            'supports_kanerjing': False,
+        }
+
+    if ImmovableHeritage.objects.exists():
+        return {
+            'source': 'immovable',
+            'model': ImmovableHeritage,
+            'category_field': 'category',
+            'level_field': 'protection_level',
+            'township_field': 'township',
+            'address_field': 'address',
+            'supports_kanerjing': False,
+        }
+
+    return {
+        'source': 'legacy',
+        'model': HeritageSite,
+        'category_field': 'category',
+        'level_field': 'level',
+        'township_field': '',
+        'address_field': 'address',
+        'supports_kanerjing': True,
+    }
+
+
+def _get_field_choices_map(model_cls, field_name):
+    if not field_name:
+        return {}
+    try:
+        return dict(model_cls._meta.get_field(field_name).choices or [])
+    except Exception:
+        return {}
+
+
+def _build_group_rows(queryset, group_field, choices_map):
+    raw_rows = queryset.values(group_field).annotate(count=Count('id')).order_by('-count')
+    rows = []
+    for item in raw_rows:
+        value = item.get(group_field)
+        normalized = str(value).strip() if value is not None else ''
+        label = choices_map.get(value) or choices_map.get(normalized) or normalized or '未标注'
+        rows.append({'value': normalized, 'label': label, 'count': item['count']})
+    return rows
+
+
 @staff_member_required
 def heritage_classification_stats_api(request):
-    """文物分类统计面板实时数据 API（支持高级筛选）"""
+    """文物分类统计 API：按数据库真实字段自动分组统计，并保持旧结构兼容。"""
     category = request.GET.get('category', '').strip()
     level = request.GET.get('level', '').strip()
     township = request.GET.get('township', '').strip()
     address_keyword = request.GET.get('address_keyword', '').strip()
     kanerjing_scope = request.GET.get('kanerjing_scope', 'all').strip()
     group_by = request.GET.get('group_by', 'category').strip()
+    source = request.GET.get('source', 'auto').strip()
 
-    queryset = HeritageSite.objects.all()
+    source_config = _resolve_heritage_stats_source(source)
+    model_cls = source_config['model']
+    category_field = source_config['category_field']
+    level_field = source_config['level_field']
+    township_field = source_config['township_field']
+    address_field = source_config['address_field']
+
+    queryset = model_cls.objects.all()
     if category:
-        queryset = queryset.filter(category=category)
+        queryset = queryset.filter(**{category_field: category})
     if level:
-        queryset = queryset.filter(level=level)
+        queryset = queryset.filter(**{level_field: level})
     if township:
-        township_keywords = TOWNSHIP_STANDARD_TO_KEYWORDS.get(township, {township})
-        township_query = Q()
-        for keyword in township_keywords:
-            township_query |= Q(address__icontains=keyword)
-        queryset = queryset.filter(township_query)
+        if township_field:
+            queryset = queryset.filter(**{f'{township_field}__icontains': township})
+        else:
+            township_keywords = TOWNSHIP_STANDARD_TO_KEYWORDS.get(township, {township})
+            township_query = Q()
+            for keyword in township_keywords:
+                township_query |= Q(address__icontains=keyword)
+            queryset = queryset.filter(township_query)
     if address_keyword:
-        queryset = queryset.filter(address__icontains=address_keyword)
-    queryset = _apply_kanerjing_filter(queryset, kanerjing_scope)
+        queryset = queryset.filter(**{f'{address_field}__icontains': address_keyword})
 
-    labels = []
-    data = []
+    if source_config['supports_kanerjing']:
+        queryset = _apply_kanerjing_filter(queryset, kanerjing_scope)
+    else:
+        kanerjing_scope = 'all'
 
-    if group_by == 'level':
-        stats = queryset.values('level').annotate(count=Count('id')).order_by('-count')
-        level_name_map = dict(HeritageSite.LEVEL_CHOICES)
-        labels = [level_name_map.get(item['level'], item['level']) for item in stats]
-        data = [item['count'] for item in stats]
-    elif group_by == 'township':
+    group_key = (group_by or 'category').strip().lower()
+    if group_key in {'level', 'protection_level'}:
+        group_field = level_field
+        group_key = 'level'
+    elif group_key in {'category'}:
+        group_field = category_field
+        group_key = 'category'
+    elif group_key in {'heritage_type'} and hasattr(model_cls, 'HERITAGE_TYPE_CHOICES'):
+        group_field = 'heritage_type'
+        group_key = 'heritage_type'
+    elif group_key == 'township':
+        group_field = 'township' if township_field else ''
+        group_key = 'township'
+    else:
+        group_field = category_field
+        group_key = 'category'
+
+    if group_key == 'township' and not group_field:
         township_counter = {}
-        for item in queryset.values('address'):
-            township_name = _extract_township_name(item.get('address'))
+        for item in queryset.values(address_field):
+            township_name = _extract_township_name(item.get(address_field))
             key = township_name or '未标注乡镇'
             township_counter[key] = township_counter.get(key, 0) + 1
         sorted_items = sorted(township_counter.items(), key=lambda x: x[1], reverse=True)
-        labels = [
-            '未标注乡镇' if item[0] == '未标注乡镇' else _to_township_full_name(item[0])
+        rows = [
+            {
+                'value': item[0],
+                'label': '未标注乡镇' if item[0] == '未标注乡镇' else _to_township_full_name(item[0]),
+                'count': item[1],
+            }
             for item in sorted_items
         ]
-        data = [item[1] for item in sorted_items]
     else:
-        stats = queryset.values('category').annotate(count=Count('id')).order_by('-count')
-        category_name_map = dict(HeritageSite.CATEGORY_CHOICES)
-        labels = [category_name_map.get(item['category'], item['category']) for item in stats]
-        data = [item['count'] for item in stats]
+        choices_map = _get_field_choices_map(model_cls, group_field)
+        rows = _build_group_rows(queryset, group_field, choices_map)
+
+    labels = [item['label'] for item in rows]
+    data = [item['count'] for item in rows]
 
     return JsonResponse({
         'labels': labels,
         'data': data,
+        'rows': rows,
         'total': queryset.count(),
+        'group_by': group_key,
+        'group_by_field': group_field or 'township',
+        'source': source_config['source'],
+        'storage_fields': {
+            'category': category_field,
+            'level': level_field,
+            'township': township_field or 'address(extracted)',
+        },
         'kanerjing_scope': kanerjing_scope if kanerjing_scope in {'all', 'only', 'exclude'} else 'all',
     })
 
