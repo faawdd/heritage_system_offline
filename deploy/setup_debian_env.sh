@@ -51,6 +51,41 @@ require_root() {
   fi
 }
 
+resolve_runtime_user_group() {
+  local fallback_user
+  fallback_user="${SUDO_USER:-}"
+
+  if ! getent group "$APP_GROUP" >/dev/null 2>&1; then
+    if [ -n "$fallback_user" ] && getent group "$fallback_user" >/dev/null 2>&1; then
+      log "Group '$APP_GROUP' not found, fallback to '$fallback_user'."
+      APP_GROUP="$fallback_user"
+    else
+      log "Group '$APP_GROUP' not found, creating it..."
+      groupadd "$APP_GROUP"
+    fi
+  fi
+
+  if ! id -u "$APP_USER" >/dev/null 2>&1; then
+    if [ -n "$fallback_user" ] && id -u "$fallback_user" >/dev/null 2>&1; then
+      log "User '$APP_USER' not found, fallback to '$fallback_user'."
+      APP_USER="$fallback_user"
+    else
+      echo "User '$APP_USER' not found and no valid SUDO_USER fallback detected."
+      echo "Please create user first, or run with --user/--group existing account."
+      exit 1
+    fi
+  fi
+
+  # Ensure the effective group exists after possible user fallback.
+  if ! getent group "$APP_GROUP" >/dev/null 2>&1; then
+    log "Group '$APP_GROUP' still not found, creating it..."
+    groupadd "$APP_GROUP"
+  fi
+
+  # If APP_USER has no primary group match and desired group exists, continue using desired group.
+  log "Using runtime account: ${APP_USER}:${APP_GROUP}"
+}
+
 parse_args() {
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -278,6 +313,7 @@ EOF
 main() {
   require_root
   parse_args "$@"
+  resolve_runtime_user_group
 
   install_apt_packages
   ensure_node
