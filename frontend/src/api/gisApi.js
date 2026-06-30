@@ -24,6 +24,13 @@ export async function fetchGisKmlRecordKmlContent(recordId) {
   return response.data
 }
 
+export async function fetchGisKmlBatchKmlContent(recordIds = []) {
+  const response = await client.post('/api/v1/gis/kml-records/batch-kml-content/', {
+    record_ids: Array.isArray(recordIds) ? recordIds : []
+  })
+  return response.data
+}
+
 async function postBlobAware(url, formData) {
   const response = await client.post(url, formData, {
     headers: {

@@ -4,8 +4,10 @@ import os
 import uuid
 import zipfile
 import csv
+import re
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db.models import Q
 from django.http import HttpResponse
 from django.utils import timezone
@@ -560,19 +562,23 @@ class GisKmlRecordsAPIView(APIView):
         return Response({'success': True, 'rows': rows})
 
 
-class GisKmlRecordKmlContentAPIView(APIView):
-    permission_classes = [IsManagementAdmin]
+class _KmlContentResolverMixin:
+    CACHE_SECONDS = 60 * 60
 
-    def get(self, request, record_id):
-        record = KmlUploadRecord.objects.filter(id=record_id).first()
-        if not record or not record.source_file:
-            return Response({'success': False, 'message': '记录不存在或未绑定源文件。'}, status=404)
+    def _cache_key(self, record):
+        return f'gis_kml_text:{record.id}:{int(record.updated_at.timestamp())}'
+
+    def _resolve_record_payload(self, record):
+        cache_key = self._cache_key(record)
+        cached = cache.get(cache_key)
+        if cached:
+            return cached
 
         try:
             with record.source_file.open('rb') as source:
                 raw_bytes = source.read()
         except Exception as exc:
-            return Response({'success': False, 'message': f'读取源文件失败：{exc}'}, status=400)
+            raise ValueError(f'读取源文件失败：{exc}')
 
         filename = (record.source_file.name or record.title or '').lower()
 
@@ -580,27 +586,26 @@ class GisKmlRecordKmlContentAPIView(APIView):
             if filename.endswith('.kmz') or filename.endswith('.ovkmz'):
                 kml_bytes = self._extract_kml_from_kmz(raw_bytes)
                 if not kml_bytes:
-                    return Response({'success': False, 'message': 'KMZ 中未找到可解析的 KML 文件。'}, status=400)
+                    raise ValueError('KMZ 中未找到可解析的 KML 文件。')
                 file_format = 'kmz'
             else:
                 kml_bytes = raw_bytes
                 file_format = 'kml'
 
             kml_text = self._decode_kml_bytes(kml_bytes)
+        except ValueError:
+            raise
         except Exception as exc:
-            return Response({'success': False, 'message': f'解析失败：{exc}'}, status=400)
+            raise ValueError(f'解析失败：{exc}')
 
-        return Response(
-            {
-                'success': True,
-                'data': {
-                    'record_id': record.id,
-                    'title': record.title,
-                    'file_format': file_format,
-                    'kml_text': kml_text,
-                },
-            }
-        )
+        payload = {
+            'record_id': record.id,
+            'title': record.title,
+            'file_format': file_format,
+            'kml_text': kml_text,
+        }
+        cache.set(cache_key, payload, self.CACHE_SECONDS)
+        return payload
 
     def _extract_kml_from_kmz(self, raw_bytes):
         with zipfile.ZipFile(io.BytesIO(raw_bytes), 'r') as zf:
@@ -614,12 +619,110 @@ class GisKmlRecordKmlContentAPIView(APIView):
         return b''
 
     def _decode_kml_bytes(self, kml_bytes):
+        head = kml_bytes[:512].decode('ascii', errors='ignore')
+        match = re.search(r'encoding=["\']([A-Za-z0-9_\-]+)["\']', head)
+        declared_enc = (match.group(1).lower() if match else '').strip()
+
+        tried = []
+        if declared_enc:
+            tried.append(declared_enc)
         for enc in ('utf-8-sig', 'utf-8', 'gb18030'):
+            if enc not in tried:
+                tried.append(enc)
+
+        for enc in tried:
             try:
                 return kml_bytes.decode(enc)
             except Exception:
                 continue
         return kml_bytes.decode('utf-8', errors='replace')
+
+
+class GisKmlRecordKmlContentAPIView(_KmlContentResolverMixin, APIView):
+    permission_classes = [IsManagementAdmin]
+
+    def get(self, request, record_id):
+        record = KmlUploadRecord.objects.filter(id=record_id).first()
+        if not record or not record.source_file:
+            return Response({'success': False, 'message': '记录不存在或未绑定源文件。'}, status=404)
+
+        try:
+            payload = self._resolve_record_payload(record)
+        except ValueError as exc:
+            return Response({'success': False, 'message': str(exc)}, status=400)
+
+        return Response({'success': True, 'data': payload})
+
+
+class GisKmlBatchKmlContentAPIView(_KmlContentResolverMixin, APIView):
+    permission_classes = [IsManagementAdmin]
+
+    def post(self, request):
+        record_ids_raw = request.data.get('record_ids')
+        if record_ids_raw is None:
+            record_ids_raw = request.data.getlist('record_ids') if hasattr(request.data, 'getlist') else []
+
+        if isinstance(record_ids_raw, str):
+            text = record_ids_raw.strip()
+            if text.startswith('['):
+                try:
+                    record_ids_raw = json.loads(text)
+                except Exception:
+                    record_ids_raw = []
+            elif text:
+                record_ids_raw = [chunk.strip() for chunk in text.split(',') if chunk.strip()]
+            else:
+                record_ids_raw = []
+
+        if not isinstance(record_ids_raw, list):
+            return Response({'success': False, 'message': 'record_ids 参数格式错误。'}, status=400)
+
+        normalized_ids = []
+        seen = set()
+        for raw_id in record_ids_raw:
+            try:
+                rid = int(raw_id)
+            except (TypeError, ValueError):
+                continue
+            if rid <= 0 or rid in seen:
+                continue
+            seen.add(rid)
+            normalized_ids.append(rid)
+
+        if not normalized_ids:
+            return Response({'success': False, 'message': '请提供至少一个有效 record_id。'}, status=400)
+
+        records_map = {
+            item.id: item
+            for item in KmlUploadRecord.objects.filter(id__in=normalized_ids)
+        }
+
+        items = []
+        failed_items = []
+        for rid in normalized_ids:
+            record = records_map.get(rid)
+            if not record or not record.source_file:
+                failed_items.append({'record_id': rid, 'message': '记录不存在或未绑定源文件。'})
+                continue
+
+            try:
+                payload = self._resolve_record_payload(record)
+                items.append(payload)
+            except ValueError as exc:
+                failed_items.append({'record_id': rid, 'message': str(exc)})
+
+        return Response(
+            {
+                'success': True,
+                'data': {
+                    'items': items,
+                    'failed_items': failed_items,
+                    'total_count': len(normalized_ids),
+                    'success_count': len(items),
+                    'failed_count': len(failed_items),
+                },
+            }
+        )
 
 
 class GisKmlManagementActionAPIView(APIView):

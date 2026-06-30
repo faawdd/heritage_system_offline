@@ -51,7 +51,7 @@
 import { onMounted, ref, watch } from 'vue'
 import { getCenter, intersects as intersectsExtent } from 'ol/extent'
 import Feature from 'ol/Feature'
-import Map from 'ol/Map'
+import OlMap from 'ol/Map'
 import Overlay from 'ol/Overlay'
 import View from 'ol/View'
 import LineString from 'ol/geom/LineString'
@@ -67,6 +67,7 @@ import Stroke from 'ol/style/Stroke'
 import Style from 'ol/style/Style'
 
 import { createTiandituLayerGroup } from '../../utils/tianditu'
+import { fetchGisKmlBatchKmlContent } from '../../api/gisApi'
 import { fetchGisKmlRecordKmlContent } from '../../api/gisApi'
 import { fetchHeritageMapPoints } from '../../api/heritageApi'
 
@@ -90,6 +91,8 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['conflict-click', 'overlap-click', 'overlap-update'])
+
+const MAX_FETCH_CONCURRENCY = 4
 
 const mapEl = ref(null)
 const tips = ref([])
@@ -124,8 +127,10 @@ const featurePopupEl = ref(null)
 const popupOverlayRef = ref(null)
 let measurePoints = []
 let loadToken = 0
+let overlapToken = 0
 const overlapEntries = ref([])
 const kmlStyleCache = new Map()
+const kmlTextCache = new Map()
 
 const palette = ['#0ea5e9', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#14b8a6']
 
@@ -257,33 +262,94 @@ async function reloadKmlLayers() {
   isKmlLoading.value = true
   loadingText.value = `正在加载 ${selectedRecords.length} 个KML文件...`
 
-  const tasks = selectedRecords.map((row, idx) => {
+  const results = new Array(selectedRecords.length)
+  let doneCount = 0
+
+  const resolvedByRecordId = new Map()
+  const pendingRows = []
+
+  selectedRecords.forEach((row, idx) => {
+    const recordId = Number(row?.id)
+    if (Number.isFinite(recordId) && recordId > 0) {
+      pendingRows.push({ row, idx, recordId })
+    }
+  })
+
+  if (pendingRows.length > 0) {
+    try {
+      loadingText.value = `正在批量请求 ${pendingRows.length} 个KML文件...`
+      const batchResult = await fetchGisKmlBatchKmlContent(pendingRows.map((item) => item.recordId))
+      if (batchResult?.success) {
+        ;(batchResult.data?.items || []).forEach((item) => {
+          const key = Number(item?.record_id)
+          if (Number.isFinite(key)) {
+            resolvedByRecordId.set(key, {
+              success: true,
+              text: String(item?.kml_text || '')
+            })
+          }
+        })
+        ;(batchResult.data?.failed_items || []).forEach((item) => {
+          const key = Number(item?.record_id)
+          if (Number.isFinite(key)) {
+            resolvedByRecordId.set(key, {
+              success: false,
+              message: String(item?.message || '批量接口返回失败')
+            })
+          }
+        })
+      }
+    } catch (_error) {
+      // 批量接口失败时自动降级到单条接口，不中断加载流程。
+    }
+  }
+
+  await runWithConcurrency(selectedRecords, MAX_FETCH_CONCURRENCY, async (row, idx) => {
     const recordId = row?.id
     const title = row?.title || `记录${idx + 1}`
+
     if (!recordId) {
-      return Promise.resolve({ idx, title, success: false, message: '无记录ID，已跳过' })
+      results[idx] = { idx, title, success: false, message: '无记录ID，已跳过' }
+      doneCount += 1
+      loadingText.value = `正在加载 ${selectedRecords.length} 个KML文件... (${doneCount}/${selectedRecords.length})`
+      return
     }
 
-    return fetchGisKmlRecordKmlContent(recordId)
-      .then((result) => {
-        if (!result.success) {
-          throw new Error(result.message || '解析失败')
+    try {
+      const cacheKey = [String(recordId), String(row?.title || ''), String(row?.created_at || '')].join('|')
+      let text = kmlTextCache.get(cacheKey)
+
+      if (!text) {
+        const batchResolved = resolvedByRecordId.get(Number(recordId))
+        if (batchResolved?.success) {
+          text = batchResolved.text
+        } else {
+          const result = await fetchGisKmlRecordKmlContent(recordId)
+          if (!result.success) {
+            throw new Error(result.message || batchResolved?.message || '解析失败')
+          }
+          text = result.data?.kml_text || ''
         }
-        const text = result.data?.kml_text || ''
         if (!text) {
           throw new Error('KML 内容为空')
         }
-        return { idx, title, success: true, text }
-      })
-      .catch((error) => ({
+        kmlTextCache.set(cacheKey, text)
+      }
+
+      results[idx] = { idx, title, success: true, text }
+    } catch (error) {
+      results[idx] = {
         idx,
         title,
         success: false,
         message: error?.message || '未知错误'
-      }))
+      }
+    } finally {
+      doneCount += 1
+      loadingText.value = `正在加载 ${selectedRecords.length} 个KML文件... (${doneCount}/${selectedRecords.length})`
+    }
   })
 
-  const results = await Promise.all(tasks)
   if (currentToken !== loadToken) {
     isKmlLoading.value = false
     return
@@ -308,7 +374,7 @@ async function reloadKmlLayers() {
         feature.set('featureName', String(feature.get('name') || `要素#${featureIndex + 1}`))
       })
       kmlSource.addFeatures(features)
-      if (i % 2 === 0) {
+      if (i % 1 === 0) {
         await new Promise((resolve) => setTimeout(resolve, 0))
       }
     } catch (error) {
@@ -316,9 +382,29 @@ async function reloadKmlLayers() {
     }
   }
 
-  reloadOverlapLayer()
+  await reloadOverlapLayer()
   fitAll()
   isKmlLoading.value = false
+}
+
+async function runWithConcurrency(items, limit, worker) {
+  const max = Math.max(1, Number(limit) || 1)
+  let index = 0
+
+  async function runOne() {
+    while (index < items.length) {
+      const current = index
+      index += 1
+      await worker(items[current], current)
+    }
+  }
+
+  const runners = []
+  const runnerCount = Math.min(max, items.length)
+  for (let i = 0; i < runnerCount; i += 1) {
+    runners.push(runOne())
+  }
+  await Promise.all(runners)
 }
 
 function reloadConflictLayer() {
@@ -389,7 +475,9 @@ function buildOverlapKey(sourceA, sourceB, featureA, featureB, kind) {
   return `${kind}|${sourcePair}|${featurePair}`
 }
 
-function reloadOverlapLayer() {
+async function reloadOverlapLayer() {
+  overlapToken += 1
+  const currentToken = overlapToken
   overlapSource.clear()
   overlapEntries.value = []
 
@@ -425,6 +513,16 @@ function reloadOverlapLayer() {
     .sort((a, b) => a.minX - b.minX)
 
   for (let i = 0; i < sortedRows.length; i += 1) {
+    if (currentToken !== overlapToken) {
+      return
+    }
+    if (i > 0 && i % 24 === 0) {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      if (currentToken !== overlapToken) {
+        return
+      }
+    }
+
     const a = sortedRows[i]
     const geomA = a.geometry
     const sourceA = a.source
@@ -490,6 +588,10 @@ function reloadOverlapLayer() {
         coordinate: midpoint(centerA, centerB)
       })
     }
+  }
+
+  if (currentToken !== overlapToken) {
+    return
   }
 
   entries.forEach((entry, index) => {
@@ -821,7 +923,7 @@ onMounted(() => {
     stopEvent: false
   })
 
-  const map = new Map({
+  const map = new OlMap({
     target: mapEl.value,
     overlays: [popupOverlay],
     layers: [
@@ -886,6 +988,12 @@ onMounted(() => {
     ter: terLayers
   }
   popupOverlayRef.value = popupOverlay
+
+  // 初始化时按开关状态显式设置，避免图层状态与按钮状态不一致。
+  kmlLayer.setVisible(showKmlLayer.value)
+  heritageLayer.setVisible(showHeritageLayer.value)
+  conflictLayer.setVisible(showConflictLayer.value)
+  overlapLayer.setVisible(showOverlapLayer.value)
 
   loadHeritageLayer()
 })
