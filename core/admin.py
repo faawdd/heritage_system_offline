@@ -747,9 +747,10 @@ class CoordinateAdmin(admin.ModelAdmin):
 
 # 修改后台标题，确保 SimpleUI 与 Django Admin 同步显示动态版本号
 sys_version = getattr(settings, 'SYS_VERSION', 'BuildUnknown')
-admin.site.site_header = f'基层文物管理系统 ({sys_version})'
-admin.site.site_title = f'基层文物管理系统 ({sys_version})'
-admin.site.index_title = f'欢迎使用基层文物管理系统，当前版本 {sys_version}'
+system_name = getattr(settings, 'SYSTEM_NAME', '鄯善县文物管理平台')
+admin.site.site_header = f'{system_name} ({sys_version})'
+admin.site.site_title = f'{system_name} ({sys_version})'
+admin.site.index_title = f'欢迎使用{system_name}，当前版本 {sys_version}'
 
 
 # ============ 用户和组权限管理 ============

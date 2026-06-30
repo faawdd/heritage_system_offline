@@ -41,6 +41,8 @@ from core.views import (heritage_map_view, heritage_dashboard_view, heritage_sta
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 urlpatterns = [
+    path('api/v1/', include('core.api.urls')),
+    path('api/v1/system/', include('system.urls')),
     # 兼容旧项目管理入口，统一跳转到新重构页面
     re_path(r'^admin/core/projectaudit(?:/.*)?$', RedirectView.as_view(url='/admin/land-projects/', permanent=False, query_string=True), name='projectaudit_legacy_redirect'),
     path('app-download/', app_showcase_view, name='app_showcase'),
