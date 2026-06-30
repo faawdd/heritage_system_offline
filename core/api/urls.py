@@ -6,6 +6,7 @@ from core.api.views import (
     GisKmlRecordKmlContentAPIView,
     GisKmlRecordsAPIView,
     GisOvkmlConvertAPIView,
+    DashboardOverviewAPIView,
     HealthAPIView,
     HeritageDetailAPIView,
     HeritageMapPointsAPIView,
@@ -26,6 +27,7 @@ app_name = 'core_api'
 urlpatterns = [
     path('health/', HealthAPIView.as_view(), name='health'),
     path('system/version/', SystemVersionAPIView.as_view(), name='system_version'),
+    path('dashboard/overview/', DashboardOverviewAPIView.as_view(), name='dashboard_overview'),
     path('heritage/map-points/', HeritageMapPointsAPIView.as_view(), name='heritage_map_points'),
     path('heritage/stats/meta/', HeritageStatsMetaAPIView.as_view(), name='heritage_stats_meta'),
     path('heritage/classification-stats/', legacy_views.heritage_classification_stats_api, name='heritage_classification_stats'),

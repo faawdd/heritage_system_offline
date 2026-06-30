@@ -15,7 +15,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core import views as legacy_views
-from core.models import HeritageSite, InspectionRecord, KmlUploadRecord, ProjectAudit
+from core.models import HeritageSite, InspectionRecord, KmlUploadRecord, LandUseProjectApproval, ProjectAudit
 from core.permission_decorators import can_modify_core_data
 from core.permissions.api_permissions import IsManagementAdmin
 from core.services.heritage_service import (
@@ -41,6 +41,41 @@ class SystemVersionAPIView(APIView):
     def get(self, request):
         payload = get_system_version_payload()
         return Response({'success': True, 'data': payload})
+
+
+class DashboardOverviewAPIView(APIView):
+    permission_classes = [IsManagementAdmin]
+
+    def get(self, request):
+        today = timezone.localdate()
+        today_inspections = InspectionRecord.objects.filter(inspect_time__date=today).count()
+        abnormal_inspections = InspectionRecord.objects.filter(is_normal=False).count()
+        heritage_total = HeritageSite.objects.count()
+
+        # 2.0流程：处于审批/流转中的项目视为“待审批项目”。
+        pending_project_count = LandUseProjectApproval.objects.filter(
+            status__in=[
+                LandUseProjectApproval.STATUS_CITY_REVIEWING,
+                LandUseProjectApproval.STATUS_ARCHAEOLOGY,
+                LandUseProjectApproval.STATUS_REPLY_RECEIVED,
+            ]
+        ).count()
+
+        # 兼容历史数据：若新流程尚未启用，则回退到旧ProjectAudit待审统计。
+        if pending_project_count == 0:
+            pending_project_count = ProjectAudit.objects.filter(status='Pending').count()
+
+        return Response(
+            {
+                'success': True,
+                'data': {
+                    'pending_project_count': pending_project_count,
+                    'today_inspection_count': today_inspections,
+                    'heritage_total_count': heritage_total,
+                    'risk_warning_count': abnormal_inspections,
+                },
+            }
+        )
 
 
 class HeritageMapPointsAPIView(APIView):
@@ -633,6 +668,7 @@ class GisKmlManagementActionAPIView(APIView):
         created_count = 0
         total_conflicts = 0
         warnings = []
+        site_points = legacy_views._load_conflict_site_points() if immediate_analyze else None
 
         for upload in upload_files:
             name = upload.name or '未命名文件'
@@ -656,7 +692,7 @@ class GisKmlManagementActionAPIView(APIView):
                     with record.source_file.open('rb') as source:
                         content = source.read()
                     features = legacy_views._extract_features_from_upload(name, content)
-                    conflicts = legacy_views._analyze_conflicts(features, threshold)
+                    conflicts = legacy_views._analyze_conflicts(features, threshold, site_points=site_points)
                 except Exception as exc:
                     warnings.append(f'{name} 已上传，但即时分析失败：{exc}')
                 else:
@@ -733,7 +769,12 @@ class GisKmlManagementActionAPIView(APIView):
         if error_response:
             return error_response
 
-        combined_conflicts, updated_count, failed_count, failed_items = legacy_views._reanalyze_kml_records(records, threshold)
+        force_reanalyze = str(request.data.get('force_reanalyze') or '').lower() in {'1', 'true', 'on', 'yes'}
+        combined_conflicts, updated_count, failed_count, failed_items = legacy_views._reanalyze_kml_records(
+            records,
+            threshold,
+            use_cache=not force_reanalyze,
+        )
 
         return Response(
             {
@@ -754,7 +795,12 @@ class GisKmlManagementActionAPIView(APIView):
         if error_response:
             return error_response
 
-        combined_conflicts, _updated_count, failed_count, failed_items = legacy_views._reanalyze_kml_records(records, threshold)
+        force_reanalyze = str(request.data.get('force_reanalyze') or '').lower() in {'1', 'true', 'on', 'yes'}
+        combined_conflicts, _updated_count, failed_count, failed_items = legacy_views._reanalyze_kml_records(
+            records,
+            threshold,
+            use_cache=not force_reanalyze,
+        )
         if failed_count:
             # 导出场景允许部分失败，成功部分仍可继续导出。
             pass

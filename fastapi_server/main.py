@@ -307,6 +307,16 @@ def root() -> dict:
     return {"message": "FastAPI is running"}
 
 
+@app.get("/health")
+def health() -> dict:
+    return {"status": "ok", "service": "heritage_fastapi"}
+
+
+@app.get("/api/health")
+def api_health() -> dict:
+    return {"status": "ok", "service": "heritage_fastapi"}
+
+
 @app.post("/api/auth/login")
 def login(payload: LoginRequest) -> dict:
     user = User.objects.filter(username=payload.username, is_active=True).first()
