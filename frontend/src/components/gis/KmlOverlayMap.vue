@@ -1,6 +1,16 @@
 <template>
   <div class="kml-overlay-map-wrap">
     <div ref="mapEl" class="kml-overlay-map"></div>
+    <div class="kml-loading-mask" v-if="isKmlLoading">
+      <div class="kml-loading-card">
+        <div class="kml-loading-spinner"></div>
+        <div>{{ loadingText }}</div>
+      </div>
+    </div>
+    <div ref="featurePopupEl" class="kml-feature-popup" :class="{ 'is-visible': popupVisible }">
+      <h4>{{ popupTitle }}</h4>
+      <div class="kml-feature-popup-content">{{ popupContent }}</div>
+    </div>
     <div class="kml-overlay-toolbar">
       <div class="toolbar-row">
         <span class="toolbar-label">底图</span>
@@ -42,6 +52,7 @@ import { onMounted, ref, watch } from 'vue'
 import { getCenter, intersects as intersectsExtent } from 'ol/extent'
 import Feature from 'ol/Feature'
 import Map from 'ol/Map'
+import Overlay from 'ol/Overlay'
 import View from 'ol/View'
 import LineString from 'ol/geom/LineString'
 import Point from 'ol/geom/Point'
@@ -49,6 +60,7 @@ import VectorLayer from 'ol/layer/Vector'
 import { fromLonLat, toLonLat } from 'ol/proj'
 import VectorSource from 'ol/source/Vector'
 import KML from 'ol/format/KML'
+import { getArea, getLength } from 'ol/sphere'
 import CircleStyle from 'ol/style/Circle'
 import Fill from 'ol/style/Fill'
 import Stroke from 'ol/style/Stroke'
@@ -88,6 +100,11 @@ const showConflictLayer = ref(true)
 const showOverlapLayer = ref(true)
 const measureMode = ref(false)
 const measureText = ref('')
+const isKmlLoading = ref(false)
+const loadingText = ref('正在加载KML...')
+const popupVisible = ref(false)
+const popupTitle = ref('')
+const popupContent = ref('')
 const activeConflictGroup = ref('ALL')
 const conflictGroupOptions = ref([])
 
@@ -103,15 +120,21 @@ const conflictLayerRef = ref(null)
 const overlapLayerRef = ref(null)
 const measureLayerRef = ref(null)
 const baseLayersRef = ref({ img: [], vec: [], ter: [] })
+const featurePopupEl = ref(null)
+const popupOverlayRef = ref(null)
 let measurePoints = []
 let loadToken = 0
 const overlapEntries = ref([])
+const kmlStyleCache = new Map()
 
 const palette = ['#0ea5e9', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#14b8a6']
 
 function kmlStyleByIndex(index) {
+  if (kmlStyleCache.has(index)) {
+    return kmlStyleCache.get(index)
+  }
   const color = palette[index % palette.length]
-  return new Style({
+  const style = new Style({
     image: new CircleStyle({
       radius: 5,
       fill: new Fill({ color }),
@@ -120,6 +143,8 @@ function kmlStyleByIndex(index) {
     stroke: new Stroke({ color, width: 2 }),
     fill: new Fill({ color: `${color}33` })
   })
+  kmlStyleCache.set(index, style)
+  return style
 }
 
 function conflictStyle() {
@@ -220,46 +245,80 @@ async function reloadKmlLayers() {
   const currentToken = loadToken
   kmlSource.clear()
   tips.value = []
+  closeFeaturePopup()
 
-  for (let idx = 0; idx < (props.selectedRecords || []).length; idx += 1) {
-    const row = props.selectedRecords[idx]
+  const selectedRecords = props.selectedRecords || []
+  if (selectedRecords.length === 0) {
+    reloadOverlapLayer()
+    fitAll()
+    return
+  }
+
+  isKmlLoading.value = true
+  loadingText.value = `正在加载 ${selectedRecords.length} 个KML文件...`
+
+  const tasks = selectedRecords.map((row, idx) => {
     const recordId = row?.id
     const title = row?.title || `记录${idx + 1}`
-
     if (!recordId) {
-      tips.value.push(`${title}: 无记录ID，已跳过`)
+      return Promise.resolve({ idx, title, success: false, message: '无记录ID，已跳过' })
+    }
+
+    return fetchGisKmlRecordKmlContent(recordId)
+      .then((result) => {
+        if (!result.success) {
+          throw new Error(result.message || '解析失败')
+        }
+        const text = result.data?.kml_text || ''
+        if (!text) {
+          throw new Error('KML 内容为空')
+        }
+        return { idx, title, success: true, text }
+      })
+      .catch((error) => ({
+        idx,
+        title,
+        success: false,
+        message: error?.message || '未知错误'
+      }))
+  })
+
+  const results = await Promise.all(tasks)
+  if (currentToken !== loadToken) {
+    isKmlLoading.value = false
+    return
+  }
+
+  for (let i = 0; i < results.length; i += 1) {
+    const item = results[i]
+    if (!item.success) {
+      tips.value.push(`${item.title}: 解析失败（${item.message}）`)
       continue
     }
 
     try {
-      const result = await fetchGisKmlRecordKmlContent(recordId)
-      if (!result.success) {
-        throw new Error(result.message || '解析失败')
-      }
-      const text = result.data?.kml_text || ''
-      if (!text) {
-        throw new Error('KML 内容为空')
-      }
-      if (currentToken !== loadToken) {
-        return
-      }
-      const features = new KML().readFeatures(text, {
+      const features = new KML().readFeatures(item.text, {
         dataProjection: 'EPSG:4326',
         featureProjection: 'EPSG:3857'
       })
       features.forEach((feature, featureIndex) => {
-        feature.setStyle(kmlStyleByIndex(idx))
-        feature.set('sourceName', title)
+        feature.set('isKmlFeature', true)
+        feature.set('kmlColorIndex', item.idx)
+        feature.set('sourceName', item.title)
         feature.set('featureName', String(feature.get('name') || `要素#${featureIndex + 1}`))
       })
       kmlSource.addFeatures(features)
+      if (i % 2 === 0) {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      }
     } catch (error) {
-      tips.value.push(`${title}: 解析失败（${error?.message || '未知错误'}）`)
+      tips.value.push(`${item.title}: 解析失败（${error?.message || '未知错误'}）`)
     }
   }
 
   reloadOverlapLayer()
   fitAll()
+  isKmlLoading.value = false
 }
 
 function reloadConflictLayer() {
@@ -343,37 +402,56 @@ function reloadOverlapLayer() {
   const entries = []
   const keySet = new Set()
 
-  for (let i = 0; i < features.length; i += 1) {
-    const a = features[i]
-    const geomA = a.getGeometry()
-    if (!geomA) {
-      continue
-    }
-    const sourceA = String(a.get('sourceName') || '')
-    const featureA = String(a.get('featureName') || '')
-    const extentA = geomA.getExtent()
-    const centerA = getCenter(extentA)
-    const kindA = normalizeKind(geomA.getType())
+  const sortedRows = features
+    .map((feature) => {
+      const geometry = feature.getGeometry()
+      if (!geometry) {
+        return null
+      }
+      const extent = geometry.getExtent()
+      return {
+        feature,
+        geometry,
+        extent,
+        minX: extent[0],
+        maxX: extent[2],
+        center: getCenter(extent),
+        source: String(feature.get('sourceName') || ''),
+        name: String(feature.get('featureName') || ''),
+        kind: normalizeKind(geometry.getType())
+      }
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.minX - b.minX)
 
-    for (let j = i + 1; j < features.length; j += 1) {
-      const b = features[j]
-      const geomB = b.getGeometry()
-      if (!geomB) {
-        continue
+  for (let i = 0; i < sortedRows.length; i += 1) {
+    const a = sortedRows[i]
+    const geomA = a.geometry
+    const sourceA = a.source
+    const featureA = a.name
+    const extentA = a.extent
+    const centerA = a.center
+    const kindA = a.kind
+
+    for (let j = i + 1; j < sortedRows.length; j += 1) {
+      const b = sortedRows[j]
+      if (b.minX > a.maxX) {
+        break
       }
 
-      const sourceB = String(b.get('sourceName') || '')
+      const geomB = b.geometry
+      const sourceB = b.source
       if (!sourceA || !sourceB || sourceA === sourceB) {
         continue
       }
 
-      const extentB = geomB.getExtent()
+      const extentB = b.extent
       if (!intersectsExtent(extentA, extentB)) {
         continue
       }
 
-      const centerB = getCenter(extentB)
-      const kindB = normalizeKind(geomB.getType())
+      const centerB = b.center
+      const kindB = b.kind
       const kind = kindA === 'point' && kindB === 'point' ? 'point' : kindA === 'polygon' || kindB === 'polygon' ? 'polygon' : 'line'
 
       let overlapped = false
@@ -394,7 +472,7 @@ function reloadOverlapLayer() {
         continue
       }
 
-      const featureB = String(b.get('featureName') || '')
+      const featureB = b.name
       const overlapKey = buildOverlapKey(sourceA, sourceB, featureA, featureB, kind)
       if (keySet.has(overlapKey)) {
         continue
@@ -655,20 +733,97 @@ function focusOverlapOnMap(rowLike) {
   })
 }
 
+function formatLength(lengthM) {
+  if (!Number.isFinite(lengthM)) {
+    return '-'
+  }
+  if (lengthM >= 1000) {
+    return `${(lengthM / 1000).toFixed(3)} km`
+  }
+  return `${lengthM.toFixed(2)} m`
+}
+
+function formatArea(areaM2) {
+  if (!Number.isFinite(areaM2)) {
+    return '-'
+  }
+  if (areaM2 >= 1000000) {
+    return `${(areaM2 / 1000000).toFixed(3)} km²`
+  }
+  return `${areaM2.toFixed(2)} m²`
+}
+
+function geometrySummaryText(geometry) {
+  if (!geometry) {
+    return '几何信息: -'
+  }
+  const geometryType = geometry.getType()
+  if (geometryType === 'Point') {
+    const lonLat = toLonLat(geometry.getCoordinates())
+    return `坐标: ${lonLat[0].toFixed(6)}, ${lonLat[1].toFixed(6)}`
+  }
+  if (geometryType === 'LineString' || geometryType === 'MultiLineString') {
+    const lengthM = getLength(geometry, { projection: 'EPSG:3857' })
+    return `长度: ${formatLength(lengthM)}`
+  }
+  if (geometryType === 'Polygon' || geometryType === 'MultiPolygon') {
+    const areaM2 = getArea(geometry, { projection: 'EPSG:3857' })
+    const lengthM = getLength(geometry, { projection: 'EPSG:3857' })
+    return `面积: ${formatArea(areaM2)}\n周长: ${formatLength(lengthM)}`
+  }
+  return `几何类型: ${geometryType}`
+}
+
+function showFeaturePopup(feature, coordinate) {
+  const geometry = feature.getGeometry()
+  popupTitle.value = String(feature.get('featureName') || feature.get('name') || 'KML要素')
+  popupContent.value = [
+    `来源: ${String(feature.get('sourceName') || '-')}`,
+    geometrySummaryText(geometry)
+  ].join('\n')
+  popupVisible.value = true
+  if (popupOverlayRef.value) {
+    popupOverlayRef.value.setPosition(coordinate)
+  }
+}
+
+function closeFeaturePopup() {
+  popupVisible.value = false
+  if (popupOverlayRef.value) {
+    popupOverlayRef.value.setPosition(undefined)
+  }
+}
+
 onMounted(() => {
   const imgLayers = createTiandituLayerGroup('img')
   const vecLayers = createTiandituLayerGroup('vec')
   const terLayers = createTiandituLayerGroup('ter')
   ;[...vecLayers, ...terLayers].forEach((layer) => layer.setVisible(false))
 
-  const kmlLayer = new VectorLayer({ source: kmlSource })
+  const kmlLayer = new VectorLayer({
+    source: kmlSource,
+    style: (feature) => kmlStyleByIndex(Number(feature.get('kmlColorIndex') || 0))
+  })
   const heritageLayer = new VectorLayer({ source: heritageSource })
   const conflictLayer = new VectorLayer({ source: conflictSource })
   const overlapLayer = new VectorLayer({ source: overlapSource })
   const measureLayer = new VectorLayer({ source: measureSource })
 
+  const popupOverlay = new Overlay({
+    element: featurePopupEl.value,
+    autoPan: {
+      animation: {
+        duration: 180
+      }
+    },
+    positioning: 'bottom-center',
+    offset: [0, -12],
+    stopEvent: false
+  })
+
   const map = new Map({
     target: mapEl.value,
+    overlays: [popupOverlay],
     layers: [
       ...imgLayers,
       ...vecLayers,
@@ -697,7 +852,12 @@ onMounted(() => {
     if (feature && feature.get('isHeritage')) {
       return
     }
+    if (feature && feature.get('isKmlFeature')) {
+      showFeaturePopup(feature, evt.coordinate)
+      return
+    }
     if (feature && feature.get('site_id')) {
+      closeFeaturePopup()
       emit('conflict-click', {
         site_id: feature.get('site_id'),
         site_name: feature.get('site_name'),
@@ -707,6 +867,7 @@ onMounted(() => {
       })
       return
     }
+    closeFeaturePopup()
     if (!measureMode.value) {
       return
     }
@@ -724,6 +885,7 @@ onMounted(() => {
     vec: vecLayers,
     ter: terLayers
   }
+  popupOverlayRef.value = popupOverlay
 
   loadHeritageLayer()
 })
@@ -772,6 +934,73 @@ watch(
   height: 520px;
   border-radius: 10px;
   overflow: hidden;
+}
+
+.kml-loading-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.22);
+  backdrop-filter: blur(1px);
+}
+
+.kml-loading-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #0f172a;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.2);
+}
+
+.kml-loading-spinner {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid #dbeafe;
+  border-top-color: #2563eb;
+  animation: kml-spin 0.72s linear infinite;
+}
+
+@keyframes kml-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.kml-feature-popup {
+  min-width: 220px;
+  max-width: 320px;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 8px 10px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.22);
+  color: #0f172a;
+  font-size: 12px;
+  display: none;
+}
+
+.kml-feature-popup.is-visible {
+  display: block;
+}
+
+.kml-feature-popup h4 {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+
+.kml-feature-popup-content {
+  white-space: pre-line;
+  line-height: 1.5;
+  color: #334155;
 }
 
 .kml-overlay-tip {
