@@ -55,7 +55,9 @@ import OlMap from 'ol/Map'
 import Overlay from 'ol/Overlay'
 import View from 'ol/View'
 import LineString from 'ol/geom/LineString'
+import MultiLineString from 'ol/geom/MultiLineString'
 import Point from 'ol/geom/Point'
+import Polygon from 'ol/geom/Polygon'
 import VectorLayer from 'ol/layer/Vector'
 import { fromLonLat, toLonLat } from 'ol/proj'
 import VectorSource from 'ol/source/Vector'
@@ -245,6 +247,86 @@ function formatDistance(distance) {
   return `${distance.toFixed(1)} m`
 }
 
+function cloneKmlFeatureWithGeometry(feature, geometry) {
+  const cloned = feature.clone()
+  cloned.setGeometry(geometry)
+  return cloned
+}
+
+function isClosedRingCoordinates(coords, thresholdM = 1) {
+  if (!Array.isArray(coords) || coords.length < 3) {
+    return false
+  }
+  const first = coords[0]
+  const last = coords[coords.length - 1]
+  if (!first || !last || first.length < 2 || last.length < 2) {
+    return false
+  }
+  return distanceInMetersBy3857(first, last) <= thresholdM
+}
+
+function closeRingCoordinates(coords) {
+  if (!Array.isArray(coords) || coords.length < 3) {
+    return []
+  }
+  const first = coords[0]
+  const last = coords[coords.length - 1]
+  if (!first || !last) {
+    return []
+  }
+  if (distanceInMetersBy3857(first, last) <= 1) {
+    return coords
+  }
+  return [...coords, first.slice()]
+}
+
+function convertClosedLinesToPolygonFeatures(features = []) {
+  const converted = []
+  for (const feature of features) {
+    const geometry = feature?.getGeometry?.()
+    if (!geometry) {
+      continue
+    }
+
+    const geometryType = geometry.getType()
+    if (geometryType === 'LineString') {
+      const coords = geometry.getCoordinates()
+      if (isClosedRingCoordinates(coords, 200)) {
+        const closed = closeRingCoordinates(coords)
+        converted.push(cloneKmlFeatureWithGeometry(feature, new Polygon([closed])))
+        continue
+      }
+      converted.push(feature)
+      continue
+    }
+
+    if (geometryType === 'MultiLineString') {
+      const lines = geometry.getCoordinates()
+      const remainLines = []
+
+      lines.forEach((line) => {
+        if (isClosedRingCoordinates(line, 200)) {
+          const polygonFeature = cloneKmlFeatureWithGeometry(feature, new Polygon([closeRingCoordinates(line)]))
+          converted.push(polygonFeature)
+        } else {
+          remainLines.push(line)
+        }
+      })
+
+      if (remainLines.length > 0) {
+        const lineGeometry =
+          remainLines.length === 1 ? new LineString(remainLines[0]) : new MultiLineString(remainLines)
+        const lineFeature = cloneKmlFeatureWithGeometry(feature, lineGeometry)
+        converted.push(lineFeature)
+      }
+      continue
+    }
+
+    converted.push(feature)
+  }
+  return converted
+}
+
 async function reloadKmlLayers() {
   loadToken += 1
   const currentToken = loadToken
@@ -367,13 +449,14 @@ async function reloadKmlLayers() {
         dataProjection: 'EPSG:4326',
         featureProjection: 'EPSG:3857'
       })
-      features.forEach((feature, featureIndex) => {
+      const renderFeatures = convertClosedLinesToPolygonFeatures(features)
+      renderFeatures.forEach((feature, featureIndex) => {
         feature.set('isKmlFeature', true)
         feature.set('kmlColorIndex', item.idx)
         feature.set('sourceName', item.title)
         feature.set('featureName', String(feature.get('name') || `要素#${featureIndex + 1}`))
       })
-      kmlSource.addFeatures(features)
+      kmlSource.addFeatures(renderFeatures)
       if (i % 1 === 0) {
         await new Promise((resolve) => setTimeout(resolve, 0))
       }
@@ -703,8 +786,10 @@ async function loadHeritageLayer() {
 function toggleMeasureMode() {
   measureMode.value = !measureMode.value
   if (!measureMode.value) {
-    measureText.value = measurePoints.length > 1 ? measureText.value : ''
+    measureText.value = measurePoints.length > 1 ? `${measureText.value}（已结束）` : ''
+    return
   }
+  measureText.value = '测距已开启：单击添加节点，双击结束当前测距'
 }
 
 function clearMeasure() {
@@ -752,9 +837,12 @@ function focusActiveGroup() {
 function handleMeasureClick(coordinate) {
   measurePoints.push(coordinate)
 
-  const pointFeature = new Feature({ geometry: new Point(coordinate) })
-  pointFeature.setStyle(measurePointStyle())
-  measureSource.addFeature(pointFeature)
+  measureSource.clear()
+  measurePoints.forEach((point) => {
+    const pointFeature = new Feature({ geometry: new Point(point) })
+    pointFeature.setStyle(measurePointStyle())
+    measureSource.addFeature(pointFeature)
+  })
 
   if (measurePoints.length >= 2) {
     const lineFeature = new Feature({ geometry: new LineString(measurePoints.slice()) })
@@ -767,10 +855,25 @@ function handleMeasureClick(coordinate) {
       const b = toLonLat(measurePoints[i])
       total += haversineMeters(a, b)
     }
-    measureText.value = `累计距离：${formatDistance(total)}（点击继续追加）`
+    const prev = toLonLat(measurePoints[measurePoints.length - 2])
+    const curr = toLonLat(measurePoints[measurePoints.length - 1])
+    const latest = haversineMeters(prev, curr)
+    measureText.value = `总距离：${formatDistance(total)}；本段：${formatDistance(latest)}（双击结束）`
   } else {
     measureText.value = '已设置起点，点击地图继续测距'
   }
+}
+
+function finishMeasure() {
+  if (!measureMode.value) {
+    return
+  }
+  if (measurePoints.length >= 2) {
+    measureMode.value = false
+    measureText.value = `${measureText.value}（已结束）`
+    return
+  }
+  measureText.value = '至少需要两个点才能形成测距线'
 }
 
 function conflictKey(rowLike) {
@@ -943,6 +1046,12 @@ onMounted(() => {
   })
 
   map.on('click', (evt) => {
+    if (measureMode.value) {
+      closeFeaturePopup()
+      handleMeasureClick(evt.coordinate)
+      return
+    }
+
     const feature = map.forEachFeatureAtPixel(evt.pixel, (item) => item)
     if (feature && Number.isInteger(feature.get('overlapIndex'))) {
       const idx = feature.get('overlapIndex')
@@ -970,10 +1079,14 @@ onMounted(() => {
       return
     }
     closeFeaturePopup()
+  })
+
+  map.on('dblclick', (evt) => {
     if (!measureMode.value) {
       return
     }
-    handleMeasureClick(evt.coordinate)
+    evt.preventDefault()
+    finishMeasure()
   })
 
   mapRef.value = map
