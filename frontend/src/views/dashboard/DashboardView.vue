@@ -19,8 +19,8 @@
         <div class="left-chart-grid">
           <div class="card compact-card">
             <div class="card-header-row">
-              <h3>文物等级分布</h3>
-              <span class="muted-text">实时统计</span>
+              <h3>{{ levelChartTitle }}</h3>
+              <span class="muted-text">字段 {{ levelGroupField }}</span>
             </div>
             <div ref="levelChartEl" class="dashboard-chart"></div>
           </div>
@@ -165,6 +165,15 @@ const inspectionRateText = computed(() => {
 })
 
 const categoryTopRows = computed(() => categoryRows.value.slice(0, 8))
+
+const levelChartTitle = computed(() => {
+  if (levelGroupField.value === 'protection_level') {
+    return '文物保护级别分布'
+  }
+  return '文物等级分布'
+})
+
+const levelGroupField = ref('level')
 
 function toRows(labels = [], values = []) {
   const total = values.reduce((sum, item) => sum + Number(item || 0), 0)
@@ -376,8 +385,8 @@ async function loadDashboardData() {
       fetchDashboardOverview(),
       fetchSystemVersion(),
       fetchInspectionStats(),
-      fetchHeritageClassificationStats({ group_by: 'level', kanerjing_scope: 'all' }),
-      fetchHeritageClassificationStats({ group_by: 'category', kanerjing_scope: 'all' }),
+      fetchHeritageClassificationStats({ group_by: 'protection_level', source: 'auto', kanerjing_scope: 'all' }),
+      fetchHeritageClassificationStats({ group_by: 'category', source: 'auto', kanerjing_scope: 'all' }),
       fetchHeritageMapPoints()
     ])
 
@@ -400,14 +409,34 @@ async function loadDashboardData() {
     }
 
     if (levelStatsRes?.success) {
-      levelLabels.value = levelStatsRes.labels || []
-      levelValues.value = levelStatsRes.data || []
+      levelGroupField.value = levelStatsRes.group_by_field || 'level'
+      if (Array.isArray(levelStatsRes.rows) && levelStatsRes.rows.length > 0) {
+        levelLabels.value = levelStatsRes.rows.map((item) => item.label)
+        levelValues.value = levelStatsRes.rows.map((item) => Number(item.count || 0))
+      } else {
+        levelLabels.value = levelStatsRes.labels || []
+        levelValues.value = levelStatsRes.data || []
+      }
     }
 
     if (categoryStatsRes?.success) {
-      categoryRows.value = toRows(categoryStatsRes.labels || [], categoryStatsRes.data || []).sort(
-        (a, b) => b.count - a.count
-      )
+      if (Array.isArray(categoryStatsRes.rows) && categoryStatsRes.rows.length > 0) {
+        const total = categoryStatsRes.rows.reduce((sum, item) => sum + Number(item.count || 0), 0)
+        categoryRows.value = categoryStatsRes.rows
+          .map((item) => {
+            const count = Number(item.count || 0)
+            return {
+              label: item.label,
+              count,
+              ratio: total > 0 ? `${((count / total) * 100).toFixed(1)}%` : '0.0%'
+            }
+          })
+          .sort((a, b) => b.count - a.count)
+      } else {
+        categoryRows.value = toRows(categoryStatsRes.labels || [], categoryStatsRes.data || []).sort(
+          (a, b) => b.count - a.count
+        )
+      }
     }
 
     if (mapPointsRes?.success) {
