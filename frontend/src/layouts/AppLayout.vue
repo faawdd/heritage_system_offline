@@ -66,7 +66,7 @@ const staticMenuGroups = [
     key: 'gis',
     title: '地图工具',
     items: [
-      { label: 'KML管理', to: '/gis/kml-management' },
+      { label: 'KML叠加检查', to: '/gis/kml-management' },
       { label: 'KML处理转换', to: '/gis/kml-process-convert' },
       { label: 'OVKML转换导入', to: '/gis/ovkml-convert' }
     ]
