@@ -1,5 +1,5 @@
 <template>
-  <section>
+  <section class="dashboard-page">
     <header class="page-header">
       <h1>综合看板</h1>
       <p>面向审批、巡查、文保风险和地图联动的统一首页</p>
@@ -16,44 +16,46 @@
 
     <div class="dashboard-grid dashboard-grid-rich">
       <div class="dashboard-left-col">
-        <div class="card">
-          <div class="card-header-row">
-            <h3>文物等级分布</h3>
-            <span class="muted-text">实时统计</span>
+        <div class="left-chart-grid">
+          <div class="card compact-card">
+            <div class="card-header-row">
+              <h3>文物等级分布</h3>
+              <span class="muted-text">实时统计</span>
+            </div>
+            <div ref="levelChartEl" class="dashboard-chart"></div>
           </div>
-          <div ref="levelChartEl" class="dashboard-chart"></div>
+
+          <div class="card compact-card">
+            <div class="card-header-row">
+              <h3>巡查健康度</h3>
+              <span class="muted-text">系统版本 {{ versionText }}</span>
+            </div>
+            <div ref="inspectionChartEl" class="dashboard-chart"></div>
+          </div>
+
+          <div class="card compact-card">
+            <div class="card-header-row">
+              <h3>近7天巡查趋势</h3>
+              <span class="muted-text">总巡查 vs 异常巡查</span>
+            </div>
+            <div ref="trendChartEl" class="dashboard-chart"></div>
+          </div>
+
+          <div class="card compact-card">
+            <div class="card-header-row">
+              <h3>项目审批漏斗</h3>
+              <span class="muted-text">各审批阶段数量</span>
+            </div>
+            <div ref="funnelChartEl" class="dashboard-chart"></div>
+          </div>
         </div>
 
-        <div class="card">
-          <div class="card-header-row">
-            <h3>巡查健康度</h3>
-            <span class="muted-text">系统版本 {{ versionText }}</span>
-          </div>
-          <div ref="inspectionChartEl" class="dashboard-chart"></div>
-        </div>
-
-        <div class="card">
-          <div class="card-header-row">
-            <h3>近7天巡查趋势</h3>
-            <span class="muted-text">总巡查 vs 异常巡查</span>
-          </div>
-          <div ref="trendChartEl" class="dashboard-chart"></div>
-        </div>
-
-        <div class="card">
-          <div class="card-header-row">
-            <h3>项目审批漏斗</h3>
-            <span class="muted-text">各审批阶段数量</span>
-          </div>
-          <div ref="funnelChartEl" class="dashboard-chart"></div>
-        </div>
-
-        <div class="card">
+        <div class="card compact-card category-card">
           <div class="card-header-row">
             <h3>文物类别 TOP 8</h3>
             <span class="muted-text">按数量降序</span>
           </div>
-          <el-table :data="categoryTopRows" stripe size="small" max-height="280">
+          <el-table :data="categoryTopRows" stripe size="small" max-height="160">
             <el-table-column prop="label" label="类别" min-width="180" />
             <el-table-column prop="count" label="数量" width="90" />
             <el-table-column prop="ratio" label="占比" width="100" />
@@ -61,7 +63,7 @@
         </div>
       </div>
 
-      <div class="card tall">
+      <div class="card map-card">
         <div class="card-header-row">
           <h3>文物一张图</h3>
           <span class="muted-text">点选查看文物档案入口</span>
@@ -476,15 +478,69 @@ watch(
 </script>
 
 <style scoped>
+.dashboard-page {
+  height: calc(100vh - 48px);
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 10px;
+  overflow: hidden;
+}
+
+.page-header p {
+  margin-top: 4px;
+}
+
+.stats-grid {
+  margin-top: 0;
+  gap: 10px;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.stats-grid :deep(.stat-card) {
+  padding: 10px 12px;
+  min-height: 74px;
+}
+
+.stats-grid :deep(.stat-title) {
+  font-size: 12px;
+}
+
+.stats-grid :deep(.stat-value) {
+  margin-top: 4px;
+  font-size: 22px;
+}
+
 .dashboard-grid-rich {
-  grid-template-columns: 1.1fr 1.35fr;
-  align-items: start;
+  margin-top: 0;
+  grid-template-columns: 1.15fr 1.35fr;
+  align-items: stretch;
+  min-height: 0;
 }
 
 .dashboard-left-col {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 12px;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 10px;
+  min-height: 0;
+}
+
+.left-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  min-height: 0;
+}
+
+.compact-card {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.category-card {
+  max-height: 236px;
 }
 
 .card-header-row {
@@ -492,11 +548,12 @@ watch(
   justify-content: space-between;
   align-items: center;
   gap: 8px;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .card-header-row h3 {
   margin: 0;
+  font-size: 15px;
 }
 
 .muted-text {
@@ -505,15 +562,23 @@ watch(
 }
 
 .dashboard-chart {
-  height: 280px;
+  height: 190px;
+  min-height: 0;
+}
+
+.map-card {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .map-toolbar-row {
   display: grid;
   grid-template-columns: minmax(180px, 1fr) auto;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .map-filter-col {
@@ -530,17 +595,18 @@ watch(
 }
 
 .dashboard-heritage-map {
-  height: 470px;
+  flex: 1;
+  min-height: 250px;
   border-radius: 10px;
   overflow: hidden;
 }
 
 .selected-site-box {
-  margin-top: 10px;
+  margin-top: 8px;
   border: 1px solid #dbe5ef;
   background: #f8fafc;
   border-radius: 10px;
-  padding: 10px 12px;
+  padding: 8px 10px;
 }
 
 .selected-site-title {
@@ -550,17 +616,44 @@ watch(
 }
 
 .selected-site-content {
-  margin-top: 6px;
+  margin-top: 4px;
   display: grid;
   grid-template-columns: 1fr;
-  gap: 4px;
+  gap: 2px;
   color: #334155;
   font-size: 12px;
 }
 
+@media (max-width: 1440px) {
+  .stats-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .dashboard-chart {
+    height: 180px;
+  }
+}
+
 @media (max-width: 1024px) {
+  .dashboard-page {
+    height: auto;
+    overflow: visible;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .dashboard-grid-rich {
     grid-template-columns: 1fr;
+  }
+
+  .left-chart-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .category-card {
+    max-height: none;
   }
 
   .dashboard-chart {
@@ -577,6 +670,8 @@ watch(
 
   .dashboard-heritage-map {
     height: 420px;
+    min-height: 420px;
+    flex: none;
   }
 }
 </style>

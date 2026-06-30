@@ -141,7 +141,7 @@ const autoOpened = computed(() => {
   return state
 })
 
-const fullscreenRoutePrefixes = ['/heritage/map', '/gis/kml-management']
+const fullscreenRoutePrefixes = ['/dashboard', '/heritage/map', '/gis/kml-management']
 
 const isFullscreenRoute = computed(() => {
   return fullscreenRoutePrefixes.some((prefix) => route.path.startsWith(prefix))
