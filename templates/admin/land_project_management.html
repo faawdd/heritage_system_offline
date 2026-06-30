@@ -1,296 +1,85 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="zh-cn">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>项目管理查看页</title>
-    <style>
-        :root {
-            --bg: #f3f7fc;
-            --panel: #ffffff;
-            --line: #d8e3f0;
-            --text: #1f2937;
-            --sub: #64748b;
-            --brand: #0f5f8f;
-            --brand-2: #1e7db8;
-            --accent: #0b4a6e;
-            --ok: #15803d;
-            --warn: #c2410c;
-            --risk: #b91c1c;
-        }
-        * { box-sizing: border-box; }
-        body {
-            margin: 0;
-            background: radial-gradient(circle at 8% 10%, #e9f4ff 0, #f3f7fc 35%), linear-gradient(180deg, #f3f7fc, #edf3fa);
-            color: var(--text);
-            font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
-        }
-        .wrap { width: min(1480px, 96vw); margin: 12px auto 20px; }
-        .topbar {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            border: 1px solid var(--line);
-            border-radius: 10px;
-            background: #f8fbff;
-            padding: 8px 12px;
-        }
-        .crumb {
-            font-size: 13px;
-            color: #475569;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .crumb strong {
-            color: var(--accent);
-            font-size: 14px;
-        }
-        .btn {
-            border: 1px solid #b8cbe0;
-            border-radius: 8px;
-            background: #fff;
-            color: var(--accent);
-            padding: 8px 12px;
-            font-weight: 700;
-            cursor: pointer;
-        }
-        .btn:hover { background: #eef6ff; }
-        .alert-strip {
-            margin-top: 8px;
-            border: 1px solid #c7d9ec;
-            border-radius: 10px;
-            padding: 8px 10px;
-            background: #f4f9ff;
-            color: #1e3a5f;
-            font-size: 13px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-        }
-        .alert-close {
-            border: none;
-            background: transparent;
-            color: #5f7692;
-            font-size: 16px;
-            cursor: pointer;
-            line-height: 1;
-        }
-        .layout {
-            margin-top: 10px;
-            display: grid;
-            grid-template-columns: minmax(330px, 34%) 1fr;
-            gap: 14px;
-            min-height: calc(100vh - 112px);
-        }
-        .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; box-shadow: 0 5px 14px rgba(15,23,42,.06); }
-        .panel-head { padding: 12px; border-bottom: 1px solid var(--line); background: #f7fbff; }
-        .toolbar { display: flex; align-items: center; gap: 10px; }
-        .toolbar input { flex: 1; min-width: 140px; }
-        .toolbar select { width: 176px; }
-        .toolbar button { width: 84px; }
-        input, select { width: 100%; border: 1px solid #bacadd; border-radius: 8px; padding: 8px 9px; }
-        .list { max-height: calc(100vh - 210px); overflow: auto; padding: 8px; display: grid; gap: 8px; }
-        .item { border: 1px solid #d5e1ef; border-radius: 10px; padding: 10px; cursor: pointer; }
-        .item.active { border-color: var(--brand); background: #f2f9ff; }
-        .item-name { font-weight: 700; }
-        .item-meta { margin-top: 4px; color: var(--sub); font-size: 12px; }
-        .tag { display: inline-block; margin-top: 8px; border-radius: 999px; font-size: 12px; padding: 3px 8px; background: #e8eff8; color: #334155; }
-        .detail { padding: 12px; display: grid; gap: 10px; max-height: calc(100vh - 130px); overflow: auto; }
-        .section { border: 1px solid #dae6f3; border-radius: 10px; padding: 10px; background: #fff; }
-        .section h3 { margin: 0 0 8px; color: #1d4f78; font-size: 15px; }
-        .kml-embed-wrap {
-            border: 1px solid #dbe7f3;
-            border-radius: 10px;
-            overflow: hidden;
-            background: #f8fbff;
-        }
-        .kml-embed-tip {
-            padding: 9px 10px;
-            font-size: 12px;
-            color: var(--sub);
-            border-bottom: 1px solid #e6eef7;
-            background: #f3f8ff;
-        }
-        .kml-embed-frame {
-            width: 100%;
-            height: clamp(340px, 58vh, 820px);
-            border: 0;
-            display: block;
-            background: #eef3f9;
-        }
-        .timeline-horizontal { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 6px; scrollbar-width: thin; }
-        .tl-node {
-            --tone: #c3d3e7;
-            flex: 0 0 clamp(220px, 24vw, 280px);
-            min-width: 220px;
-            border: 1px solid #dbe8f5;
-            border-radius: 10px;
-            padding: 8px;
-            background: #f9fcff;
-            position: relative;
-        }
-        .tl-node::after { content: ""; position: absolute; right: -12px; top: 50%; width: 12px; height: 2px; background: #c3d3e7; }
-        .tl-node:last-child::after { display: none; }
-        .tl-node.to-current::after { background: var(--tone); }
-        .tl-node.is-current {
-            border-color: var(--tone);
-            box-shadow: 0 0 0 2px color-mix(in srgb, var(--tone) 24%, #ffffff 76%);
-            background: #fff;
-        }
-        .tl-node.tone-success { --tone: var(--ok); }
-        .tl-node.tone-warning { --tone: var(--warn); }
-        .tl-node.tone-danger { --tone: var(--risk); }
-        .tl-title { font-size: 13px; font-weight: 700; color: #1e3a5f; }
-        .tl-meta { font-size: 12px; color: #64748b; margin-top: 3px; white-space: normal; word-break: break-all; }
-        .desc-grid {
-            margin: 0;
-            display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-            gap: 8px 10px;
-        }
-        .desc-item {
-            border: 1px solid #e4edf7;
-            border-radius: 8px;
-            padding: 8px;
-            background: #fbfdff;
-        }
-        .desc-item dt {
-            margin: 0;
-            color: var(--sub);
-            font-size: 12px;
-        }
-        .desc-item dd {
-            margin: 4px 0 0;
-            font-size: 14px;
-            color: #0f172a;
-            word-break: break-all;
-        }
-        .metric-row {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-            margin-bottom: 8px;
-        }
-        .metric-card {
-            border: 1px solid #dce9f7;
-            border-radius: 10px;
-            background: #f8fcff;
-            padding: 10px;
-        }
-        .metric-title { font-size: 12px; color: #64748b; margin-bottom: 5px; }
-        .metric-value { font-size: 24px; line-height: 1; font-weight: 800; letter-spacing: .2px; }
-        .metric-value.safe { color: var(--ok); }
-        .metric-value.warning { color: var(--warn); }
-        .metric-value.risk { color: var(--risk); }
-        .status-pill {
-            display: inline-flex;
-            align-items: center;
-            border-radius: 999px;
-            padding: 3px 10px;
-            font-size: 12px;
-            font-weight: 700;
-            margin-top: 6px;
-            border: 1px solid transparent;
-        }
-        .status-pill.safe { background: #e7f8ee; color: var(--ok); border-color: #b5e1c7; }
-        .status-pill.warning { background: #fff2e8; color: var(--warn); border-color: #ffd2b3; }
-        .status-pill.danger { background: #fde9e9; color: var(--risk); border-color: #f5b5b5; }
-        .photo-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
-        .photo-grid a { border: 1px solid #d9e3ef; border-radius: 8px; overflow: hidden; display: block; }
-        .photo-grid img { width: 100%; height: 110px; object-fit: cover; display: block; }
-        .log-wrap { overflow: auto; border: 1px solid #dae6f3; border-radius: 8px; }
-        table { width: 100%; border-collapse: collapse; min-width: 760px; }
-        th, td { border-bottom: 1px solid #edf2f7; padding: 7px; font-size: 12px; text-align: left; vertical-align: top; }
-        th { background: #f7fbff; color: #1e3a5f; }
-        .msg { padding: 9px 10px; border: 1px solid #bfd7ef; border-radius: 8px; background: #f2f8ff; color: #1e3a5f; }
-        .risk { color: var(--risk); }
-        .safe { color: var(--ok); }
-        @media (max-width: 980px) {
-            .layout { grid-template-columns: 1fr; }
-            .topbar { align-items: flex-start; flex-direction: column; gap: 8px; }
-            .toolbar { flex-wrap: wrap; }
-            .toolbar select, .toolbar button { width: 100%; }
-            .desc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-            .metric-row { grid-template-columns: 1fr; }
-            .photo-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-            .kml-embed-frame { height: clamp(300px, 48vh, 560px); }
-        }
-        @media (max-width: 720px) {
-            .desc-grid { grid-template-columns: 1fr; }
-        }
-    </style>
+    <link rel="stylesheet" href="{% static 'admin/css/project_management.css' %}">
 </head>
 <body>
-<div class="wrap">
-    <div class="topbar">
-        <div class="crumb">
-            <span>项目管理</span>
-            <span>/</span>
-            <strong>用地项目审批与文档登记 · 查看页</strong>
+<div class="pm-wrap">
+    <div class="pm-header card">
+        <div class="pm-header-left">
+            <h1 class="pm-title">项目管理 · 查看页</h1>
+            <div class="pm-current" id="currentProjectName">当前项目：未选择</div>
         </div>
-        <button class="btn" id="btnGotoEditTop">进入编辑页</button>
-    </div>
-    <div class="alert-strip" id="viewAlert">
-        <span>本页用于查看项目全貌与流程轨迹，编辑动作请前往编辑页处理。</span>
-        <button class="alert-close" id="closeViewAlert" aria-label="关闭提示">×</button>
+        <div class="pm-actions">
+            <button class="btn btn-primary" id="btnEdit">编辑</button>
+            <button class="btn" id="btnExport">导出</button>
+            <button class="btn" id="btnDownloadKml">下载KML</button>
+            <button class="btn" id="btnViewMap">查看地图</button>
+            <button class="btn btn-danger" id="btnDelete">删除</button>
+            <button class="btn" id="btnBack">返回</button>
+        </div>
     </div>
 
-    <div class="layout">
-        <section class="panel">
-            <div class="panel-head">
-                <div class="toolbar">
-                    <input id="searchInput" placeholder="搜索项目名 / 企业 / 来函日期(YYYY-MM-DD)">
-                    <select id="statusFilter"></select>
-                    <button id="btnSearch">查询</button>
-                </div>
+    <div class="pm-layout">
+        <aside class="pm-left card">
+            <div class="pm-toolbar">
+                <input id="searchInput" placeholder="搜索项目名 / 企业 / 来函日期(YYYY-MM-DD)">
+                <select id="statusFilter"></select>
+                <button class="btn btn-primary" id="btnSearch">查询</button>
             </div>
-            <div class="list" id="projectList"></div>
-        </section>
+            <div class="pm-list" id="projectList"></div>
+        </aside>
 
-        <section class="panel">
-            <div class="detail">
-                <div class="msg" id="messageBox">请选择左侧项目。</div>
-
-                <div class="section">
-                    <h3>流程时间轴（横向）</h3>
-                    <div class="timeline-horizontal" id="timelineBox"></div>
+        <main class="pm-right">
+            <section class="card pm-card">
+                <div class="card-header">项目概览</div>
+                <div class="card-body">
+                    <div class="overview-metrics" id="metricBox"></div>
+                    <div class="desc-grid" id="overviewBox"></div>
                 </div>
+            </section>
 
-                <div class="section">
-                    <h3>项目概览</h3>
-                    <div class="metric-row" id="metricBox"></div>
-                    <dl class="desc-grid" id="overviewBox"></dl>
+            <section class="card pm-card">
+                <div class="card-header">审批流程</div>
+                <div class="card-body">
+                    <div class="flow-board" id="flowBoard"></div>
                 </div>
+            </section>
 
-                <div class="section">
-                    <h3>当前项目KML叠加检查</h3>
+            <section class="card pm-card" id="gisCard">
+                <div class="card-header">GIS信息</div>
+                <div class="card-body">
+                    <div class="desc-grid" id="gisBox"></div>
+                    <div class="card-inline-actions">
+                        <button class="btn" id="btnMapInline">查看地图</button>
+                        <button class="btn" id="btnDownloadKmlInline">下载</button>
+                        <button class="btn" id="btnGoEditInline">重新上传</button>
+                    </div>
                     <div class="kml-embed-wrap">
                         <div class="kml-embed-tip" id="kmlEmbedTip">未检测到当前项目KML文件。</div>
                         <iframe id="kmlEmbedFrame" class="kml-embed-frame" title="当前项目KML叠加检查窗口" loading="lazy"></iframe>
                     </div>
                 </div>
+            </section>
 
-                <div class="section">
-                    <h3>现场照片</h3>
-                    <div class="photo-grid" id="photoGrid"></div>
+            <section class="card pm-card">
+                <div class="card-header">附件</div>
+                <div class="card-body">
+                    <div class="attachment-list" id="attachmentBox"></div>
                 </div>
+            </section>
 
-                <div class="section">
-                    <h3>流程日志</h3>
-                    <div class="log-wrap">
-                        <table>
-                            <thead>
-                                <tr><th>时间</th><th>操作人</th><th>动作</th><th>状态变化</th><th>参数</th></tr>
-                            </thead>
-                            <tbody id="logBody"></tbody>
-                        </table>
-                    </div>
+            <section class="card pm-card">
+                <div class="card-header">操作日志</div>
+                <div class="card-body">
+                    <div class="timeline" id="logTimeline"></div>
                 </div>
-
-            </div>
-        </section>
+            </section>
+        </main>
     </div>
 </div>
 
@@ -303,19 +92,17 @@ const el = {
     searchInput: document.getElementById('searchInput'),
     statusFilter: document.getElementById('statusFilter'),
     projectList: document.getElementById('projectList'),
-    messageBox: document.getElementById('messageBox'),
-    timelineBox: document.getElementById('timelineBox'),
+    currentProjectName: document.getElementById('currentProjectName'),
     metricBox: document.getElementById('metricBox'),
     overviewBox: document.getElementById('overviewBox'),
-    photoGrid: document.getElementById('photoGrid'),
-    logBody: document.getElementById('logBody'),
+    flowBoard: document.getElementById('flowBoard'),
+    gisBox: document.getElementById('gisBox'),
+    attachmentBox: document.getElementById('attachmentBox'),
+    logTimeline: document.getElementById('logTimeline'),
     kmlEmbedFrame: document.getElementById('kmlEmbedFrame'),
     kmlEmbedTip: document.getElementById('kmlEmbedTip'),
-    viewAlert: document.getElementById('viewAlert'),
-    closeViewAlert: document.getElementById('closeViewAlert'),
 };
 
-// 过滤状态值中的数字枚举前缀，统一显示业务中文。
 function formatStatusLabel(raw) {
     const text = String(raw || '').trim();
     if (!text) return '-';
@@ -323,25 +110,17 @@ function formatStatusLabel(raw) {
     return text;
 }
 
-function statusTone(raw) {
+function statusClass(raw) {
     const s = formatStatusLabel(raw);
-    if (/初审安全|归档|结案/.test(s)) return 'safe';
-    if (/初审涉及/.test(s)) return 'danger';
-    if (/考古流转/.test(s)) return 'warning';
-    return 'warning';
+    if (/归档|结案|完成|已收到/.test(s)) return 'status-completed';
+    if (/初审涉及|异常|驳回/.test(s)) return 'status-danger';
+    if (/收文|待审核|待处理|待办/.test(s)) return 'status-pending';
+    return 'status-processing';
 }
 
-function statusToneClass(raw) {
-    const tone = statusTone(raw);
-    if (tone === 'safe') return 'tone-success';
-    if (tone === 'danger') return 'tone-danger';
-    return 'tone-warning';
-}
-
-function statusPill(raw) {
-    const tone = statusTone(raw);
-    const cls = tone === 'safe' ? 'safe' : (tone === 'danger' ? 'danger' : 'warning');
-    return `<span class="status-pill ${cls}">${formatStatusLabel(raw)}</span>`;
+function statusTag(raw) {
+    const label = formatStatusLabel(raw);
+    return `<span class="status-tag ${statusClass(raw)}">${label}</span>`;
 }
 
 function setStatusFilter() {
@@ -355,13 +134,17 @@ function gotoEditPage() {
     window.location.href = `/admin/land-projects/edit/${query}`;
 }
 
-function buildProjectKmlFileUrl(detail) {
-    const rawPath = (detail && detail.kml_file_path ? String(detail.kml_file_path) : '').trim();
+function buildMediaUrl(path) {
+    const rawPath = String(path || '').trim();
     if (!rawPath) return '';
     const cleanPath = rawPath.replace(/^\/+/, '');
     const parts = cleanPath.split('/').filter(Boolean).map(seg => encodeURIComponent(seg));
     if (!parts.length) return '';
     return `/media/${parts.join('/')}`;
+}
+
+function buildProjectKmlFileUrl(detail) {
+    return buildMediaUrl(detail && detail.kml_file_path ? detail.kml_file_path : '');
 }
 
 function renderProjectKmlEmbed(detail) {
@@ -379,6 +162,7 @@ function renderProjectKmlEmbed(detail) {
         source_kml_url: sourceKmlUrl,
         source_kml_name: sourceName,
     });
+
     el.kmlEmbedTip.textContent = `当前文件：${sourceKmlUrl}`;
     const frameUrl = `/admin/kml-overlay-check/?${params.toString()}`;
     if (el.kmlEmbedFrame.src !== new URL(frameUrl, window.location.origin).toString()) {
@@ -386,21 +170,27 @@ function renderProjectKmlEmbed(detail) {
     }
 }
 
+function findKmlUploader(logs) {
+    const row = (logs || []).find(l => /KML|导入/.test(String(l.action_label || l.action || '')));
+    return row ? row.operator : '-';
+}
+
 function renderList(rows) {
     if (!rows.length) {
-        el.projectList.innerHTML = '<div class="msg">暂无项目。</div>';
+        el.projectList.innerHTML = '<div class="placeholder">暂无项目。</div>';
         return;
     }
+
     el.projectList.innerHTML = rows.map(r => `
-        <div class="item ${r.id===currentProjectId ? 'active' : ''}" data-id="${r.id}">
-            <div class="item-name">${r.project_name}</div>
-            <div class="item-meta">${r.company_name} | 来函: ${r.incoming_doc_date || '-'}</div>
-            <div class="item-meta">收文: ${r.receive_date || '-'} | 更新: ${r.updated_at || '-'}</div>
-            ${statusPill(r.status_label || r.status)}
+        <div class="project-item ${r.id===currentProjectId ? 'active' : ''}" data-id="${r.id}">
+            <div class="name">${r.project_name || '-'}</div>
+            <div class="meta">${r.company_name || '-'}</div>
+            <div class="meta">收文日期：${r.receive_date || '-'}</div>
+            <div class="status-row">${statusTag(r.status_label || r.status)}</div>
         </div>
     `).join('');
 
-    el.projectList.querySelectorAll('.item').forEach(node => {
+    el.projectList.querySelectorAll('.project-item').forEach(node => {
         node.addEventListener('click', async () => {
             currentProjectId = node.dataset.id;
             await loadDetail();
@@ -409,85 +199,134 @@ function renderList(rows) {
     });
 }
 
-function timelineEvents(d) {
-    const arr = [];
-    arr.push({ title: '收文登记', meta: `${d.receive_date || '-'} / ${d.incoming_doc_date || '-'}` });
-    if (d.kml_file_path) arr.push({ title: 'KML归档', meta: d.kml_file_path });
-    if (d.field_check_date) arr.push({ title: '现场勘查', meta: d.field_check_date });
-    if (d.shanshan_request_num) arr.push({ title: '县局请示', meta: d.shanshan_request_num });
-    if (d.city_reply_num) arr.push({ title: '市局复函', meta: d.city_reply_num });
-    if (d.archaeology_request_num) arr.push({ title: '考古请示', meta: d.archaeology_request_num });
-    if (d.region_approval_num || d.city_final_reply_num) arr.push({ title: '考古批复', meta: `${d.region_approval_num || '-'} / ${d.city_final_reply_num || '-'}` });
-    if (d.final_reply_to_company) arr.push({ title: '企业最终复函', meta: d.final_reply_to_company });
-    arr.push({ title: '当前状态', meta: formatStatusLabel(d.status_label || d.status), isCurrentStatus: true });
-    return arr;
-}
-
-function renderTimeline(d) {
-    const events = timelineEvents(d);
-    const currentTone = statusToneClass(d.status_label || d.status);
-    el.timelineBox.innerHTML = events.map((x, idx) => {
-        const isCurrent = !!x.isCurrentStatus;
-        const nextIsCurrent = !!(events[idx + 1] && events[idx + 1].isCurrentStatus);
-        const extra = [
-            isCurrent ? `is-current ${currentTone}` : '',
-            nextIsCurrent ? `to-current ${currentTone}` : '',
-        ].join(' ').trim();
-        return `<div class="tl-node ${extra}"><div class="tl-title">${x.title}</div><div class="tl-meta">${x.meta}</div></div>`;
-    }).join('');
-}
-
 function renderOverview(d) {
     const overlap = (d.overlapped_relics_info || []).length;
     const overlapSafe = overlap === 0;
-    const overlapLabel = overlapSafe ? '无重叠/安全' : '存在重叠/高危';
-    const overlapCls = overlapSafe ? 'safe' : 'danger';
-    const statusToneValue = statusTone(d.status_label || d.status);
-    const statusMetricClass = statusToneValue === 'safe' ? 'safe' : (statusToneValue === 'warning' ? 'warning' : 'risk');
+
     el.metricBox.innerHTML = `
         <div class="metric-card">
             <div class="metric-title">重叠数量</div>
-            <div class="metric-value ${overlapSafe ? 'safe' : 'risk'}">${overlap}</div>
-            <span class="status-pill ${overlapCls}">${overlapLabel}</span>
+            <div class="metric-number ${overlapSafe ? 'safe' : 'danger'}">${overlap}</div>
+            <div>${overlapSafe ? '<span class="status-tag status-completed">无重叠</span>' : '<span class="status-tag status-danger">高风险重叠</span>'}</div>
         </div>
         <div class="metric-card">
             <div class="metric-title">当前状态</div>
-            <div class="metric-value ${statusMetricClass}">${formatStatusLabel(d.status_label || d.status)}</div>
-            ${statusPill(d.status_label || d.status)}
+            <div class="metric-label">${statusTag(d.status_label || d.status)}</div>
         </div>
     `;
 
-    el.overviewBox.innerHTML = `
-        <div class="desc-item"><dt>项目名称</dt><dd>${d.project_name || '-'}</dd></div>
-        <div class="desc-item"><dt>企业单位</dt><dd>${d.company_name || '-'}</dd></div>
-        <div class="desc-item"><dt>空间核验</dt><dd><span class="${d.is_overlap_artifact ? 'risk' : 'safe'}">${d.is_overlap_artifact ? '涉及文物' : '初审安全'}</span></dd></div>
-        <div class="desc-item"><dt>来函日期</dt><dd>${d.incoming_doc_date || '-'}</dd></div>
-        <div class="desc-item"><dt>收文日期</dt><dd>${d.receive_date || '-'}</dd></div>
-        <div class="desc-item"><dt>更新时间</dt><dd>${d.updated_at || '-'}</dd></div>
-    `;
+    const rows = [
+        ['项目名称', d.project_name || '-'],
+        ['企业单位', d.company_name || '-'],
+        ['项目编号', d.project_code || '-'],
+        ['收文编号', d.receive_doc_num || '-'],
+        ['负责人', d.owner_name || '-'],
+        ['联系电话', d.owner_phone || '-'],
+        ['更新时间', d.updated_at || '-'],
+        ['收文日期', d.receive_date || '-'],
+    ];
+
+    el.overviewBox.innerHTML = rows.map(([k, v]) => `
+        <div class="desc-item">
+            <div class="desc-key">${k}</div>
+            <div class="desc-value">${v}</div>
+        </div>
+    `).join('');
 }
 
-function renderPhotos(rows) {
-    if (!rows || !rows.length) {
-        el.photoGrid.innerHTML = '<div class="msg">暂无照片。</div>';
-        return;
-    }
-    el.photoGrid.innerHTML = rows.map(p => `<a href="${p.photo_url}" target="_blank" rel="noopener noreferrer"><img src="${p.photo_url}" alt="photo"></a>`).join('');
+function workflowStages() {
+    return [
+        { key: '10_已收文', label: '收文' },
+        { key: '20_初审安全', label: 'KML导入' },
+        { key: '21_CHECK_OVERLAP', label: 'AI分析' },
+        { key: '30_现场勘查完成', label: '人工审核' },
+        { key: '60_已结案归档', label: '完成' },
+    ];
 }
 
-function renderLogs(rows) {
+function renderWorkflow(d) {
+    const stages = workflowStages();
+    const status = String(d.status || '');
+    const currentIndex = Math.max(0, stages.findIndex(s => s.key === status));
+
+    el.flowBoard.innerHTML = stages.map((s, idx) => {
+        let cls = 'pending';
+        if (idx < currentIndex) cls = 'done';
+        if (idx === currentIndex) cls = 'current';
+        if (statusClass(d.status_label || d.status) === 'status-danger' && idx === currentIndex) cls = 'danger';
+        return `<div class="flow-step ${cls}"><span>${s.label}</span></div>`;
+    }).join('');
+}
+
+function renderGisInfo(d) {
+    const kmlUrl = buildProjectKmlFileUrl(d);
+    const rows = [
+        ['KML文件', d.kml_file_path || '-'],
+        ['更新时间', d.updated_at || '-'],
+        ['上传人', findKmlUploader(d.operation_logs)],
+        ['文件大小', '-'],
+    ];
+
+    el.gisBox.innerHTML = rows.map(([k, v]) => `
+        <div class="desc-item">
+            <div class="desc-key">${k}</div>
+            <div class="desc-value">${v}</div>
+        </div>
+    `).join('');
+
+    const download = () => {
+        if (!kmlUrl) {
+            alert('当前项目暂无KML文件。');
+            return;
+        }
+        window.open(kmlUrl, '_blank');
+    };
+
+    document.getElementById('btnDownloadKmlInline').onclick = download;
+    document.getElementById('btnMapInline').onclick = () => {
+        if (!kmlUrl) {
+            alert('当前项目暂无KML文件。');
+            return;
+        }
+        const sourceName = `${d.project_name || '当前项目'}-KML`;
+        const params = new URLSearchParams({ embedded: '1', source_kml_url: kmlUrl, source_kml_name: sourceName });
+        window.open(`/admin/kml-overlay-check/?${params.toString()}`, '_blank');
+    };
+    document.getElementById('btnGoEditInline').onclick = gotoEditPage;
+}
+
+function renderAttachments(d) {
+    const rows = [
+        { type: 'PDF', path: d.archaeology_report_path, url: buildMediaUrl(d.archaeology_report_path) },
+        { type: 'CAD', path: '', url: '' },
+        { type: '图片', path: `${(d.field_photos || []).length} 张`, url: (d.field_photos && d.field_photos[0]) ? d.field_photos[0].photo_url : '' },
+        { type: 'ZIP', path: d.misc_zip_path, url: d.misc_zip_url || '' },
+    ];
+
+    el.attachmentBox.innerHTML = rows.map(r => `
+        <div class="attach-row">
+            <div class="attach-type">${r.type}</div>
+            <div class="attach-path">${r.path || '-'}</div>
+            <div class="attach-op">${r.url ? `<a href="${r.url}" target="_blank" rel="noopener noreferrer">下载</a>` : '<span class="disabled">暂无</span>'}</div>
+        </div>
+    `).join('');
+}
+
+function renderLogTimeline(rows) {
     if (!rows || !rows.length) {
-        el.logBody.innerHTML = '<tr><td colspan="5">暂无日志</td></tr>';
+        el.logTimeline.innerHTML = '<div class="placeholder">暂无日志。</div>';
         return;
     }
-    el.logBody.innerHTML = rows.map(l => `
-        <tr>
-            <td>${l.created_at}</td>
-            <td>${l.operator}</td>
-            <td>${l.action_label || l.action}</td>
-            <td>${formatStatusLabel(l.status_before || '-')} -> ${formatStatusLabel(l.status_after || '-')}</td>
-            <td>${l.payload ? JSON.stringify(l.payload) : '-'}</td>
-        </tr>
+
+    el.logTimeline.innerHTML = rows.map(l => `
+        <div class="timeline-item">
+            <div class="time">${l.created_at || '-'}</div>
+            <div class="dot"></div>
+            <div class="content">
+                <div class="title">${l.action_label || l.action || '-'}</div>
+                <div class="desc">操作人：${l.operator || '-'} | 状态：${formatStatusLabel(l.status_before || '-')} → ${formatStatusLabel(l.status_after || '-')}</div>
+            </div>
+        </div>
     `).join('');
 }
 
@@ -496,45 +335,84 @@ async function loadDetail() {
     const resp = await fetch(`/api/land-projects/${currentProjectId}/`);
     const payload = await resp.json();
     if (!payload.success) {
-        el.messageBox.textContent = payload.message || '加载详情失败';
+        el.currentProjectName.textContent = payload.message || '加载详情失败';
         return;
     }
+
     currentDetail = payload.data;
-    el.messageBox.textContent = `当前项目：${currentDetail.project_name}`;
-    renderTimeline(currentDetail);
+    el.currentProjectName.textContent = `当前项目：${currentDetail.project_name || '-'}`;
+
     renderOverview(currentDetail);
+    renderWorkflow(currentDetail);
+    renderGisInfo(currentDetail);
     renderProjectKmlEmbed(currentDetail);
-    renderPhotos(currentDetail.field_photos || []);
-    renderLogs(currentDetail.operation_logs || []);
+    renderAttachments(currentDetail);
+    renderLogTimeline(currentDetail.operation_logs || []);
 }
 
 async function loadList() {
     const params = new URLSearchParams();
     if (el.searchInput.value.trim()) params.set('q', el.searchInput.value.trim());
     if (el.statusFilter.value) params.set('status', el.statusFilter.value);
+
     const resp = await fetch(`/api/land-projects/?${params.toString()}`);
     const payload = await resp.json();
     if (!payload.success) {
-        el.messageBox.textContent = payload.message || '列表加载失败';
+        el.projectList.innerHTML = `<div class="placeholder">${payload.message || '列表加载失败'}</div>`;
         return;
     }
+
     const rows = payload.rows || [];
     if (!currentProjectId && rows.length) currentProjectId = rows[0].id;
     renderList(rows);
     await loadDetail();
 }
 
-document.getElementById('btnSearch').addEventListener('click', loadList);
-el.searchInput.addEventListener('keydown', e => { if (e.key === 'Enter') loadList(); });
-document.getElementById('btnGotoEditTop').addEventListener('click', gotoEditPage);
-if (el.closeViewAlert) {
-    el.closeViewAlert.addEventListener('click', () => {
-        el.viewAlert.style.display = 'none';
+function bindTopActions() {
+    document.getElementById('btnEdit').addEventListener('click', gotoEditPage);
+    document.getElementById('btnBack').addEventListener('click', () => window.history.back());
+
+    document.getElementById('btnDownloadKml').addEventListener('click', () => {
+        if (!currentDetail) return;
+        const url = buildProjectKmlFileUrl(currentDetail);
+        if (!url) {
+            alert('当前项目暂无KML文件。');
+            return;
+        }
+        window.open(url, '_blank');
+    });
+
+    document.getElementById('btnViewMap').addEventListener('click', () => {
+        document.getElementById('gisCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+
+    document.getElementById('btnDelete').addEventListener('click', () => {
+        alert('为保证流程合规，请在编辑页执行删除或流转相关操作。');
+    });
+
+    document.getElementById('btnExport').addEventListener('click', () => {
+        if (!currentDetail) {
+            alert('暂无可导出的项目数据。');
+            return;
+        }
+        const text = JSON.stringify(currentDetail, null, 2);
+        const blob = new Blob([text], { type: 'application/json;charset=utf-8' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `${(currentDetail.project_name || 'project').replace(/\s+/g, '_')}_detail.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(a.href);
     });
 }
 
+document.getElementById('btnSearch').addEventListener('click', loadList);
+el.searchInput.addEventListener('keydown', e => { if (e.key === 'Enter') loadList(); });
+
 (async function init() {
     setStatusFilter();
+    bindTopActions();
     await loadList();
 })();
 </script>
