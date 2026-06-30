@@ -2630,6 +2630,7 @@ def heritage_classification_stats_api(request):
     data = [item['count'] for item in rows]
 
     return JsonResponse({
+        'success': True,
         'labels': labels,
         'data': data,
         'rows': rows,
