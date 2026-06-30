@@ -112,6 +112,11 @@ const palette = ['#0ea5e9', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#14b8a6
 function kmlStyleByIndex(index) {
   const color = palette[index % palette.length]
   return new Style({
+    image: new CircleStyle({
+      radius: 5,
+      fill: new Fill({ color }),
+      stroke: new Stroke({ color: '#ffffff', width: 1.5 })
+    }),
     stroke: new Stroke({ color, width: 2 }),
     fill: new Fill({ color: `${color}33` })
   })
@@ -496,8 +501,8 @@ async function loadHeritageLayer() {
     heritageSource.clear()
 
     rows.forEach((row) => {
-      const lon = Number(row?.longitude)
-      const lat = Number(row?.latitude)
+      const lon = Number(row?.longitude ?? row?.lng)
+      const lat = Number(row?.latitude ?? row?.lat)
       if (!Number.isFinite(lon) || !Number.isFinite(lat)) {
         return
       }

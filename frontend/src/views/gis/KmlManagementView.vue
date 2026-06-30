@@ -94,7 +94,7 @@
                 <el-button type="primary" @click="loadRows">刷新记录</el-button>
                 <span class="muted-text">已选 {{ selectedRows.length }} 条</span>
               </div>
-              <el-table :data="rows" v-loading="loading" stripe size="small" max-height="280" @selection-change="onSelectionChange">
+              <el-table ref="recordsTableRef" :data="rows" v-loading="loading" stripe size="small" max-height="280" @selection-change="onSelectionChange">
                 <el-table-column type="selection" width="52" />
                 <el-table-column prop="title" label="文件名" min-width="180" />
                 <el-table-column prop="conflict_count" label="冲突数" width="90">
@@ -154,13 +154,14 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 
 import { fetchGisKmlRecords, submitGisKmlManagementAction } from '../../api/gisApi'
 import KmlOverlayMap from '../../components/gis/KmlOverlayMap.vue'
 
 const rows = ref([])
+const recordsTableRef = ref(null)
 const loading = ref(false)
 const uploading = ref(false)
 const processing = ref(false)
@@ -263,6 +264,29 @@ function onSelectionChange(selection) {
   selectedRows.value = selection
 }
 
+async function syncTableSelectionByIds(ids = []) {
+  if (!recordsTableRef.value) {
+    return
+  }
+
+  recordsTableRef.value.clearSelection()
+  if (!Array.isArray(ids) || ids.length === 0) {
+    selectedIds.value = []
+    selectedRows.value = []
+    return
+  }
+
+  const wanted = new Set(ids.map((id) => String(id)))
+  const matchedRows = rows.value.filter((row) => wanted.has(String(row.id)))
+
+  matchedRows.forEach((row) => {
+    recordsTableRef.value.toggleRowSelection(row, true)
+  })
+
+  selectedIds.value = matchedRows.map((item) => item.id)
+  selectedRows.value = matchedRows
+}
+
 function conflictKey(rowLike) {
   return [
     String(rowLike?.site_id || ''),
@@ -339,6 +363,7 @@ async function runAction(formData, fallbackFileName = '') {
 async function loadRows() {
   loading.value = true
   try {
+    const previousSelectedIds = [...selectedIds.value]
     const result = await fetchGisKmlRecords()
     if (!result.success) {
       throw new Error(result.message || '加载失败')
@@ -349,6 +374,9 @@ async function loadRows() {
         renameDraft[row.id] = row.title
       }
     })
+
+    await nextTick()
+    await syncTableSelectionByIds(previousSelectedIds)
   } catch (error) {
     ElMessage.error(error?.message || '加载记录失败')
   } finally {
