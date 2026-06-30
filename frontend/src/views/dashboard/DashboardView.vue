@@ -34,6 +34,22 @@
 
         <div class="card">
           <div class="card-header-row">
+            <h3>近7天巡查趋势</h3>
+            <span class="muted-text">总巡查 vs 异常巡查</span>
+          </div>
+          <div ref="trendChartEl" class="dashboard-chart"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-header-row">
+            <h3>项目审批漏斗</h3>
+            <span class="muted-text">各审批阶段数量</span>
+          </div>
+          <div ref="funnelChartEl" class="dashboard-chart"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-header-row">
             <h3>文物类别 TOP 8</h3>
             <span class="muted-text">按数量降序</span>
           </div>
@@ -53,17 +69,22 @@
 
         <div class="map-toolbar-row">
           <el-input v-model="mapKeyword" placeholder="按文物名称筛选" clearable />
-          <el-checkbox-group v-model="mapActiveLevels" class="map-level-group">
-            <el-checkbox label="GB">国保</el-checkbox>
-            <el-checkbox label="SB">区保</el-checkbox>
-            <el-checkbox label="XB">县保</el-checkbox>
-            <el-checkbox label="DS">未定级</el-checkbox>
-          </el-checkbox-group>
+          <div class="map-filter-col">
+            <el-checkbox-group v-model="mapActiveLevels" class="map-level-group">
+              <el-checkbox label="GB">国保</el-checkbox>
+              <el-checkbox label="SB">区保</el-checkbox>
+              <el-checkbox label="XB">县保</el-checkbox>
+              <el-checkbox label="DS">未定级</el-checkbox>
+            </el-checkbox-group>
+            <el-switch v-model="showAbnormalHeat" active-text="异常巡查热力" inactive-text="关闭热力" />
+          </div>
         </div>
 
         <HeritageMapCanvas
           class="dashboard-heritage-map"
           :points="mapPoints"
+          :abnormal-points="abnormalInspectionPoints"
+          :show-abnormal-heat="showAbnormalHeat"
           :active-levels="mapActiveLevels"
           :keyword="mapKeyword"
           @select="onSelectSite"
@@ -117,12 +138,20 @@ const categoryRows = ref([])
 const mapPoints = ref([])
 const mapKeyword = ref('')
 const mapActiveLevels = ref(['GB', 'SB', 'XB', 'DS'])
+const showAbnormalHeat = ref(true)
+const inspectionTrendRows = ref([])
+const projectFunnelRows = ref([])
+const abnormalInspectionPoints = ref([])
 const selectedSite = reactive({})
 
 const levelChartEl = ref(null)
 const inspectionChartEl = ref(null)
+const trendChartEl = ref(null)
+const funnelChartEl = ref(null)
 let levelChartRef = null
 let inspectionChartRef = null
+let trendChartRef = null
+let funnelChartRef = null
 
 const inspectionRateText = computed(() => {
   const total = Number(inspectionStats.total_count)
@@ -226,6 +255,90 @@ function renderInspectionChart() {
   })
 }
 
+function renderTrendChart() {
+  if (!trendChartRef) {
+    return
+  }
+
+  const labels = inspectionTrendRows.value.map((item) => item.label)
+  const totalSeries = inspectionTrendRows.value.map((item) => Number(item.total_count || 0))
+  const abnormalSeries = inspectionTrendRows.value.map((item) => Number(item.abnormal_count || 0))
+
+  trendChartRef.setOption({
+    color: ['#0ea5e9', '#ef4444'],
+    tooltip: { trigger: 'axis' },
+    legend: { top: 4 },
+    grid: { left: 36, right: 18, top: 42, bottom: 28 },
+    xAxis: {
+      type: 'category',
+      data: labels
+    },
+    yAxis: {
+      type: 'value',
+      minInterval: 1
+    },
+    series: [
+      {
+        name: '总巡查',
+        type: 'line',
+        smooth: true,
+        symbolSize: 8,
+        data: totalSeries
+      },
+      {
+        name: '异常巡查',
+        type: 'line',
+        smooth: true,
+        symbolSize: 8,
+        data: abnormalSeries
+      }
+    ]
+  })
+}
+
+function renderFunnelChart() {
+  if (!funnelChartRef) {
+    return
+  }
+  const rows = (projectFunnelRows.value || [])
+    .filter((item) => Number(item.count || 0) >= 0)
+    .map((item) => ({
+      name: item.label,
+      value: Number(item.count || 0)
+    }))
+
+  funnelChartRef.setOption({
+    tooltip: { trigger: 'item', formatter: '{b}: {c}' },
+    color: ['#0ea5e9', '#10b981', '#f59e0b', '#fb7185', '#8b5cf6', '#14b8a6', '#64748b', '#334155'],
+    series: [
+      {
+        name: '审批漏斗',
+        type: 'funnel',
+        left: '6%',
+        top: 10,
+        bottom: 10,
+        width: '88%',
+        min: 0,
+        max: Math.max(...rows.map((item) => item.value), 10),
+        minSize: '18%',
+        maxSize: '100%',
+        sort: 'descending',
+        gap: 4,
+        label: {
+          show: true,
+          position: 'inside',
+          formatter: '{b}: {c}'
+        },
+        itemStyle: {
+          borderColor: '#ffffff',
+          borderWidth: 1
+        },
+        data: rows
+      }
+    ]
+  })
+}
+
 function onSelectSite(payload) {
   Object.keys(selectedSite).forEach((key) => delete selectedSite[key])
   Object.keys(payload || {}).forEach((key) => {
@@ -247,6 +360,12 @@ function resizeCharts() {
   if (inspectionChartRef) {
     inspectionChartRef.resize()
   }
+  if (trendChartRef) {
+    trendChartRef.resize()
+  }
+  if (funnelChartRef) {
+    funnelChartRef.resize()
+  }
 }
 
 async function loadDashboardData() {
@@ -265,6 +384,9 @@ async function loadDashboardData() {
         ...overview.value,
         ...dashboardRes.data
       }
+      inspectionTrendRows.value = dashboardRes.data.inspection_trend_7d || []
+      projectFunnelRows.value = dashboardRes.data.project_funnel || []
+      abnormalInspectionPoints.value = dashboardRes.data.abnormal_inspection_points || []
     }
 
     versionText.value = versionRes?.data?.version || '-'
@@ -299,8 +421,12 @@ onMounted(async () => {
 
   levelChartRef = echarts.init(levelChartEl.value)
   inspectionChartRef = echarts.init(inspectionChartEl.value)
+  trendChartRef = echarts.init(trendChartEl.value)
+  funnelChartRef = echarts.init(funnelChartEl.value)
   renderLevelChart()
   renderInspectionChart()
+  renderTrendChart()
+  renderFunnelChart()
   window.addEventListener('resize', resizeCharts)
 })
 
@@ -314,6 +440,14 @@ onUnmounted(() => {
     inspectionChartRef.dispose()
     inspectionChartRef = null
   }
+  if (trendChartRef) {
+    trendChartRef.dispose()
+    trendChartRef = null
+  }
+  if (funnelChartRef) {
+    funnelChartRef.dispose()
+    funnelChartRef = null
+  }
 })
 
 watch(
@@ -325,6 +459,18 @@ watch(
 watch(
   () => [inspectionStats.total_count, inspectionStats.today_count, inspectionStats.abnormal_count],
   () => renderInspectionChart(),
+  { deep: true }
+)
+
+watch(
+  () => inspectionTrendRows.value,
+  () => renderTrendChart(),
+  { deep: true }
+)
+
+watch(
+  () => projectFunnelRows.value,
+  () => renderFunnelChart(),
   { deep: true }
 )
 </script>
@@ -368,6 +514,13 @@ watch(
   gap: 10px;
   align-items: center;
   margin-bottom: 10px;
+}
+
+.map-filter-col {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
 }
 
 .map-level-group {
@@ -416,6 +569,10 @@ watch(
 
   .map-toolbar-row {
     grid-template-columns: 1fr;
+  }
+
+  .map-filter-col {
+    width: 100%;
   }
 
   .dashboard-heritage-map {
