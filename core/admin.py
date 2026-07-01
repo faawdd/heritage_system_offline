@@ -30,6 +30,7 @@ from .utils import generate_word_log
 import json
 from django.shortcuts import render
 from django.urls import reverse
+from urllib.parse import urlencode
 import re
 from django.conf import settings
 from django.utils import timezone
@@ -1222,7 +1223,8 @@ class ImmovableHeritageAdmin(admin.ModelAdmin):
     ordering = ('-collected_at', '-id')
 
     def name_preview_link(self, obj):
-        url = reverse('heritage_detail_preview', kwargs={'pk': obj.pk})
+        base_url = reverse('heritage_detail_preview', kwargs={'pk': obj.pk})
+        url = f"{base_url}?{urlencode({'mode': 'view'})}"
         return format_html('<a href="{}" target="_blank">{}</a>', url, obj.name)
     name_preview_link.short_description = '文物名称'
     name_preview_link.admin_order_field = 'name'
