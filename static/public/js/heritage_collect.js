@@ -129,6 +129,26 @@ function updatePhotoCount() {
   document.getElementById('photo-count').textContent = `已选 ${selectedFiles.length} 张`;
 }
 
+function bindConditionalFields() {
+  const disappeared = document.getElementById('is_disappeared');
+  const relocated = document.getElementById('is_relocated');
+  const disappearWrap = document.getElementById('disappear_reason_wrap');
+  const relocateWrap = document.getElementById('relocation_note_wrap');
+
+  function sync() {
+    if (disappearWrap) {
+      disappearWrap.classList.toggle('hidden', !disappeared?.checked);
+    }
+    if (relocateWrap) {
+      relocateWrap.classList.toggle('hidden', !relocated?.checked);
+    }
+  }
+
+  disappeared?.addEventListener('change', sync);
+  relocated?.addEventListener('change', sync);
+  sync();
+}
+
 // ── 表单提交 ─────────────────────────────────────────────────
 async function submitForm() {
   document.querySelectorAll('[id^="err-"]').forEach(el => {
@@ -150,12 +170,20 @@ async function submitForm() {
     'longitude', 'latitude', 'coordinate_system', 'altitude', 'area',
     'province', 'city', 'county', 'township', 'village', 'address',
     'protection_level', 'ownership', 'preservation_status',
-    'damage_cause', 'threat_factors', 'description',
+    'is_disappeared', 'disappear_reason', 'is_relocated', 'relocation_note',
+    'ownership_detail', 'user_unit', 'management_unit', 'manager',
+    'protection_announced_batch', 'protection_announced_date',
+    'has_marker_stele', 'has_protection_zone_announced', 'has_construction_control_zone_announced',
+    'damage_cause', 'threat_factors', 'description', 'remarks',
   ];
   for (const id of fields) {
     const el = document.getElementById(id);
     if (el) {
-      fd.append(id, el.value);
+      if (el.type === 'checkbox') {
+        fd.append(id, el.checked ? '1' : '0');
+      } else {
+        fd.append(id, el.value);
+      }
     }
   }
   for (const file of selectedFiles) {
@@ -205,7 +233,11 @@ function resetForm() {
   const allInputs = document.querySelectorAll('input:not([readonly]), select, textarea');
   allInputs.forEach(el => {
     if (!keepFields.includes(el.id)) {
-      el.value = '';
+      if (el.type === 'checkbox') {
+        el.checked = false;
+      } else {
+        el.value = '';
+      }
     }
   });
 
@@ -217,6 +249,16 @@ function resetForm() {
   if (ownership) ownership.value = 'state';
   const preservationStatus = document.getElementById('preservation_status');
   if (preservationStatus) preservationStatus.value = '一般';
+  const disappeared = document.getElementById('is_disappeared');
+  if (disappeared) disappeared.checked = false;
+  const relocated = document.getElementById('is_relocated');
+  if (relocated) relocated.checked = false;
+  const markerStele = document.getElementById('has_marker_stele');
+  if (markerStele) markerStele.checked = false;
+  const protectionAnnounced = document.getElementById('has_protection_zone_announced');
+  if (protectionAnnounced) protectionAnnounced.checked = false;
+  const controlAnnounced = document.getElementById('has_construction_control_zone_announced');
+  if (controlAnnounced) controlAnnounced.checked = false;
 
   document.getElementById('gps-status').className = 'gps-badge idle';
   document.getElementById('gps-status').textContent = '未定位';
@@ -253,6 +295,7 @@ function getCsrf() {
 // ── 页面加载后自动尝试定位（非强制，失败不报错） ──────────────
 document.addEventListener('DOMContentLoaded', () => {
   applyAdaptiveLayout();
+  bindConditionalFields();
 
   if (navigator.geolocation) {
     navigator.geolocation.getCurrentPosition(() => {}, () => {}, {

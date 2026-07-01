@@ -229,6 +229,87 @@
           {% endfor %}
         </select>
       </div>
+
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm text-slate-600 mb-1">是否已消失</label>
+          <label class="inline-flex items-center gap-2 text-sm text-slate-700">
+            <input id="is_disappeared" name="is_disappeared" type="checkbox" class="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
+            已消失
+          </label>
+        </div>
+        <div>
+          <label class="block text-sm text-slate-600 mb-1">是否涉及迁移</label>
+          <label class="inline-flex items-center gap-2 text-sm text-slate-700">
+            <input id="is_relocated" name="is_relocated" type="checkbox" class="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
+            已迁移
+          </label>
+        </div>
+      </div>
+
+      <div id="disappear_reason_wrap" class="hidden">
+        <label class="block text-sm text-slate-600 mb-1">消失原因</label>
+        <textarea id="disappear_reason" name="disappear_reason" rows="2" placeholder="文物消失原因（必填）"
+                  class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50 resize-none"></textarea>
+      </div>
+
+      <div id="relocation_note_wrap" class="hidden">
+        <label class="block text-sm text-slate-600 mb-1">迁移情况说明</label>
+        <textarea id="relocation_note" name="relocation_note" rows="2" placeholder="迁移时间、原因与迁移去向"
+                  class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50 resize-none"></textarea>
+      </div>
+
+      <div class="grid grid-cols-1 gap-3">
+        <div>
+          <label class="block text-sm text-slate-600 mb-1">权属单位/人</label>
+          <input id="ownership_detail" name="ownership_detail" type="text" placeholder="如：鄯善县某单位/某某"
+                 class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50" />
+        </div>
+        <div>
+          <label class="block text-sm text-slate-600 mb-1">使用单位/使用人</label>
+          <input id="user_unit" name="user_unit" type="text" placeholder="（选填）"
+                 class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50" />
+        </div>
+        <div>
+          <label class="block text-sm text-slate-600 mb-1">管理单位</label>
+          <input id="management_unit" name="management_unit" type="text" placeholder="（选填）"
+                 class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50" />
+        </div>
+        <div>
+          <label class="block text-sm text-slate-600 mb-1">管理责任人</label>
+          <input id="manager" name="manager" type="text" placeholder="（选填）"
+                 class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50" />
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm text-slate-600 mb-1">公布批次</label>
+          <input id="protection_announced_batch" name="protection_announced_batch" type="text" placeholder="如：第八批全国重点文物保护单位"
+                 class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50" />
+        </div>
+        <div>
+          <label class="block text-sm text-slate-600 mb-1">公布日期</label>
+          <input id="protection_announced_date" name="protection_announced_date" type="date"
+                 class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50" />
+        </div>
+      </div>
+
+      <div class="space-y-2">
+        <label class="block text-sm text-slate-600">保护措施落实</label>
+        <label class="inline-flex items-center gap-2 text-sm text-slate-700">
+          <input id="has_marker_stele" name="has_marker_stele" type="checkbox" class="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
+          已设立保护标志碑
+        </label>
+        <label class="inline-flex items-center gap-2 text-sm text-slate-700">
+          <input id="has_protection_zone_announced" name="has_protection_zone_announced" type="checkbox" class="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
+          已公布保护范围
+        </label>
+        <label class="inline-flex items-center gap-2 text-sm text-slate-700">
+          <input id="has_construction_control_zone_announced" name="has_construction_control_zone_announced" type="checkbox" class="rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
+          已公布建设控制地带
+        </label>
+      </div>
     </section>
 
     <!-- ══ 卡片：文物简介 ══ -->
@@ -249,6 +330,12 @@
       <textarea id="description" name="description" rows="4"
                 placeholder="对文物的历史背景、形制特征及现状进行描述（建议 100 字以上）"
                 class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50 resize-none leading-relaxed"></textarea>
+
+      <div>
+        <label class="block text-sm text-slate-600 mb-1">备注</label>
+        <textarea id="remarks" name="remarks" rows="3" placeholder="其他需要补充说明的事项"
+                  class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-slate-50 resize-none"></textarea>
+      </div>
     </section>
 
     <!-- ══ 卡片：现场照片 ══ -->
