@@ -38,39 +38,6 @@ body {
   line-height: 1.35;
 }
 
-.mode-badge {
-  position: absolute;
-  top: 9mm;
-  right: 14mm;
-  border: 1px solid #555;
-  padding: 2px 8px;
-  font-size: 11pt;
-  font-family: var(--font-hei);
-  background: #fff;
-  color: #222;
-}
-
-.view-actions {
-  display: flex;
-  justify-content: flex-end;
-  margin: 2mm 0 3mm;
-}
-
-.btn-view-print {
-  border: 1px solid #1a3a6b;
-  background: #1a3a6b;
-  color: #fff;
-  font-family: var(--font-hei);
-  font-size: 11pt;
-  padding: 4px 12px;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.btn-view-print:hover {
-  background: #122d54;
-  border-color: #122d54;
-}
 
 /* ── A4 纸张容器 ── */
 .a4-wrap {
@@ -487,16 +454,6 @@ body {
 
 <!-- ══════ A4 纸张容器 ══════ -->
 <div class="a4-wrap">
-  {% if view_mode == 'view' %}
-  <div class="mode-badge">查看模式</div>
-  {% endif %}
-
-  {% if view_mode == 'view' %}
-  <div class="view-actions">
-    <button type="button" class="btn-view-print" onclick="window.print()">打印登记表</button>
-  </div>
-  {% endif %}
-
   <!-- ── 页眉 ── -->
   <div class="page-header">
     <div class="org-line">国家文物局监制</div>
