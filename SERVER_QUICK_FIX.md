@@ -114,7 +114,7 @@ sudo journalctl -u heritage_fastapi -n 50
 | 3 | `git reset` | 强制同步到远程分支 |
 | 4 | `chown/pip install/migrate` | 权限、依赖、迁移 |
 | 5 | 创建 UserProfile | **修复登陆问题的关键** |
-| 6 | `collectstatic` | SimpleUI 样式生效 |
+| 6 | `collectstatic` | 后台静态资源更新生效 |
 | 7 | `systemctl restart` | 重启服务 |
 
 ---

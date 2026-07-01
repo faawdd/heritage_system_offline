@@ -129,7 +129,7 @@ then
     echo "❌ UserProfile 修复失败，但继续重启服务..."
 fi
 
-# 7. 静态文件收集 (SimpleUI 大字体 CSS 生效的关键)
+# 7. 静态文件收集（后台与前端静态资源更新的关键）
 echo "[7/7] 收集静态文件..."
 python manage.py collectstatic --noinput --no-color 2>&1 | grep -E "^(Copying|Post-processed|[0-9]+ static files)" || true
 
