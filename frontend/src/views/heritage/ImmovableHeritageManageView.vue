@@ -32,7 +32,18 @@
     <div class="card top-space">
       <el-table :data="rows" stripe v-loading="loading">
         <el-table-column prop="sip_code" label="四普编号" width="150" />
-        <el-table-column prop="name" label="文物名称" min-width="180" />
+        <el-table-column label="文物名称" min-width="200">
+          <template #default="scope">
+            <a
+              class="heritage-view-link"
+              :href="buildViewModeHref(scope.row)"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {{ scope.row.name }}
+            </a>
+          </template>
+        </el-table-column>
         <el-table-column prop="category_label" label="文物类别" width="130" />
         <el-table-column prop="level_label" label="保护级别" width="190" />
         <el-table-column prop="address" label="详细地址" min-width="220" show-overflow-tooltip />
@@ -233,6 +244,19 @@ function openEdit(row) {
   dialog.visible = true
 }
 
+function buildViewModeHref(row) {
+  const id = row?.id
+  if (!id) {
+    return '#'
+  }
+
+  if (row?.preview_url) {
+    return row.preview_url
+  }
+
+  return `/heritage/${id}?mode=view`
+}
+
 async function submitEdit() {
   dialog.loading = true
   try {
@@ -305,3 +329,15 @@ async function beforeImport(file) {
 
 loadRows()
 </script>
+
+<style scoped>
+.heritage-view-link {
+  color: var(--accent, #409eff);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.heritage-view-link:hover {
+  text-decoration: underline;
+}
+</style>
