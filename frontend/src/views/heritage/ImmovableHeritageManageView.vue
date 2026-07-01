@@ -1,7 +1,7 @@
 <template>
   <section>
     <header class="page-header">
-      <h1>采集数据管理</h1>
+      <h1>采集记录管理</h1>
       <p>管理不可移动文物采集记录，支持查询、编辑以及 CSV 导入导出</p>
     </header>
 
@@ -72,7 +72,7 @@
       </div>
     </div>
 
-    <el-dialog v-model="dialog.visible" title="编辑文物档案" width="920px">
+    <el-dialog v-model="dialog.visible" title="编辑采集记录" width="920px">
       <el-form label-width="110px" label-position="left">
         <el-row :gutter="12">
           <el-col :span="12">
@@ -599,7 +599,7 @@ async function handleExport() {
     const url = window.URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = `不可移动文物_${new Date().toISOString().slice(0, 10)}.csv`
+    link.download = `采集记录_${new Date().toISOString().slice(0, 10)}.csv`
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
