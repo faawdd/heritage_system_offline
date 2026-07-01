@@ -3494,6 +3494,10 @@ def heritage_detail_preview_view(request, pk):
     other_photo_pages = _chunk_items(other_photo_items, 4)
     collect_unit = "鄯善县文化体育广播电视和旅游局（文物局）"
 
+    view_mode = (request.GET.get("mode") or "view").strip().lower()
+    if view_mode not in {"view", "print"}:
+        view_mode = "view"
+
     context = {
         "heritage":             heritage,
         "cover_photo":          cover_photo,
@@ -3512,6 +3516,7 @@ def heritage_detail_preview_view(request, pk):
         "preservation_choices": ImmovableHeritage.PRESERVATION_STATUS_CHOICES,
         "protection_choices":   ImmovableHeritage.PROTECTION_LEVEL_CHOICES,
         "ownership_choices":    ImmovableHeritage.OWNERSHIP_CHOICES,
+        "view_mode":            view_mode,
     }
     return render(request, "public/detail_preview.html", context)
 
