@@ -254,7 +254,7 @@ function buildViewModeHref(row) {
     return row.preview_url
   }
 
-  return `/heritage/${id}?mode=view`
+  return `/mobile/collect/${id}/preview/?mode=view`
 }
 
 async function submitEdit() {

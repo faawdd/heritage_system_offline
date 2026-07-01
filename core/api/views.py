@@ -221,7 +221,7 @@ class ImmovableHeritageListAPIView(APIView):
                 {
                     'id': item.id,
                     'name': item.name,
-                    'preview_url': f'/heritage/{item.id}?mode=view',
+                    'preview_url': f'/mobile/collect/{item.id}/preview/?mode=view',
                     'sip_code': item.sip_code,
                     'category': item.category,
                     'category_label': item.get_category_display(),
