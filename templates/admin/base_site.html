@@ -1,5 +1,5 @@
 {% extends "admin/base.html" %}
-{% load static simpletags %}
+{% load static %}
 
 {% block title %}{{ site_title|default:'基层文物管理系统' }}{% endblock %}
 
@@ -14,13 +14,9 @@
 
 {% block extrahead %}
 {{ block.super }}
-{% if "SIMPLEUI_CUSTOM_JS"|get_config %}
-<script src="{{ "SIMPLEUI_CUSTOM_JS"|get_config }}"></script>
-{% endif %}
 {% endblock %}
 
 {% block extrastyle %}
-<link rel="stylesheet" href="{% static 'admin/css/simpleui_custom.css' %}">
 <style>
     .menu-content {
         display: block !important;
