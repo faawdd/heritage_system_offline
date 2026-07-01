@@ -3224,10 +3224,24 @@ def heritage_collect_view(request):
             protection_level    = p.get("protection_level", "DS")
             ownership           = p.get("ownership", "state")
             preservation_status = p.get("preservation_status", "一般")
+            is_disappeared      = str(p.get("is_disappeared", "")).lower() in {"1", "true", "yes", "on"}
+            disappear_reason    = p.get("disappear_reason", "").strip()
+            is_relocated        = str(p.get("is_relocated", "")).lower() in {"1", "true", "yes", "on"}
+            relocation_note     = p.get("relocation_note", "").strip()
+            ownership_detail    = p.get("ownership_detail", "").strip()
+            user_unit           = p.get("user_unit", "").strip()
+            management_unit     = p.get("management_unit", "").strip()
+            manager             = p.get("manager", "").strip()
+            protection_announced_batch = p.get("protection_announced_batch", "").strip()
+            protection_announced_date_raw = p.get("protection_announced_date", "").strip()
+            has_marker_stele = str(p.get("has_marker_stele", "")).lower() in {"1", "true", "yes", "on"}
+            has_protection_zone_announced = str(p.get("has_protection_zone_announced", "")).lower() in {"1", "true", "yes", "on"}
+            has_construction_control_zone_announced = str(p.get("has_construction_control_zone_announced", "")).lower() in {"1", "true", "yes", "on"}
             description         = p.get("description", "").strip()
             damage_cause        = p.get("damage_cause", "").strip()
             threat_factors      = p.get("threat_factors", "").strip()
             former_name         = p.get("former_name", "").strip()
+            remarks             = p.get("remarks", "").strip()
             coord_list_raw      = p.get("coord_list", "").strip()
 
             # ── 字段验证 ────────────────────────────────────────
@@ -3248,6 +3262,10 @@ def heritage_collect_view(request):
                 errors["category"] = "文物类别不能为空"
             if not lon_raw or not lat_raw:
                 errors["location"] = "请先点击\"获取当前位置\"以填入经纬度"
+            if is_disappeared and not disappear_reason:
+                errors["disappear_reason"] = "已标记为消失时，请填写消失原因"
+            if is_relocated and not relocation_note:
+                errors["relocation_note"] = "已标记为迁移时，请填写迁移情况说明"
 
             # 经纬度合法性
             longitude = latitude = None
@@ -3261,6 +3279,16 @@ def heritage_collect_view(request):
                         errors["latitude"] = "纬度须在 -90 ~ 90 之间"
                 except DecimalInvalidOperation:
                     errors["location"] = "经纬度格式不合法"
+
+            if errors:
+                return JsonResponse({"success": False, "errors": errors}, status=400)
+
+            protection_announced_date = None
+            if protection_announced_date_raw:
+                try:
+                    protection_announced_date = datetime.strptime(protection_announced_date_raw, "%Y-%m-%d").date()
+                except ValueError:
+                    errors["protection_announced_date"] = "公布日期格式不合法"
 
             if errors:
                 return JsonResponse({"success": False, "errors": errors}, status=400)
@@ -3320,10 +3348,24 @@ def heritage_collect_view(request):
                 area=area,
                 protection_level=protection_level,
                 ownership=ownership,
+                ownership_detail=ownership_detail,
+                user_unit=user_unit,
+                management_unit=management_unit,
+                manager=manager,
                 preservation_status=preservation_status,
+                is_disappeared=is_disappeared,
+                disappear_reason=disappear_reason,
+                is_relocated=is_relocated,
+                relocation_note=relocation_note,
+                protection_announced_batch=protection_announced_batch,
+                protection_announced_date=protection_announced_date,
+                has_marker_stele=has_marker_stele,
+                has_protection_zone_announced=has_protection_zone_announced,
+                has_construction_control_zone_announced=has_construction_control_zone_announced,
                 damage_cause=damage_cause,
                 threat_factors=threat_factors,
                 description=description,
+                remarks=remarks,
                 coord_list=coord_list,
                 collector=request.user,
                 collected_at=collected_at,
