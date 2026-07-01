@@ -51,3 +51,13 @@ export async function exportImmovableHeritage(params = {}) {
   })
   return response
 }
+
+export async function fetchKanerjingList(params = {}) {
+  const response = await client.get('/api/v1/heritage/kanerjing/', { params })
+  return response.data
+}
+
+export async function fetchKanerjingImportCheck() {
+  const response = await client.get('/api/v1/heritage/kanerjing/import-check/')
+  return response.data
+}

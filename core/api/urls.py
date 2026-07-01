@@ -18,7 +18,10 @@ from core.api.views import (
     ImmovableHeritageListAPIView,
     InspectionDetailAPIView,
     InspectionListAPIView,
+    InspectionMetaAPIView,
     InspectionStatsAPIView,
+    KanerjingImportCheckAPIView,
+    KanerjingListAPIView,
     SystemVersionAPIView,
 )
 from core import views as legacy_views
@@ -48,8 +51,11 @@ urlpatterns = [
     path('projects/<uuid:project_id>/workflow-action/', legacy_views.land_project_workflow_action_api, name='land_project_workflow_action'),
     path('projects/<uuid:project_id>/controls/', legacy_views.land_project_controls_api, name='land_project_controls'),
     path('inspections/', InspectionListAPIView.as_view(), name='inspection_list'),
+    path('inspections/meta/', InspectionMetaAPIView.as_view(), name='inspection_meta'),
     path('inspections/stats/', InspectionStatsAPIView.as_view(), name='inspection_stats'),
     path('inspections/<int:inspection_id>/', InspectionDetailAPIView.as_view(), name='inspection_detail'),
+    path('heritage/kanerjing/', KanerjingListAPIView.as_view(), name='kanerjing_list'),
+    path('heritage/kanerjing/import-check/', KanerjingImportCheckAPIView.as_view(), name='kanerjing_import_check'),
     path('gis/kml-records/', GisKmlRecordsAPIView.as_view(), name='gis_kml_records'),
     path('gis/kml-records/batch-kml-content/', GisKmlBatchKmlContentAPIView.as_view(), name='gis_kml_batch_kml_content'),
     path('gis/kml-records/<int:record_id>/kml-content/', GisKmlRecordKmlContentAPIView.as_view(), name='gis_kml_record_kml_content'),

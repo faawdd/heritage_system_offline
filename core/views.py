@@ -153,7 +153,6 @@ def mobile_kml_entry_view(request):
 
     auth_login(request, user, backend='django.contrib.auth.backends.ModelBackend')
 
-    # 兼容 App 端不同版本的 URL 组装：若 app_loc_* 先挂在 entry URL，需在这里透传到 next。
     split_result = urlsplit(target_path)
     query_pairs = parse_qsl(split_result.query, keep_blank_values=True)
     query_map = dict(query_pairs)
@@ -236,33 +235,8 @@ for keyword, standard_name in TOWNSHIP_NORMALIZATION_RULES:
 
 @staff_member_required
 def heritage_detail_view(request, pk):
-    """文物档案详情页 - 只读查看模式"""
-    heritage = get_object_or_404(HeritageSite, pk=pk)
-    
-    # 解析两线坐标数据
-    try:
-        protection_zone_data = json.loads(heritage.protection_zone) if heritage.protection_zone else []
-    except:
-        protection_zone_data = []
-    
-    try:
-        control_zone_data = json.loads(heritage.control_zone) if heritage.control_zone else []
-    except:
-        control_zone_data = []
-    
-    # 获取相关的巡查记录（字段名是 site，不是 heritage_site）
-    inspection_records = InspectionRecord.objects.filter(
-        site=heritage
-    ).order_by('-inspect_time')[:10]
-    
-    context = {
-        'heritage': heritage,
-        'protection_zone_data': protection_zone_data,
-        'control_zone_data': control_zone_data,
-        'inspection_records': inspection_records,
-        'title': f'文物档案详情 - {heritage.name}',
-    }
-    return render(request, 'admin/heritage_detail.html', context)
+    """旧后台详情页已迁移到 Vue，保留兼容入口。"""
+    return redirect(f'/static/frontend/heritage/{pk}')
 
 
 @staff_member_required
@@ -304,63 +278,23 @@ def heritage_boundary_export_view(request, pk):
 
 @staff_member_required
 def admin_index_view(request):
-    """自定义管理后台首页 - 显示统计仪表板"""
-    current_year = timezone.now().year
-    total_sites = HeritageSite.objects.count()
-    kanerjing_count = HeritageSite.filter_kanerjing().count()
-    reviewed_project_count = ProjectAudit.objects.filter(received_date__year=current_year).count()
-    checked_coordinate_count = Coordinate.objects.filter(check_status='checked').count()
-    kml_upload_count = KmlUploadRecord.objects.count()
-
-    pending_projects = ProjectAudit.objects.filter(workflow_status='received').order_by('-received_date')[:12]
-    heatmap_points = list(
-        HeritageSite.objects.values('name', 'longitude', 'latitude')
-    )
-
-    context = {
-        'total_sites': total_sites,
-        'kanerjing_count': kanerjing_count,
-        'reviewed_project_count': reviewed_project_count,
-        'checked_coordinate_count': checked_coordinate_count,
-        'kml_upload_count': kml_upload_count,
-        'pending_projects': pending_projects,
-        'heatmap_points_json': json.dumps(heatmap_points, ensure_ascii=False),
-        'title': '鄯善县文物数字化管理平台',
-    }
-    return render(request, 'admin/home_dashboard.html', context)
+    """旧后台首页已迁移到 Vue，保留兼容入口。"""
+    return redirect('/static/frontend/dashboard')
 
 
 @staff_member_required  # 确保只有登录后台的人能看
 def heritage_map_view(request):
-    sites = HeritageSite.objects.all()
-    sites_data = []
-    for site in sites:
-        sites_data.append({
-            "name": site.name,
-            "lng": float(site.longitude),
-            "lat": float(site.latitude),
-            "level": site.level  # 使用数据库中的实际等级数据
-        })
-    
-    context = {
-        'sites_json': json.dumps(sites_data),
-        'title': '鄯善县文物分布一张图'
-    }
-    return render(request, 'admin/heritage_map.html', context)
+    """旧地图页已迁移到 Vue，保留兼容入口。"""
+    return redirect('/static/frontend/heritage/map')
 
 
 def kml_overlay_check_view(request):
-    """兼容旧入口：升级后直接复用 KML 文件管理页面"""
-    # 兼容跨站 WebView/iframe 场景：会话失效时允许 token 直达鉴权
-    if not request.user.is_authenticated:
-        token = (request.GET.get('token') or '').strip()
-        if token:
-            payload = _decode_fastapi_token(token)
-            user = User.objects.filter(id=payload.get('user_id'), is_active=True).first() if payload else None
-            if user:
-                if is_management_admin(user):
-                    auth_login(request, user, backend='django.contrib.auth.backends.ModelBackend')
-    return kml_management_view(request)
+    """旧 KML 管理页已迁移到 Vue，保留兼容入口。"""
+    query_string = request.META.get('QUERY_STRING', '')
+    target = '/static/frontend/gis/kml-management'
+    if query_string:
+        target = f'{target}?{query_string}'
+    return redirect(target)
 
 
 def _normalize_threshold(raw_value, default=50, min_value=1, max_value=5000):
@@ -1348,182 +1282,12 @@ def _build_boundary_points_kmz(combined_conflicts, selected_records, cookie: str
 
 @staff_member_required
 def kml_management_view(request):
-    if not _is_admin_user(request.user):
-        return HttpResponseForbidden('需要管理员权限')
-
-    default_threshold = _normalize_threshold(request.GET.get('threshold_m', 50))
-
-    if request.method == 'POST':
-        row_delete_id = request.POST.get('row_delete_id')
-        if row_delete_id:
-            record = KmlUploadRecord.objects.filter(id=row_delete_id).first()
-            if not record:
-                messages.error(request, '要删除的记录不存在。')
-            else:
-                if record.source_file:
-                    record.source_file.delete(save=False)
-                record.delete()
-                messages.success(request, 'KML 文件记录已删除。')
-            return redirect('kml_overlay_check')
-
-        row_rename_id = request.POST.get('row_rename_id')
-        if row_rename_id:
-            record = KmlUploadRecord.objects.filter(id=row_rename_id).first()
-            if not record:
-                messages.error(request, '要重命名的记录不存在。')
-                return redirect('kml_overlay_check')
-
-            new_title = (request.POST.get(f'rename_title_{row_rename_id}') or '').strip()
-            if not new_title:
-                messages.error(request, '新名称不能为空。')
-                return redirect('kml_overlay_check')
-
-            if len(new_title) > 255:
-                messages.error(request, '新名称长度不能超过255个字符。')
-                return redirect('kml_overlay_check')
-
-            record.title = new_title
-            record.save(update_fields=['title', 'updated_at'])
-            messages.success(request, f'已重命名为：{new_title}')
-            return redirect('kml_overlay_check')
-
-        action = request.POST.get('action')
-        if not action and request.POST.get('single_record_id'):
-            action = 'analyze_selected'
-        if not action:
-            action = 'upload'
-
-        threshold = _normalize_threshold(request.POST.get('threshold_m', default_threshold), default=default_threshold)
-
-        if action == 'upload':
-            immediate_analyze = request.POST.get('immediate_analyze') == '1'
-            upload_files = request.FILES.getlist('kml_files')
-            if not upload_files:
-                messages.error(request, '请至少选择一个KML/KMZ/OVKML/OVKMZ文件。')
-                return redirect('kml_overlay_check')
-
-            created_count = 0
-            total_conflicts = 0
-            for upload in upload_files:
-                name = upload.name or '未命名文件'
-                lower_name = name.lower()
-                if not (lower_name.endswith('.kml') or lower_name.endswith('.ovkml') or lower_name.endswith('.kmz') or lower_name.endswith('.ovkmz')):
-                    messages.warning(request, f'已跳过不支持的文件：{name}')
-                    continue
-
-                record = KmlUploadRecord.objects.create(
-                    title=name,
-                    source_file=upload,
-                    uploaded_by=request.user,
-                    threshold_m=threshold,
-                    feature_count=0,
-                    conflict_count=0,
-                    report_json='',
-                )
-
-                if immediate_analyze:
-                    try:
-                        with record.source_file.open('rb') as source:
-                            content = source.read()
-                        features = _extract_features_from_upload(name, content)
-                        conflicts = _analyze_conflicts(features, threshold)
-                    except Exception as exc:
-                        messages.warning(request, f'{name} 已上传，但即时分析失败：{exc}')
-                    else:
-                        total_conflicts += len(conflicts)
-                        report_payload = {
-                            'threshold_m': threshold,
-                            'feature_count': len(features),
-                            'conflict_count': len(conflicts),
-                            'generated_at': timezone.now().isoformat(),
-                            'conflicts': conflicts,
-                        }
-                        record.feature_count = len(features)
-                        record.conflict_count = len(conflicts)
-                        record.report_json = json.dumps(report_payload, ensure_ascii=False)
-                        record.save(update_fields=['feature_count', 'conflict_count', 'report_json', 'updated_at'])
-
-                created_count += 1
-
-            if created_count:
-                if immediate_analyze:
-                    messages.success(request, f'已上传并分析 {created_count} 个文件，共发现 {total_conflicts} 处冲突。')
-                else:
-                    messages.success(request, f'已快速上传 {created_count} 个文件。若需冲突报告，请勾选后点击“批量查询冲突并导出报告”。')
-            return redirect(f'{request.path}?threshold_m={threshold}')
-
-        if action in {'analyze_selected', 'analyze_export_selected', 'export_conflict_kml', 'export_boundary_points', 'export_boundary_kmz'}:
-            single_record_id = (request.POST.get('single_record_id') or '').strip()
-            if single_record_id:
-                selected_ids = [single_record_id]
-            else:
-                selected_ids = [sid for sid in request.POST.getlist('selected_ids') if sid]
-
-            if not selected_ids:
-                messages.error(request, '请先选择要批量查询的文件。')
-                return redirect(f'{request.path}?threshold_m={threshold}')
-
-            selected_records = list(KmlUploadRecord.objects.filter(id__in=selected_ids))
-            if not selected_records:
-                messages.error(request, '未找到选中的文件记录。')
-                return redirect(f'{request.path}?threshold_m={threshold}')
-
-            combined_conflicts, updated_count, failed_count, failed_items = _reanalyze_kml_records(selected_records, threshold)
-
-            if failed_count:
-                summary = '；'.join(
-                    f"{item.get('title', '未命名文件')}（{item.get('error', '未知错误')}）"
-                    for item in failed_items[:3]
-                )
-                if failed_count > 3:
-                    summary = f"{summary}；其余 {failed_count - 3} 个请查看服务端日志"
-                messages.warning(request, f'有 {failed_count} 个文件分析失败：{summary}')
-
-            if action == 'analyze_selected':
-                query_mode = '单条' if single_record_id else '批量'
-                messages.success(request, f'已按阈值 {threshold} 米完成{query_mode}查询，更新 {updated_count} 条记录，识别 {len(combined_conflicts)} 处冲突。')
-                return redirect(f'{request.path}?threshold_m={threshold}')
-
-            if action == 'export_conflict_kml':
-                return _build_conflict_sites_kml(combined_conflicts, threshold, selected_records)
-
-            if action == 'export_boundary_points':
-                cookie = (request.POST.get('sipu_cookie') or '').strip()
-                if not cookie:
-                    messages.error(request, '请先填写四普系统的 Cookie 再导出边界坐标。')
-                    return redirect(f'{request.path}?threshold_m={threshold}')
-                if not combined_conflicts:
-                    messages.warning(request, '所选 KML 文件中未发现冲突文物点，无需导出边界坐标。')
-                    return redirect(f'{request.path}?threshold_m={threshold}')
-                user_county = (request.POST.get('sipu_county') or '').strip()
-                return _build_boundary_points_csv(combined_conflicts, selected_records, cookie, user_county)
-
-            if action == 'export_boundary_kmz':
-                cookie = (request.POST.get('sipu_cookie') or '').strip()
-                if not cookie:
-                    messages.error(request, '请先填写四普系统的 Cookie 再导出边界 KMZ。')
-                    return redirect(f'{request.path}?threshold_m={threshold}')
-                if not combined_conflicts:
-                    messages.warning(request, '所选 KML 文件中未发现冲突文物点，无需导出边界 KMZ。')
-                    return redirect(f'{request.path}?threshold_m={threshold}')
-                user_county = (request.POST.get('sipu_county') or '').strip()
-                return _build_boundary_points_kmz(combined_conflicts, selected_records, cookie, user_county)
-
-            return _build_conflict_report_csv(combined_conflicts, threshold, selected_records)
-
-    records = KmlUploadRecord.objects.select_related('uploaded_by').order_by('-created_at')[:200]
-    sites_data = list(
-        HeritageSite.objects.exclude(longitude__isnull=True).exclude(latitude__isnull=True).values(
-            'id', 'name', 'level', 'longitude', 'latitude'
-        )
-    )
-    context = {
-        'title': 'KML文件管理与批量冲突检查',
-        'records': records,
-        'default_threshold': default_threshold,
-        'sites_json': json.dumps(sites_data, ensure_ascii=False),
-    }
-    return render(request, 'admin/kml_management.html', context)
+    """旧 KML 文件管理页已迁移到 Vue，保留兼容入口。"""
+    query_string = request.META.get('QUERY_STRING', '')
+    target = '/static/frontend/gis/kml-management'
+    if query_string:
+        target = f'{target}?{query_string}'
+    return redirect(target)
 
 
 def _is_kml_family_filename(filename: str) -> bool:
@@ -1691,299 +1455,38 @@ def _convert_dxf_bytes_to_kml(dxf_bytes: bytes, doc_name: str):
 
 @staff_member_required
 def kml_process_convert_view(request):
-    if not _is_admin_user(request.user):
-        return HttpResponseForbidden('需要管理员权限')
-
-    context = {
-        'title': 'KML处理和转换',
-        'input_crs': 'wgs84',
-        'output_mode': 'geo',
-        'geo_output_crs': 'wgs84',
-        'source_mode': 'uploaded',
-        'uploaded_record_id': '',
-    }
-
-    uploaded_records = list(KmlUploadRecord.objects.order_by('-created_at')[:200])
-    context['uploaded_records'] = uploaded_records
-
-    if request.method == 'POST':
-        tool = (request.POST.get('tool') or '').strip()
-        action = (request.POST.get('action') or '').strip()
-
-        if tool == 'dxf_to_kml':
-            dxf_file = request.FILES.get('dxf_file')
-            if not dxf_file:
-                context['error'] = '请先选择 DXF 文件。'
-                return render(request, 'admin/kml_process_convert.html', context)
-
-            lower_name = (dxf_file.name or '').lower()
-            if not lower_name.endswith('.dxf'):
-                context['error'] = '文件格式不正确，请上传 .dxf 文件。'
-                return render(request, 'admin/kml_process_convert.html', context)
-
-            try:
-                kml_bytes, stats = _convert_dxf_bytes_to_kml(dxf_file.read(), os.path.splitext(dxf_file.name)[0])
-            except Exception as exc:
-                context['error'] = f'DXF 转换失败：{exc}'
-                return render(request, 'admin/kml_process_convert.html', context)
-
-            date_str = timezone.now().strftime('%Y%m%d_%H%M%S')
-            export_name = f'dxf_to_kml_{date_str}.kml'
-            response = HttpResponse(kml_bytes, content_type='application/vnd.google-earth.kml+xml; charset=utf-8')
-            encoded_name = quote(export_name, safe='')
-            response['Content-Disposition'] = f"attachment; filename*=UTF-8''{encoded_name}"
-
-            messages.success(
-                request,
-                f"DXF 转换完成：点{stats['point_count']}、线{stats['line_count']}、面{stats['polygon_count']}，未支持要素{stats['unsupported_count']}。",
-            )
-            return response
-
-        if tool == 'kml_table':
-            source_mode = (request.POST.get('source_mode') or 'uploaded').strip()
-            input_crs = (request.POST.get('input_crs') or 'wgs84').strip()
-            output_mode = (request.POST.get('output_mode') or 'geo').strip()
-            geo_output_crs = (request.POST.get('geo_output_crs') or 'wgs84').strip()
-            uploaded_record_id = (request.POST.get('uploaded_record_id') or '').strip()
-
-            context['source_mode'] = source_mode
-            context['input_crs'] = input_crs
-            context['output_mode'] = output_mode
-            context['geo_output_crs'] = geo_output_crs
-            context['uploaded_record_id'] = uploaded_record_id
-
-            source_name = ''
-            raw_content = b''
-
-            if source_mode == 'uploaded':
-                if not uploaded_record_id:
-                    context['error'] = '请先选择已上传的 KML/KMZ 记录。'
-                    return render(request, 'admin/kml_process_convert.html', context)
-                record = KmlUploadRecord.objects.filter(id=uploaded_record_id).first()
-                if not record:
-                    context['error'] = '所选记录不存在。'
-                    return render(request, 'admin/kml_process_convert.html', context)
-
-                source_name = os.path.basename(record.source_file.name or record.title or f'kml_record_{record.id}')
-                with record.source_file.open('rb') as source:
-                    raw_content = source.read()
-            else:
-                upload_file = request.FILES.get('kml_file')
-                if not upload_file:
-                    context['error'] = '请先上传 KML/KMZ 文件。'
-                    return render(request, 'admin/kml_process_convert.html', context)
-                source_name = upload_file.name or '未命名文件'
-                raw_content = upload_file.read()
-
-            if not _is_kml_family_filename(source_name):
-                context['error'] = '文件格式不正确，请选择 .kml .kmz .ovkml .ovkmz 文件。'
-                return render(request, 'admin/kml_process_convert.html', context)
-
-            parse_output_crs = 'cgcs2000_proj' if output_mode == 'cgcs2000_proj' else geo_output_crs
-            try:
-                from core.ovkml_converter import parse_kml_or_kmz
-                records, file_format = parse_kml_or_kmz(raw_content, input_crs=input_crs, output_crs=parse_output_crs)
-            except Exception as exc:
-                context['error'] = f'解析失败：{exc}'
-                return render(request, 'admin/kml_process_convert.html', context)
-
-            if not records:
-                context['error'] = '未提取到要素，请检查文件内容。'
-                return render(request, 'admin/kml_process_convert.html', context)
-
-            table_rows = _build_kml_table_rows(records, parse_output_crs)
-            csv_text = _build_kml_table_csv(table_rows, parse_output_crs)
-
-            if action == 'export_csv':
-                date_str = timezone.now().strftime('%Y%m%d_%H%M%S')
-                ext_name = 'cgcs2000坐标' if parse_output_crs == 'cgcs2000_proj' else '经纬度坐标'
-                report_name = f'{date_str}_{os.path.splitext(source_name)[0]}_{ext_name}.csv'
-                response = HttpResponse(csv_text, content_type='text/csv; charset=utf-8-sig')
-                encoded_name = quote(report_name, safe='')
-                response['Content-Disposition'] = f"attachment; filename*=UTF-8''{encoded_name}"
-                return response
-
-            context.update({
-                'success': True,
-                'source_name': source_name,
-                'file_format': file_format,
-                'total_count': len(table_rows),
-                'preview_rows': table_rows[:200],
-                'preview_truncated': len(table_rows) > 200,
-                'coord_a_label': 'CGCS2000_X(米)' if parse_output_crs == 'cgcs2000_proj' else '经度',
-                'coord_b_label': 'CGCS2000_Y(米)' if parse_output_crs == 'cgcs2000_proj' else '纬度',
-            })
-
-            return render(request, 'admin/kml_process_convert.html', context)
-
-        context['error'] = '未知操作请求。'
-
-    return render(request, 'admin/kml_process_convert.html', context)
+    """旧 KML 转换页已迁移到 Vue，保留兼容入口。"""
+    query_string = request.META.get('QUERY_STRING', '')
+    target = '/static/frontend/gis/kml-process-convert'
+    if query_string:
+        target = f'{target}?{query_string}'
+    return redirect(target)
 
 
 @staff_member_required
 @staff_member_required
 def ovkml_converter_view(request):
-    """OVKML/KML/KMZ/OVKMZ 网页转换工具：提取坐标并导出可导入 ProjectAudit 的 CSV。"""
-    context = {
-        'title': 'KML/KMZ转换导入',
-        'input_crs': 'wgs84',
-        'output_crs': 'cgcs2000',
-        'deduplicate': True,
-    }
-
-    if request.method == 'POST':
-        upload_file = request.FILES.get('ovkml_file')
-        input_crs = request.POST.get('input_crs', 'wgs84')
-        output_crs = request.POST.get('output_crs', 'cgcs2000')
-        action = request.POST.get('action', 'convert')
-        deduplicate = request.POST.get('deduplicate') == 'on'
-
-        context['input_crs'] = input_crs
-        context['output_crs'] = output_crs
-        context['deduplicate'] = deduplicate
-
-        if not upload_file:
-            context['error'] = '请先选择 KML/KMZ/OVKML/OVKMZ 文件。'
-            return render(request, 'admin/ovkml_converter.html', context)
-
-        filename = (upload_file.name or '').lower()
-        # 支持 .kml, .ovkml, .kmz, .ovkmz
-        if not (filename.endswith('.kml') or filename.endswith('.ovkml') or 
-                filename.endswith('.kmz') or filename.endswith('.ovkmz')):
-            context['error'] = '文件格式不正确，请上传 .kml .kmz .ovkml .ovkmz 文件。'
-            return render(request, 'admin/ovkml_converter.html', context)
-
-        try:
-            from core.ovkml_converter import parse_kml_or_kmz
-            records, file_format = parse_kml_or_kmz(upload_file.read(), input_crs=input_crs, output_crs=output_crs)
-        except Exception as exc:
-            context['error'] = f'解析失败：{exc}'
-            return render(request, 'admin/ovkml_converter.html', context)
-
-        if not records:
-            context['error'] = '未提取到 Placemark，请检查文件内容或嵌套结构。'
-            return render(request, 'admin/ovkml_converter.html', context)
-
-        project_csv, detail_csv = build_csv_outputs(records)
-
-        export_dir = os.path.join(settings.MEDIA_ROOT, 'ovkml_exports')
-        os.makedirs(export_dir, exist_ok=True)
-        export_id = uuid.uuid4().hex
-
-        project_filename = f'{export_id}_projectaudit.csv'
-        detail_filename = f'{export_id}_detail.csv'
-        project_path = os.path.join(export_dir, project_filename)
-        detail_path = os.path.join(export_dir, detail_filename)
-
-        with open(project_path, 'w', encoding='utf-8-sig', newline='') as f:
-            f.write(project_csv)
-        with open(detail_path, 'w', encoding='utf-8-sig', newline='') as f:
-            f.write(detail_csv)
-
-        preview_rows = []
-        for item in records[:100]:
-            preview_rows.append({
-                'project_name': item.project_name,
-                'geometry_type': item.geometry_type,
-                'vertex_count': item.vertex_count,
-                'project_lon': '' if item.target_lon is None else f'{item.target_lon:.10f}',
-                'project_lat': '' if item.target_lat is None else f'{item.target_lat:.10f}',
-                'cgcs2000_x': '' if item.cgcs2000_x is None else f'{item.cgcs2000_x:.3f}',
-                'cgcs2000_y': '' if item.cgcs2000_y is None else f'{item.cgcs2000_y:.3f}',
-                'source_folder': item.source_folder,
-            })
-
-        context.update({
-            'success': True,
-            'total_count': len(records),
-            'preview_rows': preview_rows,
-            'project_csv_url': f"{settings.MEDIA_URL}ovkml_exports/{project_filename}",
-            'detail_csv_url': f"{settings.MEDIA_URL}ovkml_exports/{detail_filename}",
-            'preview_truncated': len(records) > 100,
-            'file_format': file_format,
-        })
-
-        if action == 'import':
-            existing_keys = set()
-            if deduplicate:
-                for item in ProjectAudit.objects.only('project_name', 'project_lon', 'project_lat'):
-                    lon_key = '' if item.project_lon is None else f"{item.project_lon:.6f}"
-                    lat_key = '' if item.project_lat is None else f"{item.project_lat:.6f}"
-                    existing_keys.add((item.project_name.strip(), lon_key, lat_key))
-
-            batch_seen = set()
-            to_create = []
-            skipped_count = 0
-
-            for item in records:
-                lon_key = '' if item.target_lon is None else f"{item.target_lon:.6f}"
-                lat_key = '' if item.target_lat is None else f"{item.target_lat:.6f}"
-                row_key = (item.project_name.strip(), lon_key, lat_key)
-
-                if deduplicate and (row_key in existing_keys or row_key in batch_seen):
-                    skipped_count += 1
-                    continue
-
-                batch_seen.add(row_key)
-                to_create.append(
-                    ProjectAudit(
-                        project_name=item.project_name,
-                        project_unit='',
-                        construction_content='',
-                        project_scale='',
-                        project_coordinates=item.project_coordinates,
-                        project_lon=item.target_lon,
-                        project_lat=item.target_lat,
-                        workflow_status='received',
-                        remarks=f"来源文件夹:{item.source_folder or '-'}; 几何:{item.geometry_type}; 顶点:{item.vertex_count}; 导入来源:KML/KMZ转换工具",
-                        received_date=timezone.now(),
-                    )
-                )
-
-            if to_create:
-                ProjectAudit.objects.bulk_create(to_create)
-
-            context['import_done'] = True
-            context['import_count'] = len(to_create)
-            context['import_skipped_count'] = skipped_count
-
-    return render(request, 'admin/ovkml_converter.html', context)
+    """旧 OVKML 转换页已迁移到 Vue，保留兼容入口。"""
+    query_string = request.META.get('QUERY_STRING', '')
+    target = '/static/frontend/gis/ovkml-convert'
+    if query_string:
+        target = f'{target}?{query_string}'
+    return redirect(target)
 
 
 @staff_member_required
 def land_project_management_view(request):
-    """项目管理查看页（只读）。"""
-    if not is_management_admin(request.user):
-        return HttpResponseForbidden('当前账号无权使用项目管理页面')
-
-    status_choices = [
-        {'value': value, 'label': label}
-        for value, label in LandUseProjectApproval.STATUS_CHOICES
-    ]
-    context = {
-        'title': '用地项目审批与文档登记（查看）',
-        'status_choices_json': json.dumps(status_choices, ensure_ascii=False),
-    }
-    return render(request, 'admin/land_project_management.html', context)
+    """旧项目管理页面已迁移到 Vue，保留兼容入口。"""
+    return redirect('/static/frontend/projects')
 
 
 @staff_member_required
 def land_project_edit_view(request):
-    """项目管理编辑页（按阶段显示可操作内容）。"""
-    if not is_management_admin(request.user):
-        return HttpResponseForbidden('当前账号无权使用项目管理编辑页面')
-
-    status_choices = [
-        {'value': value, 'label': label}
-        for value, label in LandUseProjectApproval.STATUS_CHOICES
-    ]
-    context = {
-        'title': '用地项目审批与文档登记（编辑）',
-        'status_choices_json': json.dumps(status_choices, ensure_ascii=False),
-        'initial_project_id': request.GET.get('project_id', ''),
-    }
-    return render(request, 'admin/land_project_edit.html', context)
+    """旧项目编辑页已迁移到 Vue，保留兼容入口。"""
+    project_id = (request.GET.get('project_id') or '').strip()
+    if project_id:
+        return redirect(f'/static/frontend/projects/{project_id}')
+    return redirect('/static/frontend/projects')
 
 
 @staff_member_required
@@ -2429,30 +1932,8 @@ def land_project_controls_api(request, project_id):
 
 @staff_member_required
 def heritage_dashboard_view(request):
-    """文物分类统计面板"""
-    total = HeritageSite.objects.count()
-    township_counter = {}
-    for address in HeritageSite.objects.values_list('address', flat=True):
-        township_name = _extract_township_name(address)
-        if township_name:
-            township_counter[township_name] = township_counter.get(township_name, 0) + 1
-
-    township_options = [
-        {
-            'value': item[0],
-            'label': _to_township_full_name(item[0]),
-        }
-        for item in sorted(township_counter.items(), key=lambda x: x[1], reverse=True)
-    ]
-
-    context = {
-        'total_sites': total,
-        'title': '文物分类统计面板',
-        'category_choices_json': json.dumps(list(HeritageSite.CATEGORY_CHOICES), ensure_ascii=False),
-        'level_choices_json': json.dumps(list(HeritageSite.LEVEL_CHOICES), ensure_ascii=False),
-        'township_options_json': json.dumps(township_options, ensure_ascii=False),
-    }
-    return render(request, 'admin/heritage_dashboard.html', context)
+    """旧统计页已迁移到 Vue，保留兼容入口。"""
+    return redirect('/static/frontend/heritage/stats')
 
 
 def _extract_township_name(address):
@@ -2766,24 +2247,8 @@ def heritage_stats_by_category_api(request):
 
 @staff_member_required
 def kanerjing_list_view(request):
-    """坎儿井专项管理页面 - 基于名称包含'坎儿井'进行筛选"""
-    kanerjing_sites = HeritageSite.filter_kanerjing()
-    total_kanerjing = kanerjing_sites.count()
-    
-    # 按等级统计
-    kanerjing_by_level = kanerjing_sites.values('level').annotate(count=Count('id'))
-    level_stats = {}
-    for stat in kanerjing_by_level:
-        level_name = dict(HeritageSite.LEVEL_CHOICES).get(stat['level'], stat['level'])
-        level_stats[level_name] = stat['count']
-    
-    context = {
-        'kanerjing_sites': kanerjing_sites,
-        'total_kanerjing': total_kanerjing,
-        'level_stats': level_stats,
-        'title': '坎儿井专项管理'
-    }
-    return render(request, 'admin/kanerjing_list.html', context)
+    """旧坎儿井专项管理页已迁移到 Vue，保留兼容入口。"""
+    return redirect('/static/frontend/heritage/kanerjing')
 
 @staff_member_required
 def kanerjing_stats_api(request):
@@ -2836,17 +2301,8 @@ def kanerjing_stats_api(request):
 
 @staff_member_required
 def kanerjing_import_check_view(request):
-    """导入后检查坎儿井数据"""
-    kanerjing_count = HeritageSite.filter_kanerjing().count()
-    total_count = HeritageSite.objects.count()
-    
-    context = {
-        'kanerjing_count': kanerjing_count,
-        'total_count': total_count,
-        'kanerjing_percentage': round((kanerjing_count / total_count * 100), 1) if total_count > 0 else 0,
-        'title': '坎儿井数据检查报告'
-    }
-    return render(request, 'admin/kanerjing_import_check.html', context)
+    """旧坎儿井导入检查页已迁移到 Vue，保留兼容入口。"""
+    return redirect('/static/frontend/heritage/kanerjing/import-check')
 
 
 # 自定义密码修改完成视图
@@ -2875,162 +2331,14 @@ class CustomPasswordChangeDoneView(PasswordChangeDoneView):
 
 @staff_member_required
 def inspection_mobile_add_view(request):
-    """
-    手机端优化的巡查记录添加页面
-    提供友好的手机界面，用于现场快速添加巡查记录
-    
-    权限逻辑：
-    - 看护员用户组：inspector字段自动锁定为当前登录用户（不可修改）
-    - 其他用户（管理员等）：inspector字段可自由选择
-    """
-    import json
-    from django.contrib.auth.models import Group, User
-    from datetime import datetime
-    
-    # 检查用户是否属于"文物看护员"用户组
-    is_inspector = request.user.groups.filter(name='文物看护员').exists()
-
-    if request.method == 'POST' and is_limited_admin(request.user):
-        return JsonResponse({
-            'success': False,
-            'message': '管理员用户组仅支持查看，不允许新增或修改巡查记录'
-        }, status=403)
-    
-    if request.method == 'POST':
-        # 处理AJAX POST请求
-        try:
-            if request.content_type and 'application/json' in request.content_type:
-                data = json.loads(request.body)
-                site_id = data.get('site')
-                inspect_time = data.get('inspect_time')
-                is_normal_value = data.get('is_normal')
-                issue_details = data.get('issue_details', '')
-                inspector_id = data.get('inspector')
-                photo_file = None
-            else:
-                data = request.POST
-                site_id = data.get('site')
-                inspect_time = data.get('inspect_time')
-                is_normal_value = data.get('is_normal')
-                issue_details = data.get('issue_details', '')
-                inspector_id = data.get('inspector')
-                photo_file = request.FILES.get('photo')
-
-            # 验证必填字段
-            is_normal = str(is_normal_value).lower() == 'true'
-            
-            if not site_id or not inspect_time:
-                return JsonResponse({
-                    'success': False,
-                    'message': '请填写必填字段'
-                }, status=400)
-
-            if not photo_file:
-                return JsonResponse({
-                    'success': False,
-                    'message': '请上传现场照片（带经纬度时间水印）'
-                }, status=400)
-            
-            # 获取文物点
-            try:
-                site = HeritageSite.objects.get(id=site_id)
-            except HeritageSite.DoesNotExist:
-                return JsonResponse({
-                    'success': False,
-                    'message': '文物点不存在'
-                }, status=404)
-            
-            # 根据用户组决定 inspector 赋值方式
-            if is_inspector:
-                # 看护员用户：强制使用当前登录用户，忽略客户端提交的值
-                inspector = request.user
-            else:
-                # 其他用户（管理员等）：允许指定巡查员
-                if not inspector_id:
-                    inspector = request.user  # 如果未指定，使用当前用户
-                else:
-                    try:
-                        inspector = User.objects.get(id=inspector_id)
-                    except User.DoesNotExist:
-                        return JsonResponse({
-                            'success': False,
-                            'message': '指定的巡查员不存在'
-                        }, status=404)
-            
-            # 创建巡查记录
-            record = InspectionRecord(
-                site=site,
-                inspector=inspector,
-                inspect_time=datetime.fromisoformat(inspect_time),
-                is_normal=is_normal,
-                issue_details=issue_details,
-                photo=photo_file
-            )
-            record.save()
-            
-            return JsonResponse({
-                'success': True,
-                'message': '巡查记录已保存',
-                'record_id': record.id,
-                'inspector_name': f"{inspector.first_name or inspector.username}"  # 返回记录者信息确认
-            })
-            
-        except json.JSONDecodeError:
-            return JsonResponse({
-                'success': False,
-                'message': '请求格式错误'
-            }, status=400)
-        except Exception as e:
-            return JsonResponse({
-                'success': False,
-                'message': f'保存失败: {str(e)}'
-            }, status=500)
-    
-    # GET 请求：返回手机优化的表单页面
-    sites_data = list(
-        HeritageSite.objects.all().values(
-            'id', 'name', 'category', 'level', 'longitude', 'latitude'
-        )
-    )
-    
-    context = {
-        'sites_json': json.dumps(sites_data),  # JSON格式供前端搜索筛选
-        'sites': sites_data,  # 也提供列表格式
-        'current_user': f"{request.user.first_name or request.user.username}",
-        'is_inspector': is_inspector,  # 传递权限标志
-    }
-    
-    # 如果不是看护员，添加可选巡查员列表
-    if not is_inspector:
-        inspectors = User.objects.filter(groups__name='文物看护员').values('id', 'first_name', 'username')
-        context['inspectors'] = inspectors
-    
-    return render(request, 'admin/inspection_mobile.html', context)
+    """旧手机巡查新增页已迁移到 Vue，保留兼容入口。"""
+    return redirect('/static/frontend/heritage/inspections/new')
 
 
 @staff_member_required
 def inspection_mobile_list_view(request):
-    """
-    手机端巡查记录列表 - 卡片式展示
-    显示当前用户的所有巡查记录
-    """
-    # 获取当前用户的巡查记录 - 同时加载相关的site和inspector对象以提高效率
-    records = InspectionRecord.objects.filter(
-        inspector=request.user
-    ).select_related('site', 'inspector').order_by('-inspect_time')
-    
-    # 分页
-    from django.core.paginator import Paginator
-    paginator = Paginator(records, 10)
-    page_number = request.GET.get('page', 1)
-    page_obj = paginator.get_page(page_number)
-    
-    context = {
-        'page_obj': page_obj,
-        'records': page_obj.object_list,
-        'total_count': paginator.count,
-    }
-    return render(request, 'admin/inspection_mobile_list.html', context)
+    """旧手机巡查列表已迁移到 Vue，保留兼容入口。"""
+    return redirect('/static/frontend/heritage/inspections')
 
 
 def app_showcase_view(request):
@@ -3057,53 +2365,9 @@ def app_showcase_view(request):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 不可移动文物现场数据采集视图
+# 不可移动文物采集入口（旧平台兼容）
 # ─────────────────────────────────────────────────────────────────────────────
-from decimal import Decimal, InvalidOperation as DecimalInvalidOperation
 from django.contrib.auth.decorators import login_required
-
-
-def _normalize_collect_coord_list(raw_points):
-    normalized = []
-    if not isinstance(raw_points, list):
-        return normalized
-
-    for raw in raw_points:
-        if not isinstance(raw, dict):
-            continue
-
-        point_type = str(raw.get('type') or 'boundary').strip() or 'boundary'
-        if point_type not in {'boundary', 'marker', 'other'}:
-            point_type = 'other'
-
-        try:
-            lon = float(raw.get('longitude'))
-            lat = float(raw.get('latitude'))
-        except (TypeError, ValueError):
-            continue
-
-        if not (-180 <= lon <= 180 and -90 <= lat <= 90):
-            continue
-
-        altitude = None
-        raw_alt = raw.get('altitude')
-        if raw_alt not in (None, ''):
-            try:
-                altitude = round(float(raw_alt), 2)
-            except (TypeError, ValueError):
-                altitude = None
-
-        normalized.append({
-            'type': point_type,
-            'longitude': round(lon, 8),
-            'latitude': round(lat, 8),
-            'altitude': altitude,
-            'sourceTag': str(raw.get('sourceTag') or '').strip(),
-            'description': str(raw.get('description') or '').strip(),
-            'remark': str(raw.get('remark') or '').strip(),
-        })
-
-    return normalized
 
 
 def _format_coord_point_lines(points):
@@ -3178,265 +2442,8 @@ def _build_coord_points_display(points):
 
 @login_required
 def heritage_collect_view(request):
-    """
-    文物点现场数据采集（手机/平板端）
-
-    GET  → 渲染采集表单
-    POST → 接收表单数据，按巡查上报同规则保存照片，写入 ImmovableHeritage + HeritagePhoto
-    """
-    from .models import ImmovableHeritage, HeritagePhoto
-    from django.core.files.base import ContentFile
-
-    collect_unit = getattr(settings, "HERITAGE_COLLECT_UNIT", "文物管理部门")
-
-    if request.method == "POST" and is_limited_admin(request.user):
-        return JsonResponse(
-            {
-                "success": False,
-                "message": "管理员用户组仅支持查看采集数据，不允许创建或修改采集记录",
-            },
-            status=403,
-        )
-
-    if request.method == "POST":
-        try:
-            p = request.POST
-
-            # ── 必填字段 ────────────────────────────────────────
-            name         = p.get("name", "").strip()
-            survey_code  = p.get("survey_code", "").strip()
-            era          = p.get("era", "").strip()
-            category     = p.get("category", "").strip()
-            heritage_type = p.get("heritage_type", "").strip()
-            lon_raw      = p.get("longitude", "").strip()
-            lat_raw      = p.get("latitude", "").strip()
-
-            # ── 选填字段 ────────────────────────────────────────
-            province            = p.get("province", "").strip()
-            city                = p.get("city", "").strip()
-            county              = p.get("county", "").strip()
-            township            = p.get("township", "").strip()
-            village             = p.get("village", "").strip()
-            address             = p.get("address", "").strip()
-            coordinate_system   = p.get("coordinate_system", "CGCS2000").strip()
-            altitude_raw        = p.get("altitude", "").strip()
-            area_raw            = p.get("area", "").strip()
-            protection_level    = p.get("protection_level", "DS")
-            ownership           = p.get("ownership", "state")
-            preservation_status = p.get("preservation_status", "一般")
-            is_disappeared      = str(p.get("is_disappeared", "")).lower() in {"1", "true", "yes", "on"}
-            disappear_reason    = p.get("disappear_reason", "").strip()
-            is_relocated        = str(p.get("is_relocated", "")).lower() in {"1", "true", "yes", "on"}
-            relocation_note     = p.get("relocation_note", "").strip()
-            ownership_detail    = p.get("ownership_detail", "").strip()
-            user_unit           = p.get("user_unit", "").strip()
-            management_unit     = p.get("management_unit", "").strip()
-            manager             = p.get("manager", "").strip()
-            protection_announced_batch = p.get("protection_announced_batch", "").strip()
-            protection_announced_date_raw = p.get("protection_announced_date", "").strip()
-            has_marker_stele = str(p.get("has_marker_stele", "")).lower() in {"1", "true", "yes", "on"}
-            has_protection_zone_announced = str(p.get("has_protection_zone_announced", "")).lower() in {"1", "true", "yes", "on"}
-            has_construction_control_zone_announced = str(p.get("has_construction_control_zone_announced", "")).lower() in {"1", "true", "yes", "on"}
-            description         = p.get("description", "").strip()
-            damage_cause        = p.get("damage_cause", "").strip()
-            threat_factors      = p.get("threat_factors", "").strip()
-            former_name         = p.get("former_name", "").strip()
-            remarks             = p.get("remarks", "").strip()
-            coord_list_raw      = p.get("coord_list", "").strip()
-
-            # ── 字段验证 ────────────────────────────────────────
-            errors: dict[str, str] = {}
-
-            coord_list = []
-            if coord_list_raw:
-                try:
-                    parsed = json.loads(coord_list_raw)
-                    coord_list = _normalize_collect_coord_list(parsed)
-                except (TypeError, ValueError):
-                    errors["coord_list"] = "区块2坐标点数据格式不合法"
-            if not name:
-                errors["name"] = "文物名称不能为空"
-            if not era:
-                errors["era"] = "时代不能为空"
-            if not category:
-                errors["category"] = "文物类别不能为空"
-            if not lon_raw or not lat_raw:
-                errors["location"] = "请先点击\"获取当前位置\"以填入经纬度"
-            if is_disappeared and not disappear_reason:
-                errors["disappear_reason"] = "已标记为消失时，请填写消失原因"
-            if is_relocated and not relocation_note:
-                errors["relocation_note"] = "已标记为迁移时，请填写迁移情况说明"
-
-            # 经纬度合法性
-            longitude = latitude = None
-            if lon_raw and lat_raw:
-                try:
-                    longitude = Decimal(lon_raw)
-                    latitude  = Decimal(lat_raw)
-                    if not (-180 <= longitude <= 180):
-                        errors["longitude"] = "经度须在 -180 ~ 180 之间"
-                    if not (-90 <= latitude <= 90):
-                        errors["latitude"] = "纬度须在 -90 ~ 90 之间"
-                except DecimalInvalidOperation:
-                    errors["location"] = "经纬度格式不合法"
-
-            if errors:
-                return JsonResponse({"success": False, "errors": errors}, status=400)
-
-            protection_announced_date = None
-            if protection_announced_date_raw:
-                try:
-                    protection_announced_date = datetime.strptime(protection_announced_date_raw, "%Y-%m-%d").date()
-                except ValueError:
-                    errors["protection_announced_date"] = "公布日期格式不合法"
-
-            if errors:
-                return JsonResponse({"success": False, "errors": errors}, status=400)
-
-            altitude = None
-            if altitude_raw:
-                try:
-                    altitude = Decimal(altitude_raw)
-                except DecimalInvalidOperation:
-                    pass
-
-            area = None
-            if area_raw:
-                try:
-                    area = Decimal(area_raw)
-                except DecimalInvalidOperation:
-                    errors["area"] = "占地面积格式不合法"
-
-            if errors:
-                return JsonResponse({"success": False, "errors": errors}, status=400)
-
-            valid_coordinate_systems = {v for v, _ in ImmovableHeritage.COORDINATE_SYSTEM_CHOICES}
-            if coordinate_system not in valid_coordinate_systems:
-                coordinate_system = "CGCS2000"
-
-            valid_heritage_types = {v for v, _ in ImmovableHeritage.HERITAGE_TYPE_CHOICES}
-            if heritage_type and heritage_type not in valid_heritage_types:
-                heritage_type = ""
-
-            # ── 采集编号唯一性校验（手工填写时） ─────────────────
-            if survey_code and ImmovableHeritage.objects.filter(survey_code=survey_code).exists():
-                return JsonResponse(
-                    {"success": False, "errors": {"survey_code": "该采集编号已存在，请确认后重新输入"}},
-                    status=400,
-                )
-
-            collected_at = timezone.now()
-
-            # ── 创建文物记录 ──────────────────────────────────
-            heritage = ImmovableHeritage(
-                survey_code=survey_code,
-                former_name=former_name,
-                name=name,
-                era=era,
-                category=category,
-                heritage_type=heritage_type,
-                province=province,
-                city=city,
-                county=county,
-                township=township,
-                village=village,
-                address=address,
-                coordinate_system=coordinate_system,
-                longitude=longitude,
-                latitude=latitude,
-                altitude=altitude,
-                area=area,
-                protection_level=protection_level,
-                ownership=ownership,
-                ownership_detail=ownership_detail,
-                user_unit=user_unit,
-                management_unit=management_unit,
-                manager=manager,
-                preservation_status=preservation_status,
-                is_disappeared=is_disappeared,
-                disappear_reason=disappear_reason,
-                is_relocated=is_relocated,
-                relocation_note=relocation_note,
-                protection_announced_batch=protection_announced_batch,
-                protection_announced_date=protection_announced_date,
-                has_marker_stele=has_marker_stele,
-                has_protection_zone_announced=has_protection_zone_announced,
-                has_construction_control_zone_announced=has_construction_control_zone_announced,
-                damage_cause=damage_cause,
-                threat_factors=threat_factors,
-                description=description,
-                remarks=remarks,
-                coord_list=coord_list,
-                collector=request.user,
-                collected_at=collected_at,
-            )
-            heritage.save()
-
-            # ── 处理照片：与巡查上报保持一致，按原图保存（来源端负责水印） ────────
-            photo_files = request.FILES.getlist("photos")
-            saved_count = 0
-            photo_errors = []
-
-            for idx, photo_file in enumerate(photo_files):
-                try:
-                    content_type = (getattr(photo_file, "content_type", "") or "").lower()
-                    if content_type and not content_type.startswith("image/"):
-                        raise ValueError("仅支持图片文件")
-
-                    raw = photo_file.read()
-                    if not raw:
-                        raise ValueError("空文件")
-
-                    suffix = os.path.splitext(photo_file.name or "")[1].lower() or ".jpg"
-                    if suffix not in {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}:
-                        suffix = ".jpg"
-
-                    hp = HeritagePhoto(
-                        heritage=heritage,
-                        photo_type="overview" if idx == 0 else "detail",
-                        is_cover=(idx == 0),
-                        shot_at=collected_at,
-                        shot_longitude=longitude,
-                        shot_latitude=latitude,
-                        uploaded_by=request.user,
-                        caption=f"现场采集照片 {idx + 1}",
-                    )
-                    filename = (
-                        f"collect_{heritage.id}_"
-                        f"{timezone.localtime(timezone.now()).strftime('%Y%m%d%H%M%S')}_"
-                        f"{idx + 1:02d}_{uuid.uuid4().hex[:6]}{suffix}"
-                    )
-                    hp.image.save(filename, ContentFile(raw), save=True)
-                    saved_count += 1
-
-                except Exception as exc:
-                    photo_errors.append(f"第 {idx + 1} 张照片处理失败：{exc}")
-
-            response_data: dict = {
-                "success": True,
-                "message": f"采集成功！文物「{name}」已登记，共保存 {saved_count} 张照片。",
-                "heritage_id": heritage.id,
-            }
-            if photo_errors:
-                response_data["photo_warnings"] = photo_errors
-
-            return JsonResponse(response_data)
-
-        except Exception as exc:
-            return JsonResponse({"success": False, "message": f"采集失败：{exc}"}, status=500)
-
-    # ── GET：渲染表单页 ─────────────────────────────────────────
-    from .models import ImmovableHeritage  # noqa: F811 — 保证在 GET 路径也可用
-    context = {
-        "category_choices":           ImmovableHeritage.CATEGORY_CHOICES,
-        "heritage_type_choices":      ImmovableHeritage.HERITAGE_TYPE_CHOICES,
-        "coordinate_system_choices":  ImmovableHeritage.COORDINATE_SYSTEM_CHOICES,
-        "protection_level_choices":   ImmovableHeritage.PROTECTION_LEVEL_CHOICES,
-        "ownership_choices":          ImmovableHeritage.OWNERSHIP_CHOICES,
-        "preservation_status_choices": ImmovableHeritage.PRESERVATION_STATUS_CHOICES,
-        "collect_unit":               collect_unit,
-    }
-    return render(request, "public/heritage_collect.html", context)
+    """旧采集页面已下线，统一跳转至 Vue 文物档案管理页。"""
+    return redirect('/static/frontend/heritage/immovable')
 
 
 # ─────────────────────────────────────────────────────────────────────────────
