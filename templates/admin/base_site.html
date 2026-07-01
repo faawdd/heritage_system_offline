@@ -18,13 +18,37 @@
 
 {% block extrastyle %}
 <style>
+    :root {
+        --sys-bg: #eef5ff;
+        --sys-surface: #ffffff;
+        --sys-border: #d6e6fb;
+        --sys-text: #1b3c63;
+        --sys-muted: #5d7898;
+        --sys-accent: #5da9ff;
+        --sys-accent-hover: #3f95f5;
+        --sys-shadow: rgba(44, 108, 176, 0.18);
+    }
+
+    @media (prefers-color-scheme: dark) {
+        :root {
+            --sys-bg: #0f1b2d;
+            --sys-surface: #16263d;
+            --sys-border: #29415f;
+            --sys-text: #d5e7ff;
+            --sys-muted: #9db5d3;
+            --sys-accent: #7eb6ff;
+            --sys-accent-hover: #9cc9ff;
+            --sys-shadow: rgba(13, 25, 42, 0.5);
+        }
+    }
+
     .menu-content {
         display: block !important;
     }
 
     #header {
-        background-color: #f8f9fa;
-        border-bottom: 2px solid #e9ecef;
+        background-color: var(--sys-surface);
+        border-bottom: 2px solid var(--sys-border);
     }
     
     #site-name {
@@ -32,18 +56,18 @@
     }
     
     #site-name a {
-        color: #333;
+        color: var(--sys-text);
         text-decoration: none;
         font-size: 18px;
         font-weight: 500;
     }
     
     #site-name a:hover {
-        color: #0c63e4;
+        color: var(--sys-accent-hover);
     }
     
     #site-name img {
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 2px 6px var(--sys-shadow);
     }
     
     /* 版本号样式 */
@@ -51,24 +75,24 @@
         position: fixed;
         bottom: 0;
         right: 0;
-        background: rgba(255, 255, 255, 0.95);
-        border: 1px solid #ddd;
+        background: color-mix(in srgb, var(--sys-surface) 92%, transparent);
+        border: 1px solid var(--sys-border);
         border-bottom: none;
         border-right: none;
         padding: 8px 12px;
         font-size: 12px;
-        color: #666;
+        color: var(--sys-muted);
         border-radius: 4px 0 0 0;
         z-index: 999;
-        box-shadow: -2px -2px 4px rgba(0, 0, 0, 0.1);
+        box-shadow: -2px -2px 6px var(--sys-shadow);
         cursor: pointer;
         transition: all 0.3s ease;
     }
     
     #footer-version:hover {
-        color: #0c63e4;
-        background: rgba(255, 255, 255, 1);
-        box-shadow: -2px -2px 8px rgba(0, 0, 0, 0.15);
+        color: var(--sys-accent-hover);
+        background: var(--sys-surface);
+        box-shadow: -2px -2px 10px var(--sys-shadow);
     }
     
     #footer-version-tooltip {
@@ -76,14 +100,15 @@
         position: absolute;
         bottom: 40px;
         right: 0;
-        background: #333;
-        color: white;
+        background: var(--sys-surface);
+        color: var(--sys-text);
         padding: 10px 15px;
         border-radius: 4px;
+        border: 1px solid var(--sys-border);
         font-size: 12px;
         white-space: nowrap;
         z-index: 1000;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        box-shadow: 0 2px 10px var(--sys-shadow);
     }
     
     #footer-version:hover #footer-version-tooltip {
@@ -100,18 +125,18 @@
         gap: 6px;
         padding: 9px 14px;
         border-radius: 999px;
-        background: #0c63e4;
+        background: var(--sys-accent);
         color: #fff;
         font-size: 13px;
         font-weight: 600;
         text-decoration: none;
-        box-shadow: 0 8px 18px rgba(12, 99, 228, 0.32);
+        box-shadow: 0 8px 18px var(--sys-shadow);
         transition: transform 0.2s ease, box-shadow 0.2s ease;
     }
 
     #app-download-entry:hover {
         transform: translateY(-1px);
-        box-shadow: 0 10px 22px rgba(12, 99, 228, 0.4);
+        box-shadow: 0 10px 22px var(--sys-shadow);
         color: #fff;
         text-decoration: none;
     }
