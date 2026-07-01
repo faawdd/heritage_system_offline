@@ -188,6 +188,314 @@ class HeritageDetailAPIView(APIView):
         return Response({'success': True, 'data': payload})
 
 
+class HeritageSiteManageListAPIView(APIView):
+    permission_classes = [IsManagementAdmin]
+
+    def get(self, request):
+        keyword = (request.GET.get('keyword') or '').strip()
+        category = (request.GET.get('category') or '').strip()
+        level = (request.GET.get('level') or '').strip()
+        page = max(int(request.GET.get('page', 1) or 1), 1)
+        page_size = min(max(int(request.GET.get('page_size', 20) or 20), 1), 200)
+
+        queryset = HeritageSite.objects.all().order_by('id')
+
+        if keyword:
+            queryset = queryset.filter(
+                Q(name__icontains=keyword)
+                | Q(sip_code__icontains=keyword)
+                | Q(address__icontains=keyword)
+                | Q(manager__icontains=keyword)
+                | Q(description__icontains=keyword)
+            )
+
+        if category:
+            queryset = queryset.filter(category=category)
+        if level:
+            queryset = queryset.filter(level=level)
+
+        total = queryset.count()
+        offset = (page - 1) * page_size
+        rows = [
+            {
+                'id': item.id,
+                'name': item.name,
+                'preview_url': f'/mobile/collect/{item.id}/preview/?mode=view',
+                'sip_code': item.sip_code,
+                'category': item.category,
+                'category_label': item.get_category_display(),
+                'level': item.level,
+                'level_label': item.get_level_display(),
+                'address': item.address,
+                'longitude': item.longitude,
+                'latitude': item.latitude,
+                'manager': item.manager,
+                'description': item.description,
+                'protection_zone': item.protection_zone,
+                'control_zone': item.control_zone,
+            }
+            for item in queryset[offset: offset + page_size]
+        ]
+
+        return Response(
+            {
+                'success': True,
+                'rows': rows,
+                'meta': {
+                    'category_choices': [{'value': code, 'label': label} for code, label in HeritageSite.CATEGORY_CHOICES],
+                    'level_choices': [{'value': code, 'label': label} for code, label in HeritageSite.LEVEL_CHOICES],
+                },
+                'pagination': {
+                    'page': page,
+                    'page_size': page_size,
+                    'total': total,
+                },
+            }
+        )
+
+
+class HeritageSiteManageDetailAPIView(APIView):
+    permission_classes = [IsManagementAdmin]
+
+    def patch(self, request, site_id):
+        if not can_modify_core_data(request.user):
+            return Response({'success': False, 'message': '当前角色仅可查看，禁止修改'}, status=403)
+
+        site = HeritageSite.objects.filter(id=site_id).first()
+        if not site:
+            return Response({'success': False, 'message': '文物档案不存在'}, status=404)
+
+        if 'name' in request.data:
+            site.name = (request.data.get('name') or '').strip()
+        if not site.name:
+            return Response({'success': False, 'message': '文物名称不能为空'}, status=400)
+
+        if 'sip_code' in request.data:
+            site.sip_code = (request.data.get('sip_code') or '').strip()
+        if not site.sip_code:
+            return Response({'success': False, 'message': '四普编号不能为空'}, status=400)
+
+        if 'category' in request.data:
+            category = (request.data.get('category') or '').strip()
+            category_values = {value for value, _label in HeritageSite.CATEGORY_CHOICES}
+            if category not in category_values:
+                return Response({'success': False, 'message': '文物类别非法'}, status=400)
+            site.category = category
+
+        if 'level' in request.data:
+            level = (request.data.get('level') or '').strip()
+            level_values = {value for value, _label in HeritageSite.LEVEL_CHOICES}
+            if level not in level_values:
+                return Response({'success': False, 'message': '保护级别非法'}, status=400)
+            site.level = level
+
+        text_fields = ['address', 'manager', 'description', 'protection_zone', 'control_zone']
+        for field in text_fields:
+            if field in request.data:
+                setattr(site, field, (request.data.get(field) or '').strip())
+
+        if 'longitude' in request.data:
+            try:
+                site.longitude = float(request.data.get('longitude'))
+            except (TypeError, ValueError):
+                return Response({'success': False, 'message': '经度格式非法'}, status=400)
+
+        if 'latitude' in request.data:
+            try:
+                site.latitude = float(request.data.get('latitude'))
+            except (TypeError, ValueError):
+                return Response({'success': False, 'message': '纬度格式非法'}, status=400)
+
+        if site.longitude is None or site.latitude is None:
+            return Response({'success': False, 'message': '经纬度不能为空'}, status=400)
+
+        try:
+            site.save()
+        except Exception as exc:
+            return Response({'success': False, 'message': f'保存失败: {exc}'}, status=400)
+
+        return Response({'success': True, 'message': '文物档案已更新'})
+
+
+class HeritageSiteManageImportAPIView(APIView):
+    permission_classes = [IsManagementAdmin]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def _read_rows(self, upload_file):
+        content = upload_file.read()
+        text = ''
+        for encoding in ('utf-8-sig', 'gbk', 'utf-8'):
+            try:
+                text = content.decode(encoding)
+                break
+            except UnicodeDecodeError:
+                continue
+        if not text:
+            return []
+
+        reader = csv.DictReader(io.StringIO(text))
+        return list(reader)
+
+    def _parse_coord(self, raw_value):
+        value = (raw_value or '').strip()
+        if not value:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def post(self, request):
+        if not can_modify_core_data(request.user):
+            return Response({'success': False, 'message': '当前角色仅可查看，禁止导入'}, status=403)
+
+        upload_file = request.FILES.get('file')
+        if not upload_file:
+            return Response({'success': False, 'message': '请上传CSV文件'}, status=400)
+
+        rows = self._read_rows(upload_file)
+        if not rows:
+            return Response({'success': False, 'message': 'CSV内容为空或编码不支持'}, status=400)
+
+        category_map = {label: value for value, label in HeritageSite.CATEGORY_CHOICES}
+        level_map = {label: value for value, label in HeritageSite.LEVEL_CHOICES}
+
+        created_count = 0
+        updated_count = 0
+        skipped_rows = []
+
+        for index, row in enumerate(rows, start=2):
+            sip_code = (row.get('四普编号') or row.get('sip_code') or '').strip()
+            name = (row.get('文物名称') or row.get('name') or '').strip()
+            address = (row.get('详细地址') or row.get('address') or '').strip()
+            manager = (row.get('管理单位') or row.get('manager') or '').strip()
+            description = (row.get('现状描述') or row.get('description') or '').strip()
+            if not sip_code:
+                skipped_rows.append({'line': index, 'reason': '缺少四普编号'})
+                continue
+            if not name:
+                skipped_rows.append({'line': index, 'reason': '缺少文物名称'})
+                continue
+            if not address:
+                skipped_rows.append({'line': index, 'reason': '缺少详细地址'})
+                continue
+            if not manager:
+                skipped_rows.append({'line': index, 'reason': '缺少管理单位'})
+                continue
+
+            category_raw = (row.get('文物类别') or row.get('category') or '').strip()
+            level_raw = (row.get('保护级别') or row.get('level') or '').strip()
+            category = category_map.get(category_raw, category_raw)
+            level = level_map.get(level_raw, level_raw)
+
+            valid_categories = {value for value, _label in HeritageSite.CATEGORY_CHOICES}
+            valid_levels = {value for value, _label in HeritageSite.LEVEL_CHOICES}
+            if category not in valid_categories:
+                skipped_rows.append({'line': index, 'reason': f'文物类别非法: {category_raw}'})
+                continue
+            if level not in valid_levels:
+                skipped_rows.append({'line': index, 'reason': f'保护级别非法: {level_raw}'})
+                continue
+
+            longitude = self._parse_coord(row.get('经度') or row.get('longitude'))
+            latitude = self._parse_coord(row.get('纬度') or row.get('latitude'))
+            if longitude is None or latitude is None:
+                skipped_rows.append({'line': index, 'reason': '经纬度格式非法'})
+                continue
+
+            payload = {
+                'name': name,
+                'category': category,
+                'level': level,
+                'address': address,
+                'longitude': longitude,
+                'latitude': latitude,
+                'manager': manager,
+                'description': description,
+                'protection_zone': (row.get('保护范围坐标') or row.get('protection_zone') or '').strip(),
+                'control_zone': (row.get('建设控制地带坐标') or row.get('control_zone') or '').strip(),
+            }
+
+            _, created = HeritageSite.objects.update_or_create(sip_code=sip_code, defaults=payload)
+            if created:
+                created_count += 1
+            else:
+                updated_count += 1
+
+        return Response(
+            {
+                'success': True,
+                'message': '导入完成',
+                'data': {
+                    'created_count': created_count,
+                    'updated_count': updated_count,
+                    'skipped_count': len(skipped_rows),
+                    'skipped_rows': skipped_rows[:200],
+                },
+            }
+        )
+
+
+class HeritageSiteManageExportAPIView(APIView):
+    permission_classes = [IsManagementAdmin]
+
+    def get(self, request):
+        keyword = (request.GET.get('keyword') or '').strip()
+        category = (request.GET.get('category') or '').strip()
+        level = (request.GET.get('level') or '').strip()
+
+        queryset = HeritageSite.objects.all().order_by('id')
+        if keyword:
+            queryset = queryset.filter(
+                Q(name__icontains=keyword)
+                | Q(sip_code__icontains=keyword)
+                | Q(address__icontains=keyword)
+                | Q(manager__icontains=keyword)
+                | Q(description__icontains=keyword)
+            )
+        if category:
+            queryset = queryset.filter(category=category)
+        if level:
+            queryset = queryset.filter(level=level)
+
+        filename = f'不可移动文物档案_{timezone.localdate().isoformat()}.csv'
+        response = HttpResponse(content_type='text/csv; charset=utf-8-sig')
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+
+        response.write('\ufeff')
+        writer = csv.writer(response)
+        writer.writerow([
+            '文物名称',
+            '四普编号',
+            '文物类别',
+            '保护级别',
+            '详细地址',
+            '经度',
+            '纬度',
+            '管理单位',
+            '保护范围坐标',
+            '建设控制地带坐标',
+            '现状描述',
+        ])
+
+        for item in queryset:
+            writer.writerow([
+                item.name,
+                item.sip_code,
+                item.get_category_display(),
+                item.get_level_display(),
+                item.address,
+                item.longitude,
+                item.latitude,
+                item.manager,
+                item.protection_zone or '',
+                item.control_zone or '',
+                item.description or '',
+            ])
+
+        return response
+
+
 class ImmovableHeritageListAPIView(APIView):
     permission_classes = [IsManagementAdmin]
 

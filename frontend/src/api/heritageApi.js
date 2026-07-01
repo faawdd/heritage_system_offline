@@ -20,6 +20,31 @@ export async function fetchHeritageDetail(siteId) {
   return response.data
 }
 
+export async function fetchHeritageSiteManageList(params = {}) {
+  const response = await client.get('/api/v1/heritage/sites/', { params })
+  return response.data
+}
+
+export async function patchHeritageSiteManage(siteId, payload) {
+  const response = await client.patch(`/api/v1/heritage/sites/${siteId}/`, payload)
+  return response.data
+}
+
+export async function importHeritageSiteManage(file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  const response = await client.post('/api/v1/heritage/sites/import/', formData)
+  return response.data
+}
+
+export async function exportHeritageSiteManage(params = {}) {
+  const response = await client.get('/api/v1/heritage/sites/export/', {
+    params,
+    responseType: 'blob'
+  })
+  return response
+}
+
 export async function exportHeritageBoundary(siteId, payload) {
   const response = await client.post(`/api/v1/heritage/${siteId}/boundary-export/`, payload, {
     responseType: 'blob'

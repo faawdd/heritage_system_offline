@@ -8,6 +8,7 @@ import ProjectDetailView from '../views/projects/ProjectDetailView.vue'
 import HeritageMapView from '../views/heritage/HeritageMapView.vue'
 import HeritageStatsView from '../views/heritage/HeritageStatsView.vue'
 import HeritageDetailView from '../views/heritage/HeritageDetailView.vue'
+import HeritageSiteManageView from '../views/heritage/HeritageSiteManageView.vue'
 import InspectionRecordsView from '../views/heritage/InspectionRecordsView.vue'
 import InspectionCreateView from '../views/heritage/InspectionCreateView.vue'
 import ImmovableHeritageManageView from '../views/heritage/ImmovableHeritageManageView.vue'
@@ -40,7 +41,7 @@ const routes = [
       { path: 'projects/:projectId', component: ProjectDetailView, props: true },
       { path: 'heritage/map', component: HeritageMapView },
       { path: 'heritage/stats', component: HeritageStatsView },
-      { path: 'heritage/immovable', component: ImmovableHeritageManageView },
+      { path: 'heritage/immovable', component: HeritageSiteManageView },
       { path: 'heritage/inspections', component: InspectionRecordsView },
       { path: 'heritage/inspections/new', component: InspectionCreateView },
       { path: 'heritage/kanerjing', component: KanerjingListView },
