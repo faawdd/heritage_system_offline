@@ -204,7 +204,9 @@ const staticMenuGroups = [
       { label: '文物一张图', to: '/heritage/map' },
       { label: '文物统计', to: '/heritage/stats' },
       { label: '不可移动文物管理', to: '/heritage/immovable' },
-      { label: '巡查记录', to: '/heritage/inspections' }
+      { label: '巡查记录', to: '/heritage/inspections' },
+      { label: '坎儿井专项管理', to: '/heritage/kanerjing' },
+      { label: '坎儿井导入检查', to: '/heritage/kanerjing/import-check' }
     ]
   },
   {
@@ -257,21 +259,35 @@ function buildMenuGroupsFromTree(treeRows = []) {
   return groups
 }
 
-function ensureImmovableEntry(groups = []) {
+function ensureHeritageEntries(groups = []) {
+  const requiredItems = [
+    { label: '不可移动文物管理', to: '/heritage/immovable' },
+    { label: '巡查记录', to: '/heritage/inspections' },
+    { label: '坎儿井专项管理', to: '/heritage/kanerjing' },
+    { label: '坎儿井导入检查', to: '/heritage/kanerjing/import-check' }
+  ]
+
   return groups.map((group) => {
     const title = (group.title || '').trim()
     if (title !== '文物管理') {
       return group
     }
 
-    const hasEntry = (group.items || []).some((item) => item.to === '/heritage/immovable')
-    if (hasEntry) {
+    const existingItems = [...(group.items || [])]
+    const existingToSet = new Set(existingItems.map((item) => item.to))
+    requiredItems.forEach((item) => {
+      if (!existingToSet.has(item.to)) {
+        existingItems.push(item)
+      }
+    })
+
+    if (existingItems.length === (group.items || []).length) {
       return group
     }
 
     return {
       ...group,
-      items: [...(group.items || []), { label: '不可移动文物管理', to: '/heritage/immovable' }]
+      items: existingItems
     }
   })
 }
@@ -279,9 +295,9 @@ function ensureImmovableEntry(groups = []) {
 const menuGroups = computed(() => {
   const dynamic = buildMenuGroupsFromTree(authStore.menuTree)
   if (dynamic.length > 0) {
-    return ensureImmovableEntry(dynamic)
+    return ensureHeritageEntries(dynamic)
   }
-  return ensureImmovableEntry(staticMenuGroups)
+  return ensureHeritageEntries(staticMenuGroups)
 })
 
 const collapsedShortcutGroups = computed(() => {

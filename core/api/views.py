@@ -5,12 +5,13 @@ import uuid
 import zipfile
 import csv
 import re
-from datetime import timedelta
+from datetime import timedelta, datetime
 
 from django.conf import settings
 from django.core.cache import cache
 from django.db.models import Q, Count
 from django.http import HttpResponse
+from django.contrib.auth.models import User
 from django.utils import timezone
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAdminUser
@@ -18,7 +19,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core import views as legacy_views
-from core.models import HeritageSite, InspectionRecord, KmlUploadRecord, LandUseProjectApproval, ProjectAudit
+from core.models import HeritageSite, ImmovableHeritage, InspectionRecord, KmlUploadRecord, LandUseProjectApproval, ProjectAudit
 from core.permission_decorators import can_modify_core_data
 from core.permissions.api_permissions import IsManagementAdmin
 from core.services.heritage_service import (
@@ -197,12 +198,12 @@ class ImmovableHeritageListAPIView(APIView):
         page = max(int(request.GET.get('page', 1) or 1), 1)
         page_size = min(max(int(request.GET.get('page_size', 20) or 20), 1), 200)
 
-        queryset = HeritageSite.objects.all().order_by('id')
+        queryset = ImmovableHeritage.objects.select_related('collector', 'input_by', 'reviewer').all().order_by('id')
 
         if keyword:
             queryset = queryset.filter(
                 Q(name__icontains=keyword)
-                | Q(sip_code__icontains=keyword)
+                | Q(survey_code__icontains=keyword)
                 | Q(address__icontains=keyword)
                 | Q(manager__icontains=keyword)
                 | Q(description__icontains=keyword)
@@ -211,7 +212,7 @@ class ImmovableHeritageListAPIView(APIView):
         if category:
             queryset = queryset.filter(category=category)
         if level:
-            queryset = queryset.filter(level=level)
+            queryset = queryset.filter(protection_level=level)
 
         total = queryset.count()
         offset = (page - 1) * page_size
@@ -222,18 +223,46 @@ class ImmovableHeritageListAPIView(APIView):
                     'id': item.id,
                     'name': item.name,
                     'preview_url': f'/mobile/collect/{item.id}/preview/?mode=view',
-                    'sip_code': item.sip_code,
+                    'sip_code': item.survey_code,
+                    'survey_code': item.survey_code,
+                    'former_name': item.former_name,
+                    'era': item.era,
                     'category': item.category,
                     'category_label': item.get_category_display(),
-                    'level': item.level,
-                    'level_label': item.get_level_display(),
+                    'level': item.protection_level,
+                    'level_label': item.get_protection_level_display(),
+                    'heritage_type': item.heritage_type,
                     'address': item.address,
                     'longitude': item.longitude,
                     'latitude': item.latitude,
+                    'coordinate_system': item.coordinate_system,
+                    'altitude': item.altitude,
+                    'area': item.area,
+                    'province': item.province,
+                    'city': item.city,
+                    'county': item.county,
+                    'township': item.township,
+                    'village': item.village,
                     'manager': item.manager,
+                    'ownership': item.ownership,
+                    'ownership_detail': item.ownership_detail,
+                    'user_unit': item.user_unit,
+                    'management_unit': item.management_unit,
+                    'preservation_status': item.preservation_status,
+                    'is_disappeared': item.is_disappeared,
+                    'disappear_reason': item.disappear_reason,
+                    'is_relocated': item.is_relocated,
+                    'relocation_note': item.relocation_note,
+                    'protection_announced_batch': item.protection_announced_batch,
+                    'protection_announced_date': item.protection_announced_date,
+                    'has_marker_stele': item.has_marker_stele,
+                    'has_protection_zone_announced': item.has_protection_zone_announced,
+                    'has_construction_control_zone_announced': item.has_construction_control_zone_announced,
                     'description': item.description,
-                    'protection_zone': item.protection_zone,
-                    'control_zone': item.control_zone,
+                    'damage_cause': item.damage_cause,
+                    'threat_factors': item.threat_factors,
+                    'remarks': item.remarks,
+                    'coord_list': item.coord_list,
                 }
             )
 
@@ -242,8 +271,10 @@ class ImmovableHeritageListAPIView(APIView):
                 'success': True,
                 'rows': rows,
                 'meta': {
-                    'category_choices': [{'value': code, 'label': label} for code, label in HeritageSite.CATEGORY_CHOICES],
-                    'level_choices': [{'value': code, 'label': label} for code, label in HeritageSite.LEVEL_CHOICES],
+                    'category_choices': [{'value': code, 'label': label} for code, label in ImmovableHeritage.CATEGORY_CHOICES],
+                    'level_choices': [{'value': code, 'label': label} for code, label in ImmovableHeritage.PROTECTION_LEVEL_CHOICES],
+                    'ownership_choices': [{'value': code, 'label': label} for code, label in ImmovableHeritage.OWNERSHIP_CHOICES],
+                    'preservation_choices': [{'value': code, 'label': label} for code, label in ImmovableHeritage.PRESERVATION_STATUS_CHOICES],
                 },
                 'pagination': {
                     'page': page,
@@ -261,43 +292,125 @@ class ImmovableHeritageDetailAPIView(APIView):
         if not can_modify_core_data(request.user):
             return Response({'success': False, 'message': '当前角色仅可查看，禁止修改'}, status=403)
 
-        site = HeritageSite.objects.filter(id=site_id).first()
-        if not site:
+        heritage = ImmovableHeritage.objects.filter(id=site_id).first()
+        if not heritage:
             return Response({'success': False, 'message': '文物档案不存在'}, status=404)
 
-        text_fields = ['name', 'sip_code', 'address', 'manager', 'description', 'protection_zone', 'control_zone']
+        text_fields = [
+            'survey_code', 'name', 'former_name', 'era', 'heritage_type',
+            'province', 'city', 'county', 'township', 'village', 'address',
+            'manager', 'ownership_detail', 'user_unit', 'management_unit',
+            'disappear_reason', 'relocation_note', 'protection_announced_batch',
+            'description', 'damage_cause', 'threat_factors', 'remarks'
+        ]
         for field in text_fields:
             if field in request.data:
-                setattr(site, field, (request.data.get(field) or '').strip())
+                setattr(heritage, field, (request.data.get(field) or '').strip())
 
         if 'category' in request.data:
             category = (request.data.get('category') or '').strip()
-            category_values = {value for value, _label in HeritageSite.CATEGORY_CHOICES}
+            category_values = {value for value, _label in ImmovableHeritage.CATEGORY_CHOICES}
             if category not in category_values:
                 return Response({'success': False, 'message': '文物类别非法'}, status=400)
-            site.category = category
+            heritage.category = category
 
         if 'level' in request.data:
             level = (request.data.get('level') or '').strip()
-            level_values = {value for value, _label in HeritageSite.LEVEL_CHOICES}
+            level_values = {value for value, _label in ImmovableHeritage.PROTECTION_LEVEL_CHOICES}
             if level not in level_values:
                 return Response({'success': False, 'message': '保护级别非法'}, status=400)
-            site.level = level
+            heritage.protection_level = level
+
+        if 'ownership' in request.data:
+            ownership = (request.data.get('ownership') or '').strip()
+            ownership_values = {value for value, _label in ImmovableHeritage.OWNERSHIP_CHOICES}
+            if ownership not in ownership_values:
+                return Response({'success': False, 'message': '权属非法'}, status=400)
+            heritage.ownership = ownership
+
+        if 'preservation_status' in request.data:
+            status_value = (request.data.get('preservation_status') or '').strip()
+            status_values = {value for value, _label in ImmovableHeritage.PRESERVATION_STATUS_CHOICES}
+            if status_value not in status_values:
+                return Response({'success': False, 'message': '保存现状非法'}, status=400)
+            heritage.preservation_status = status_value
+
+        if 'coordinate_system' in request.data:
+            coord_system = (request.data.get('coordinate_system') or '').strip()
+            coord_values = {value for value, _label in ImmovableHeritage.COORDINATE_SYSTEM_CHOICES}
+            if coord_system not in coord_values:
+                return Response({'success': False, 'message': '坐标系非法'}, status=400)
+            heritage.coordinate_system = coord_system
 
         if 'longitude' in request.data:
             try:
-                site.longitude = float(request.data.get('longitude'))
+                heritage.longitude = float(request.data.get('longitude'))
             except (TypeError, ValueError):
                 return Response({'success': False, 'message': '经度格式非法'}, status=400)
 
         if 'latitude' in request.data:
             try:
-                site.latitude = float(request.data.get('latitude'))
+                heritage.latitude = float(request.data.get('latitude'))
             except (TypeError, ValueError):
                 return Response({'success': False, 'message': '纬度格式非法'}, status=400)
 
+        if 'altitude' in request.data:
+            raw_altitude = request.data.get('altitude')
+            if raw_altitude in (None, ''):
+                heritage.altitude = None
+            else:
+                try:
+                    heritage.altitude = float(raw_altitude)
+                except (TypeError, ValueError):
+                    return Response({'success': False, 'message': '海拔格式非法'}, status=400)
+
+        if 'area' in request.data:
+            raw_area = request.data.get('area')
+            if raw_area in (None, ''):
+                heritage.area = None
+            else:
+                try:
+                    heritage.area = float(raw_area)
+                except (TypeError, ValueError):
+                    return Response({'success': False, 'message': '占地面积格式非法'}, status=400)
+
+        if 'coord_list' in request.data:
+            coord_list = request.data.get('coord_list')
+            if coord_list in (None, ''):
+                heritage.coord_list = []
+            elif isinstance(coord_list, list):
+                heritage.coord_list = coord_list
+            else:
+                return Response({'success': False, 'message': '坐标点列表格式非法'}, status=400)
+
+        bool_fields = [
+            'is_disappeared',
+            'is_relocated',
+            'has_marker_stele',
+            'has_protection_zone_announced',
+            'has_construction_control_zone_announced',
+        ]
+        for field in bool_fields:
+            if field in request.data:
+                value = request.data.get(field)
+                if isinstance(value, bool):
+                    parsed = value
+                else:
+                    parsed = str(value).strip().lower() in {'1', 'true', 'yes', 'on'}
+                setattr(heritage, field, parsed)
+
+        if 'protection_announced_date' in request.data:
+            raw_date = (request.data.get('protection_announced_date') or '').strip()
+            if not raw_date:
+                heritage.protection_announced_date = None
+            else:
+                try:
+                    heritage.protection_announced_date = datetime.strptime(raw_date, '%Y-%m-%d').date()
+                except ValueError:
+                    return Response({'success': False, 'message': '公布日期格式非法，应为YYYY-MM-DD'}, status=400)
+
         try:
-            site.save()
+            heritage.save()
         except Exception as exc:
             return Response({'success': False, 'message': f'保存失败: {exc}'}, status=400)
 
@@ -495,6 +608,53 @@ class ImmovableHeritageExportAPIView(APIView):
 
 class InspectionListAPIView(APIView):
     permission_classes = [IsManagementAdmin]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def _serialize_row(self, item, request):
+        return {
+            'id': item.id,
+            'site_id': item.site_id,
+            'site_name': item.site.name if item.site else '-',
+            'site_code': item.site.sip_code if item.site else '-',
+            'inspector_id': item.inspector_id,
+            'inspector_name': item.inspector.first_name or item.inspector.username,
+            'inspect_time': item.inspect_time.strftime('%Y-%m-%d %H:%M'),
+            'is_normal': item.is_normal,
+            'issue_details': item.issue_details or '',
+            'latitude': item.latitude,
+            'longitude': item.longitude,
+            'photo_url': request.build_absolute_uri(item.photo.url) if item.photo else '',
+        }
+
+    def _parse_bool(self, value, default=True):
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return value
+        return str(value).strip().lower() in {'1', 'true', 'yes', 'on'}
+
+    def _parse_optional_float(self, value, field_label):
+        if value in (None, ''):
+            return None, None
+        try:
+            return float(value), None
+        except (TypeError, ValueError):
+            return None, f'{field_label}格式非法'
+
+    def _parse_inspect_time(self, raw_value):
+        value = (raw_value or '').strip()
+        if not value:
+            return None, None
+
+        normalized = value.replace('Z', '+00:00').replace('T', ' ')
+        try:
+            parsed = datetime.fromisoformat(normalized)
+        except ValueError:
+            return None, '巡查时间格式非法'
+
+        if timezone.is_naive(parsed):
+            parsed = timezone.make_aware(parsed, timezone.get_current_timezone())
+        return parsed, None
 
     def get(self, request):
         keyword = (request.GET.get('keyword') or '').strip()
@@ -522,22 +682,7 @@ class InspectionListAPIView(APIView):
         offset = (page - 1) * page_size
         rows = []
         for item in queryset[offset: offset + page_size]:
-            rows.append(
-                {
-                    'id': item.id,
-                    'site_id': item.site_id,
-                    'site_name': item.site.name if item.site else '-',
-                    'site_code': item.site.sip_code if item.site else '-',
-                    'inspector_id': item.inspector_id,
-                    'inspector_name': item.inspector.first_name or item.inspector.username,
-                    'inspect_time': item.inspect_time.strftime('%Y-%m-%d %H:%M'),
-                    'is_normal': item.is_normal,
-                    'issue_details': item.issue_details or '',
-                    'latitude': item.latitude,
-                    'longitude': item.longitude,
-                    'photo_url': request.build_absolute_uri(item.photo.url) if item.photo else '',
-                }
-            )
+            rows.append(self._serialize_row(item, request))
 
         return Response(
             {
@@ -547,6 +692,125 @@ class InspectionListAPIView(APIView):
                     'page': page,
                     'page_size': page_size,
                     'total': total,
+                },
+            }
+        )
+
+    def post(self, request):
+        if not can_modify_core_data(request.user):
+            return Response({'success': False, 'message': '当前角色仅可查看，禁止新增巡查记录'}, status=403)
+
+        site_id = request.data.get('site_id') or request.data.get('site')
+        if not site_id:
+            return Response({'success': False, 'message': '请选择巡查文物点'}, status=400)
+
+        try:
+            site_id = int(site_id)
+        except (TypeError, ValueError):
+            return Response({'success': False, 'message': '文物点ID格式非法'}, status=400)
+
+        site = HeritageSite.objects.filter(id=site_id).first()
+        if not site:
+            return Response({'success': False, 'message': '巡查文物点不存在'}, status=404)
+
+        inspector = request.user
+        inspector_id = request.data.get('inspector_id')
+        if inspector_id not in (None, ''):
+            try:
+                inspector = User.objects.filter(id=int(inspector_id), is_active=True).first()
+            except (TypeError, ValueError):
+                inspector = None
+            if not inspector:
+                return Response({'success': False, 'message': '巡查员不存在或已禁用'}, status=400)
+
+        latitude, lat_err = self._parse_optional_float(request.data.get('latitude'), '纬度')
+        if lat_err:
+            return Response({'success': False, 'message': lat_err}, status=400)
+
+        longitude, lon_err = self._parse_optional_float(request.data.get('longitude'), '经度')
+        if lon_err:
+            return Response({'success': False, 'message': lon_err}, status=400)
+
+        inspect_time, time_err = self._parse_inspect_time(request.data.get('inspect_time'))
+        if time_err:
+            return Response({'success': False, 'message': time_err}, status=400)
+
+        photo = request.FILES.get('photo')
+        if not photo:
+            return Response({'success': False, 'message': '请上传现场照片'}, status=400)
+
+        item = InspectionRecord.objects.create(
+            site=site,
+            inspector=inspector,
+            is_normal=self._parse_bool(request.data.get('is_normal'), default=True),
+            issue_details=(request.data.get('issue_details') or '').strip(),
+            latitude=latitude,
+            longitude=longitude,
+            photo=photo,
+        )
+
+        if inspect_time:
+            InspectionRecord.objects.filter(id=item.id).update(inspect_time=inspect_time)
+            item.refresh_from_db()
+
+        return Response(
+            {
+                'success': True,
+                'message': '巡查记录创建成功',
+                'data': self._serialize_row(item, request),
+            },
+            status=201,
+        )
+
+
+class InspectionMetaAPIView(APIView):
+    permission_classes = [IsManagementAdmin]
+
+    def get(self, request):
+        keyword = (request.GET.get('keyword') or '').strip()
+        limit = min(max(int(request.GET.get('limit', 80) or 80), 1), 300)
+
+        site_queryset = HeritageSite.objects.all().order_by('name')
+        if keyword:
+            site_queryset = site_queryset.filter(
+                Q(name__icontains=keyword)
+                | Q(sip_code__icontains=keyword)
+                | Q(address__icontains=keyword)
+            )
+
+        site_options = [
+            {
+                'id': site.id,
+                'name': site.name,
+                'sip_code': site.sip_code,
+                'address': site.address,
+            }
+            for site in site_queryset[:limit]
+        ]
+
+        inspector_queryset = User.objects.filter(is_active=True).order_by('username')
+        inspector_options = [
+            {
+                'id': user.id,
+                'name': user.first_name or user.username,
+                'username': user.username,
+            }
+            for user in inspector_queryset[:300]
+        ]
+
+        return Response(
+            {
+                'success': True,
+                'data': {
+                    'site_options': site_options,
+                    'inspector_options': inspector_options,
+                    'defaults': {
+                        'inspector_id': request.user.id,
+                        'is_normal': True,
+                    },
+                    'permissions': {
+                        'can_create': can_modify_core_data(request.user),
+                    },
                 },
             }
         )
@@ -622,6 +886,137 @@ class InspectionDetailAPIView(APIView):
             return Response({'success': False, 'message': '巡查记录不存在'}, status=404)
         item.delete()
         return Response({'success': True, 'message': '巡查记录已删除'})
+
+
+class KanerjingListAPIView(APIView):
+    permission_classes = [IsManagementAdmin]
+
+    def get(self, request):
+        keyword = (request.GET.get('keyword') or '').strip()
+        level = (request.GET.get('level') or '').strip()
+        page = max(int(request.GET.get('page', 1) or 1), 1)
+        page_size = min(max(int(request.GET.get('page_size', 20) or 20), 1), 200)
+
+        queryset = HeritageSite.filter_kanerjing().order_by('id')
+        if keyword:
+            queryset = queryset.filter(
+                Q(name__icontains=keyword)
+                | Q(sip_code__icontains=keyword)
+                | Q(address__icontains=keyword)
+                | Q(manager__icontains=keyword)
+                | Q(description__icontains=keyword)
+            )
+        if level:
+            queryset = queryset.filter(level=level)
+
+        total = queryset.count()
+        offset = (page - 1) * page_size
+        rows = [
+            {
+                'id': item.id,
+                'name': item.name,
+                'sip_code': item.sip_code,
+                'category': item.category,
+                'category_label': item.get_category_display(),
+                'level': item.level,
+                'level_label': item.get_level_display(),
+                'address': item.address,
+                'longitude': item.longitude,
+                'latitude': item.latitude,
+                'manager': item.manager,
+                'description': item.description,
+                'created_at': item.created_at.strftime('%Y-%m-%d %H:%M'),
+            }
+            for item in queryset[offset: offset + page_size]
+        ]
+
+        level_counter = {
+            item['level']: item['count']
+            for item in queryset.values('level').annotate(count=Count('id'))
+        }
+
+        return Response(
+            {
+                'success': True,
+                'rows': rows,
+                'meta': {
+                    'level_choices': [{'value': code, 'label': label} for code, label in HeritageSite.LEVEL_CHOICES],
+                    'level_stats': [
+                        {
+                            'value': code,
+                            'label': label,
+                            'count': level_counter.get(code, 0),
+                        }
+                        for code, label in HeritageSite.LEVEL_CHOICES
+                    ],
+                    'total_count': total,
+                },
+                'pagination': {
+                    'page': page,
+                    'page_size': page_size,
+                    'total': total,
+                },
+            }
+        )
+
+
+class KanerjingImportCheckAPIView(APIView):
+    permission_classes = [IsManagementAdmin]
+
+    def get(self, request):
+        kanerjing_queryset = HeritageSite.filter_kanerjing()
+        kanerjing_count = kanerjing_queryset.count()
+        total_count = HeritageSite.objects.count()
+
+        level_breakdown = []
+        for level_code, level_name in HeritageSite.LEVEL_CHOICES:
+            level_breakdown.append(
+                {
+                    'value': level_code,
+                    'label': level_name,
+                    'count': kanerjing_queryset.filter(level=level_code).count(),
+                }
+            )
+
+        def normalize_address(address):
+            text = str(address or '').strip()
+            if not text:
+                return '未标注镇乡'
+
+            township_name = legacy_views._extract_township_name(text)
+            if township_name:
+                return township_name
+
+            matches = re.findall(r'([\u4e00-\u9fa5]{1,12}(?:回族乡|乡|镇|街道))', text)
+            if matches:
+                return matches[-1]
+            return '未标注镇乡'
+
+        address_counter = {}
+        for address in kanerjing_queryset.values_list('address', flat=True):
+            normalized = normalize_address(address)
+            address_counter[normalized] = address_counter.get(normalized, 0) + 1
+
+        top_addresses = [
+            {
+                'township': addr,
+                'count': count,
+            }
+            for addr, count in sorted(address_counter.items(), key=lambda item: (-item[1], item[0]))[:10]
+        ]
+
+        return Response(
+            {
+                'success': True,
+                'data': {
+                    'kanerjing_count': kanerjing_count,
+                    'total_count': total_count,
+                    'kanerjing_percentage': round((kanerjing_count / total_count * 100), 1) if total_count else 0,
+                    'level_breakdown': level_breakdown,
+                    'top_addresses': top_addresses,
+                },
+            }
+        )
 
 
 class GisKmlRecordsAPIView(APIView):

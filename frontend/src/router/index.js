@@ -9,7 +9,10 @@ import HeritageMapView from '../views/heritage/HeritageMapView.vue'
 import HeritageStatsView from '../views/heritage/HeritageStatsView.vue'
 import HeritageDetailView from '../views/heritage/HeritageDetailView.vue'
 import InspectionRecordsView from '../views/heritage/InspectionRecordsView.vue'
+import InspectionCreateView from '../views/heritage/InspectionCreateView.vue'
 import ImmovableHeritageManageView from '../views/heritage/ImmovableHeritageManageView.vue'
+import KanerjingListView from '../views/heritage/KanerjingListView.vue'
+import KanerjingImportCheckView from '../views/heritage/KanerjingImportCheckView.vue'
 import KmlManagementView from '../views/gis/KmlManagementView.vue'
 import KmlProcessConvertView from '../views/gis/KmlProcessConvertView.vue'
 import OvkmlConvertView from '../views/gis/OvkmlConvertView.vue'
@@ -39,6 +42,9 @@ const routes = [
       { path: 'heritage/stats', component: HeritageStatsView },
       { path: 'heritage/immovable', component: ImmovableHeritageManageView },
       { path: 'heritage/inspections', component: InspectionRecordsView },
+      { path: 'heritage/inspections/new', component: InspectionCreateView },
+      { path: 'heritage/kanerjing', component: KanerjingListView },
+      { path: 'heritage/kanerjing/import-check', component: KanerjingImportCheckView },
       { path: 'heritage/:siteId', component: HeritageDetailView, props: true },
       { path: 'gis/kml-management', component: KmlManagementView },
       { path: 'gis/kml-process-convert', component: KmlProcessConvertView },
