@@ -19,7 +19,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core import views as legacy_views
-from core.models import HeritageSite, ImmovableHeritage, InspectionRecord, KmlUploadRecord, LandUseProjectApproval, ProjectAudit
+from core.models import HeritagePhoto, HeritageSite, ImmovableHeritage, InspectionRecord, KmlUploadRecord, LandUseProjectApproval, ProjectAudit
 from core.permission_decorators import can_modify_core_data
 from core.permissions.api_permissions import IsManagementAdmin
 from core.services.heritage_service import (
@@ -417,6 +417,211 @@ class ImmovableHeritageDetailAPIView(APIView):
         return Response({'success': True, 'message': '文物档案已更新'})
 
 
+class ImmovableHeritageCollectAPIView(APIView):
+    permission_classes = [IsManagementAdmin]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def _parse_bool(self, value, default=False):
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return value
+        return str(value).strip().lower() in {'1', 'true', 'yes', 'on'}
+
+    def _parse_optional_float(self, value, field_name):
+        if value in (None, ''):
+            return None, None
+        try:
+            return float(value), None
+        except (TypeError, ValueError):
+            return None, f'{field_name}格式非法'
+
+    def get(self, request):
+        return Response(
+            {
+                'success': True,
+                'data': {
+                    'category_choices': [{'value': code, 'label': label} for code, label in ImmovableHeritage.CATEGORY_CHOICES],
+                    'heritage_type_choices': [{'value': code, 'label': label} for code, label in ImmovableHeritage.HERITAGE_TYPE_CHOICES],
+                    'coordinate_system_choices': [{'value': code, 'label': label} for code, label in ImmovableHeritage.COORDINATE_SYSTEM_CHOICES],
+                    'protection_level_choices': [{'value': code, 'label': label} for code, label in ImmovableHeritage.PROTECTION_LEVEL_CHOICES],
+                    'ownership_choices': [{'value': code, 'label': label} for code, label in ImmovableHeritage.OWNERSHIP_CHOICES],
+                    'preservation_status_choices': [{'value': code, 'label': label} for code, label in ImmovableHeritage.PRESERVATION_STATUS_CHOICES],
+                    'defaults': {
+                        'coordinate_system': 'CGCS2000',
+                        'protection_level': 'DS',
+                        'ownership': 'state',
+                        'preservation_status': '一般',
+                        'province': '新疆维吾尔自治区',
+                        'city': '吐鲁番市',
+                        'county': '鄯善县',
+                    },
+                },
+            }
+        )
+
+    def post(self, request):
+        if not can_modify_core_data(request.user):
+            return Response({'success': False, 'message': '当前角色仅可查看，禁止新增采集记录'}, status=403)
+
+        data = request.data
+        name = (data.get('name') or '').strip()
+        era = (data.get('era') or '').strip()
+        category = (data.get('category') or '').strip()
+        address = (data.get('address') or '').strip()
+        province = (data.get('province') or '').strip()
+
+        if not name:
+            return Response({'success': False, 'message': '文物名称不能为空'}, status=400)
+        if not era:
+            return Response({'success': False, 'message': '时代不能为空'}, status=400)
+        if not category:
+            return Response({'success': False, 'message': '文物类别不能为空'}, status=400)
+        if not address:
+            return Response({'success': False, 'message': '详细地址不能为空'}, status=400)
+        if not province:
+            return Response({'success': False, 'message': '省级行政区不能为空'}, status=400)
+
+        valid_categories = {value for value, _ in ImmovableHeritage.CATEGORY_CHOICES}
+        if category not in valid_categories:
+            return Response({'success': False, 'message': '文物类别非法'}, status=400)
+
+        longitude, lon_err = self._parse_optional_float(data.get('longitude'), '经度')
+        latitude, lat_err = self._parse_optional_float(data.get('latitude'), '纬度')
+        if lon_err or lat_err:
+            return Response({'success': False, 'message': lon_err or lat_err}, status=400)
+        if longitude is None or latitude is None:
+            return Response({'success': False, 'message': '经纬度不能为空'}, status=400)
+        if not (-180 <= longitude <= 180):
+            return Response({'success': False, 'message': '经度须在 -180 到 180 之间'}, status=400)
+        if not (-90 <= latitude <= 90):
+            return Response({'success': False, 'message': '纬度须在 -90 到 90 之间'}, status=400)
+
+        coordinate_system = (data.get('coordinate_system') or 'CGCS2000').strip()
+        valid_coord_systems = {value for value, _ in ImmovableHeritage.COORDINATE_SYSTEM_CHOICES}
+        if coordinate_system not in valid_coord_systems:
+            return Response({'success': False, 'message': '坐标系非法'}, status=400)
+
+        protection_level = (data.get('protection_level') or 'DS').strip()
+        valid_levels = {value for value, _ in ImmovableHeritage.PROTECTION_LEVEL_CHOICES}
+        if protection_level not in valid_levels:
+            return Response({'success': False, 'message': '保护级别非法'}, status=400)
+
+        ownership = (data.get('ownership') or 'state').strip()
+        valid_ownership = {value for value, _ in ImmovableHeritage.OWNERSHIP_CHOICES}
+        if ownership not in valid_ownership:
+            return Response({'success': False, 'message': '权属非法'}, status=400)
+
+        preservation_status = (data.get('preservation_status') or '一般').strip()
+        valid_preservation = {value for value, _ in ImmovableHeritage.PRESERVATION_STATUS_CHOICES}
+        if preservation_status not in valid_preservation:
+            return Response({'success': False, 'message': '保存现状非法'}, status=400)
+
+        heritage_type = (data.get('heritage_type') or '').strip()
+        if heritage_type:
+            valid_types = {value for value, _ in ImmovableHeritage.HERITAGE_TYPE_CHOICES}
+            if heritage_type not in valid_types:
+                return Response({'success': False, 'message': '文物类型非法'}, status=400)
+
+        altitude, alt_err = self._parse_optional_float(data.get('altitude'), '海拔')
+        area, area_err = self._parse_optional_float(data.get('area'), '占地面积')
+        if alt_err or area_err:
+            return Response({'success': False, 'message': alt_err or area_err}, status=400)
+
+        coord_list = []
+        raw_coord_list = data.get('coord_list')
+        if raw_coord_list not in (None, ''):
+            if isinstance(raw_coord_list, list):
+                coord_list = raw_coord_list
+            else:
+                try:
+                    coord_list = json.loads(raw_coord_list)
+                except (TypeError, ValueError):
+                    return Response({'success': False, 'message': '坐标点列表格式非法'}, status=400)
+            if not isinstance(coord_list, list):
+                return Response({'success': False, 'message': '坐标点列表格式非法'}, status=400)
+
+        announced_date = None
+        raw_announced_date = (data.get('protection_announced_date') or '').strip()
+        if raw_announced_date:
+            try:
+                announced_date = datetime.strptime(raw_announced_date, '%Y-%m-%d').date()
+            except ValueError:
+                return Response({'success': False, 'message': '公布日期格式非法，应为YYYY-MM-DD'}, status=400)
+
+        heritage = ImmovableHeritage.objects.create(
+            survey_code=(data.get('survey_code') or '').strip(),
+            previous_survey_code=(data.get('previous_survey_code') or '').strip(),
+            name=name,
+            former_name=(data.get('former_name') or '').strip(),
+            era=era,
+            category=category,
+            heritage_type=heritage_type,
+            province=province,
+            city=(data.get('city') or '').strip(),
+            county=(data.get('county') or '').strip(),
+            township=(data.get('township') or '').strip(),
+            village=(data.get('village') or '').strip(),
+            address=address,
+            coordinate_system=coordinate_system,
+            longitude=longitude,
+            latitude=latitude,
+            altitude=altitude,
+            area=area,
+            preservation_status=preservation_status,
+            damage_cause=(data.get('damage_cause') or '').strip(),
+            threat_factors=(data.get('threat_factors') or '').strip(),
+            is_disappeared=self._parse_bool(data.get('is_disappeared'), default=False),
+            disappear_reason=(data.get('disappear_reason') or '').strip(),
+            is_relocated=self._parse_bool(data.get('is_relocated'), default=False),
+            relocation_note=(data.get('relocation_note') or '').strip(),
+            ownership=ownership,
+            ownership_detail=(data.get('ownership_detail') or '').strip(),
+            user_unit=(data.get('user_unit') or '').strip(),
+            management_unit=(data.get('management_unit') or '').strip(),
+            manager=(data.get('manager') or '').strip(),
+            protection_level=protection_level,
+            protection_announced_batch=(data.get('protection_announced_batch') or '').strip(),
+            protection_announced_date=announced_date,
+            has_marker_stele=self._parse_bool(data.get('has_marker_stele'), default=False),
+            has_protection_zone_announced=self._parse_bool(data.get('has_protection_zone_announced'), default=False),
+            has_construction_control_zone_announced=self._parse_bool(data.get('has_construction_control_zone_announced'), default=False),
+            description=(data.get('description') or '').strip(),
+            remarks=(data.get('remarks') or '').strip(),
+            coord_list=coord_list,
+            collector=request.user,
+            input_by=request.user,
+            collected_at=timezone.now(),
+        )
+
+        uploaded_photos = request.FILES.getlist('photos')
+        for index, photo in enumerate(uploaded_photos):
+            HeritagePhoto.objects.create(
+                heritage=heritage,
+                image=photo,
+                photo_type='overview' if index == 0 else 'detail',
+                is_cover=(index == 0),
+                caption=f'现场采集照片 {index + 1}',
+                shot_at=timezone.now(),
+                shot_longitude=longitude,
+                shot_latitude=latitude,
+                uploaded_by=request.user,
+            )
+
+        return Response(
+            {
+                'success': True,
+                'message': '采集记录创建成功',
+                'data': {
+                    'id': heritage.id,
+                    'survey_code': heritage.survey_code,
+                    'name': heritage.name,
+                },
+            },
+            status=201,
+        )
+
+
 class ImmovableHeritageImportAPIView(APIView):
     permission_classes = [IsManagementAdmin]
     parser_classes = [MultiPartParser, FormParser]
@@ -445,31 +650,59 @@ class ImmovableHeritageImportAPIView(APIView):
         if not reader.fieldnames:
             return Response({'success': False, 'message': 'CSV表头为空'}, status=400)
 
-        category_map = {label: value for value, label in HeritageSite.CATEGORY_CHOICES}
-        level_map = {label: value for value, label in HeritageSite.LEVEL_CHOICES}
+        category_map = {label: value for value, label in ImmovableHeritage.CATEGORY_CHOICES}
+        level_map = {label: value for value, label in ImmovableHeritage.PROTECTION_LEVEL_CHOICES}
+        ownership_map = {label: value for value, label in ImmovableHeritage.OWNERSHIP_CHOICES}
+        preservation_map = {label: value for value, label in ImmovableHeritage.PRESERVATION_STATUS_CHOICES}
 
         updated_count = 0
         created_count = 0
         skipped_rows = []
 
         for index, row in enumerate(reader, start=2):
-            sip_code = (row.get('四普编号') or row.get('sip_code') or '').strip()
-            if not sip_code:
-                skipped_rows.append({'line': index, 'reason': '缺少四普编号'})
+            survey_code = (row.get('采集编号') or row.get('survey_code') or row.get('四普编号') or row.get('sip_code') or '').strip()
+            name = (row.get('文物名称') or row.get('name') or '').strip()
+            era = (row.get('时代') or row.get('era') or '').strip()
+            province = (row.get('省/自治区/直辖市') or row.get('省') or row.get('province') or '').strip()
+            address = (row.get('详细地址') or row.get('address') or '').strip()
+
+            if not name:
+                skipped_rows.append({'line': index, 'reason': '缺少文物名称'})
+                continue
+            if not era:
+                skipped_rows.append({'line': index, 'reason': '缺少时代'})
+                continue
+            if not province:
+                skipped_rows.append({'line': index, 'reason': '缺少省级行政区'})
+                continue
+            if not address:
+                skipped_rows.append({'line': index, 'reason': '缺少详细地址'})
                 continue
 
             category_raw = (row.get('文物类别') or row.get('category') or '').strip()
-            level_raw = (row.get('保护级别') or row.get('level') or '').strip()
+            level_raw = (row.get('保护级别') or row.get('protection_level') or row.get('level') or '').strip()
+            ownership_raw = (row.get('权属') or row.get('ownership') or '').strip()
+            preservation_raw = (row.get('保存现状') or row.get('preservation_status') or '').strip()
             category = category_map.get(category_raw, category_raw)
             level = level_map.get(level_raw, level_raw)
+            ownership = ownership_map.get(ownership_raw, ownership_raw or 'state')
+            preservation_status = preservation_map.get(preservation_raw, preservation_raw or '一般')
 
-            valid_categories = {value for value, _label in HeritageSite.CATEGORY_CHOICES}
-            valid_levels = {value for value, _label in HeritageSite.LEVEL_CHOICES}
+            valid_categories = {value for value, _label in ImmovableHeritage.CATEGORY_CHOICES}
+            valid_levels = {value for value, _label in ImmovableHeritage.PROTECTION_LEVEL_CHOICES}
+            valid_ownership = {value for value, _label in ImmovableHeritage.OWNERSHIP_CHOICES}
+            valid_preservation = {value for value, _label in ImmovableHeritage.PRESERVATION_STATUS_CHOICES}
             if category not in valid_categories:
                 skipped_rows.append({'line': index, 'reason': f'文物类别非法: {category_raw}'})
                 continue
             if level not in valid_levels:
                 skipped_rows.append({'line': index, 'reason': f'保护级别非法: {level_raw}'})
+                continue
+            if ownership not in valid_ownership:
+                skipped_rows.append({'line': index, 'reason': f'权属非法: {ownership_raw}'})
+                continue
+            if preservation_status not in valid_preservation:
+                skipped_rows.append({'line': index, 'reason': f'保存现状非法: {preservation_raw}'})
                 continue
 
             longitude = self._parse_coord(row.get('经度') or row.get('longitude'))
@@ -479,23 +712,41 @@ class ImmovableHeritageImportAPIView(APIView):
                 continue
 
             payload = {
-                'name': (row.get('文物名称') or row.get('name') or '').strip(),
+                'name': name,
+                'era': era,
                 'category': category,
-                'level': level,
-                'address': (row.get('详细地址') or row.get('address') or '').strip(),
+                'protection_level': level,
+                'ownership': ownership,
+                'preservation_status': preservation_status,
+                'province': province,
+                'city': (row.get('市/州') or row.get('city') or '').strip(),
+                'county': (row.get('县/市/区') or row.get('county') or '').strip(),
+                'township': (row.get('乡镇/街道') or row.get('township') or '').strip(),
+                'village': (row.get('村/社区') or row.get('village') or '').strip(),
+                'address': address,
                 'longitude': longitude,
                 'latitude': latitude,
-                'manager': (row.get('管理单位') or row.get('manager') or '').strip(),
-                'description': (row.get('现状描述') or row.get('description') or '').strip(),
-                'protection_zone': (row.get('保护范围坐标') or row.get('protection_zone') or '').strip(),
-                'control_zone': (row.get('建设控制地带坐标') or row.get('control_zone') or '').strip(),
+                'manager': (row.get('管理责任人') or row.get('manager') or '').strip(),
+                'description': (row.get('文物简介') or row.get('现状描述') or row.get('description') or '').strip(),
+                'ownership_detail': (row.get('权属单位/人') or row.get('ownership_detail') or '').strip(),
+                'user_unit': (row.get('使用单位/使用人') or row.get('user_unit') or '').strip(),
+                'management_unit': (row.get('管理单位') or row.get('management_unit') or '').strip(),
+                'coordinate_system': (row.get('坐标系') or row.get('coordinate_system') or 'CGCS2000').strip() or 'CGCS2000',
+                'damage_cause': (row.get('破坏原因') or row.get('damage_cause') or '').strip(),
+                'threat_factors': (row.get('威胁因素') or row.get('threat_factors') or '').strip(),
+                'remarks': (row.get('备注') or row.get('remarks') or '').strip(),
             }
 
-            if not payload['name']:
-                skipped_rows.append({'line': index, 'reason': '缺少文物名称'})
-                continue
+            lookup = {'survey_code': survey_code} if survey_code else {
+                'name': payload['name'],
+                'province': payload['province'],
+                'address': payload['address'],
+            }
 
-            _, created = HeritageSite.objects.update_or_create(sip_code=sip_code, defaults=payload)
+            if survey_code:
+                payload['survey_code'] = survey_code
+
+            _, created = ImmovableHeritage.objects.update_or_create(**lookup, defaults=payload)
             if created:
                 created_count += 1
             else:
@@ -555,18 +806,18 @@ class ImmovableHeritageExportAPIView(APIView):
         category = (request.GET.get('category') or '').strip()
         level = (request.GET.get('level') or '').strip()
 
-        queryset = HeritageSite.objects.all().order_by('id')
+        queryset = ImmovableHeritage.objects.all().order_by('id')
         if keyword:
             queryset = queryset.filter(
                 Q(name__icontains=keyword)
-                | Q(sip_code__icontains=keyword)
+                | Q(survey_code__icontains=keyword)
                 | Q(address__icontains=keyword)
                 | Q(manager__icontains=keyword)
             )
         if category:
             queryset = queryset.filter(category=category)
         if level:
-            queryset = queryset.filter(level=level)
+            queryset = queryset.filter(protection_level=level)
 
         response = HttpResponse(content_type='text/csv; charset=utf-8-sig')
         filename = timezone.now().strftime('immovable_heritage_%Y%m%d_%H%M%S.csv')
@@ -575,32 +826,38 @@ class ImmovableHeritageExportAPIView(APIView):
 
         writer = csv.writer(response)
         writer.writerow([
+            '采集编号',
             '文物名称',
-            '四普编号',
+            '时代',
             '文物类别',
             '保护级别',
+            '省/自治区/直辖市',
             '详细地址',
             '经度',
             '纬度',
-            '管理单位',
-            '保护范围坐标',
-            '建设控制地带坐标',
-            '现状描述',
+            '权属',
+            '保存现状',
+            '管理责任人',
+            '文物简介',
+            '备注',
         ])
 
         for item in queryset:
             writer.writerow([
+                item.survey_code,
                 item.name,
-                item.sip_code,
+                item.era,
                 item.get_category_display(),
-                item.get_level_display(),
+                item.get_protection_level_display(),
+                item.province,
                 item.address,
                 item.longitude,
                 item.latitude,
+                item.get_ownership_display(),
+                item.get_preservation_status_display(),
                 item.manager,
-                item.protection_zone or '',
-                item.control_zone or '',
                 item.description or '',
+                item.remarks or '',
             ])
 
         return response
@@ -955,65 +1212,6 @@ class KanerjingListAPIView(APIView):
                     'page': page,
                     'page_size': page_size,
                     'total': total,
-                },
-            }
-        )
-
-
-class KanerjingImportCheckAPIView(APIView):
-    permission_classes = [IsManagementAdmin]
-
-    def get(self, request):
-        kanerjing_queryset = HeritageSite.filter_kanerjing()
-        kanerjing_count = kanerjing_queryset.count()
-        total_count = HeritageSite.objects.count()
-
-        level_breakdown = []
-        for level_code, level_name in HeritageSite.LEVEL_CHOICES:
-            level_breakdown.append(
-                {
-                    'value': level_code,
-                    'label': level_name,
-                    'count': kanerjing_queryset.filter(level=level_code).count(),
-                }
-            )
-
-        def normalize_address(address):
-            text = str(address or '').strip()
-            if not text:
-                return '未标注镇乡'
-
-            township_name = legacy_views._extract_township_name(text)
-            if township_name:
-                return township_name
-
-            matches = re.findall(r'([\u4e00-\u9fa5]{1,12}(?:回族乡|乡|镇|街道))', text)
-            if matches:
-                return matches[-1]
-            return '未标注镇乡'
-
-        address_counter = {}
-        for address in kanerjing_queryset.values_list('address', flat=True):
-            normalized = normalize_address(address)
-            address_counter[normalized] = address_counter.get(normalized, 0) + 1
-
-        top_addresses = [
-            {
-                'township': addr,
-                'count': count,
-            }
-            for addr, count in sorted(address_counter.items(), key=lambda item: (-item[1], item[0]))[:10]
-        ]
-
-        return Response(
-            {
-                'success': True,
-                'data': {
-                    'kanerjing_count': kanerjing_count,
-                    'total_count': total_count,
-                    'kanerjing_percentage': round((kanerjing_count / total_count * 100), 1) if total_count else 0,
-                    'level_breakdown': level_breakdown,
-                    'top_addresses': top_addresses,
                 },
             }
         )
