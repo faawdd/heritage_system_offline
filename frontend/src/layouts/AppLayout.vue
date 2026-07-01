@@ -203,6 +203,7 @@ const staticMenuGroups = [
     items: [
       { label: '文物一张图', to: '/heritage/map' },
       { label: '文物统计', to: '/heritage/stats' },
+      { label: '不可移动文物管理', to: '/heritage/immovable' },
       { label: '巡查记录', to: '/heritage/inspections' },
       { label: '坎儿井专项管理', to: '/heritage/kanerjing' }
     ]
@@ -267,6 +268,7 @@ function buildMenuGroupsFromTree(treeRows = []) {
 
 function ensureHeritageEntries(groups = []) {
   const requiredHeritageItems = [
+    { label: '不可移动文物管理', to: '/heritage/immovable' },
     { label: '巡查记录', to: '/heritage/inspections' },
     { label: '坎儿井专项管理', to: '/heritage/kanerjing' }
   ]
