@@ -1,8 +1,8 @@
 <template>
   <section>
     <header class="page-header">
-      <h1>不可移动文物管理</h1>
-      <p>支持档案查询、编辑以及 CSV 导入导出</p>
+      <h1>采集数据管理</h1>
+      <p>管理不可移动文物采集记录，支持查询、编辑以及 CSV 导入导出</p>
     </header>
 
     <div class="toolbar card top-space">

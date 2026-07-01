@@ -27,7 +27,6 @@
         <el-option v-for="item in levelOptions" :key="item.value" :label="item.label" :value="item.value" />
       </el-select>
       <el-button type="primary" :loading="loading" @click="search">查询</el-button>
-      <el-button @click="goImportCheck">导入检查</el-button>
     </div>
 
     <div class="card top-space">
@@ -61,12 +60,10 @@
 
 <script setup>
 import { reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 
 import { fetchKanerjingList } from '../../api/heritageApi'
 
-const router = useRouter()
 const loading = ref(false)
 const rows = ref([])
 const totalCount = ref(0)
@@ -121,10 +118,6 @@ function search() {
 function onPageChange(page) {
   pagination.page = page
   loadRows()
-}
-
-function goImportCheck() {
-  router.push('/heritage/kanerjing/import-check')
 }
 
 loadRows()

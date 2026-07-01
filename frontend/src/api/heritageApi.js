@@ -32,6 +32,16 @@ export async function fetchImmovableHeritageList(params = {}) {
   return response.data
 }
 
+export async function fetchImmovableCollectMeta() {
+  const response = await client.get('/api/v1/heritage/immovable/collect/')
+  return response.data
+}
+
+export async function createImmovableCollect(formData) {
+  const response = await client.post('/api/v1/heritage/immovable/collect/', formData)
+  return response.data
+}
+
 export async function patchImmovableHeritage(siteId, payload) {
   const response = await client.patch(`/api/v1/heritage/immovable/${siteId}/`, payload)
   return response.data
@@ -54,10 +64,5 @@ export async function exportImmovableHeritage(params = {}) {
 
 export async function fetchKanerjingList(params = {}) {
   const response = await client.get('/api/v1/heritage/kanerjing/', { params })
-  return response.data
-}
-
-export async function fetchKanerjingImportCheck() {
-  const response = await client.get('/api/v1/heritage/kanerjing/import-check/')
   return response.data
 }

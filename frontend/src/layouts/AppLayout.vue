@@ -203,10 +203,16 @@ const staticMenuGroups = [
     items: [
       { label: '文物一张图', to: '/heritage/map' },
       { label: '文物统计', to: '/heritage/stats' },
-      { label: '不可移动文物管理', to: '/heritage/immovable' },
       { label: '巡查记录', to: '/heritage/inspections' },
-      { label: '坎儿井专项管理', to: '/heritage/kanerjing' },
-      { label: '坎儿井导入检查', to: '/heritage/kanerjing/import-check' }
+      { label: '坎儿井专项管理', to: '/heritage/kanerjing' }
+    ]
+  },
+  {
+    key: 'collect',
+    title: '文物采集',
+    items: [
+      { label: '不可移动文物采集', to: '/collect/immovable' },
+      { label: '采集数据管理', to: '/collect/records' }
     ]
   },
   {
@@ -260,18 +266,22 @@ function buildMenuGroupsFromTree(treeRows = []) {
 }
 
 function ensureHeritageEntries(groups = []) {
-  const requiredItems = [
-    { label: '不可移动文物管理', to: '/heritage/immovable' },
+  const requiredHeritageItems = [
     { label: '巡查记录', to: '/heritage/inspections' },
-    { label: '坎儿井专项管理', to: '/heritage/kanerjing' },
-    { label: '坎儿井导入检查', to: '/heritage/kanerjing/import-check' }
+    { label: '坎儿井专项管理', to: '/heritage/kanerjing' }
+  ]
+  const requiredCollectItems = [
+    { label: '不可移动文物采集', to: '/collect/immovable' },
+    { label: '采集数据管理', to: '/collect/records' }
   ]
 
-  return groups.map((group) => {
+  const patchedGroups = groups.map((group) => {
     const title = (group.title || '').trim()
-    if (title !== '文物管理') {
+    if (title !== '文物管理' && title !== '文物采集') {
       return group
     }
+
+    const requiredItems = title === '文物采集' ? requiredCollectItems : requiredHeritageItems
 
     const existingItems = [...(group.items || [])]
     const existingToSet = new Set(existingItems.map((item) => item.to))
@@ -290,6 +300,17 @@ function ensureHeritageEntries(groups = []) {
       items: existingItems
     }
   })
+
+  const collectExists = patchedGroups.some((group) => (group.title || '').trim() === '文物采集')
+  if (!collectExists) {
+    patchedGroups.push({
+      key: 'collect',
+      title: '文物采集',
+      items: [...requiredCollectItems]
+    })
+  }
+
+  return patchedGroups
 }
 
 const menuGroups = computed(() => {

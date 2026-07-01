@@ -2301,8 +2301,8 @@ def kanerjing_stats_api(request):
 
 @staff_member_required
 def kanerjing_import_check_view(request):
-    """旧坎儿井导入检查页已迁移到 Vue，保留兼容入口。"""
-    return redirect('/static/frontend/heritage/kanerjing/import-check')
+    """坎儿井导入检查页面已下线，统一回到坎儿井专项管理。"""
+    return redirect('/static/frontend/heritage/kanerjing')
 
 
 # 自定义密码修改完成视图
@@ -2442,8 +2442,8 @@ def _build_coord_points_display(points):
 
 @login_required
 def heritage_collect_view(request):
-    """旧采集页面已下线，统一跳转至 Vue 文物档案管理页。"""
-    return redirect('/static/frontend/heritage/immovable')
+    """旧采集页面已下线，统一跳转至 Vue 文物采集页。"""
+    return redirect('/static/frontend/collect/immovable')
 
 
 # ─────────────────────────────────────────────────────────────────────────────
