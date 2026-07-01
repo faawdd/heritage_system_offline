@@ -48,6 +48,7 @@ import math
 import logging
 import zipfile
 import xml.etree.ElementTree as ET
+from types import SimpleNamespace
 from django.shortcuts import get_object_or_404
 from django.contrib import messages
 from heritage_system.version import VERSION, VERSION_HISTORY
@@ -3464,17 +3465,74 @@ def heritage_detail_preview_view(request, pk):
     from .models import ImmovableHeritage, HeritagePhoto
     from django.shortcuts import get_object_or_404
 
-    heritage = get_object_or_404(
-        ImmovableHeritage.objects.select_related(
-            "collector", "input_by", "reviewer"
-        ).prefetch_related("photos"),
-        pk=pk,
+    heritage = (
+        ImmovableHeritage.objects.select_related("collector", "input_by", "reviewer")
+        .prefetch_related("photos")
+        .filter(pk=pk)
+        .first()
     )
 
-    # 照片：封面 + 其余（最多展示 8 张附图，避免撑破页面）
-    all_photos = list(heritage.photos.exclude(image="").order_by("-is_cover", "-shot_at", "-uploaded_at"))
-    cover_photo = next((p for p in all_photos if p.is_cover), None) or (all_photos[0] if all_photos else None)
-    other_photos = [p for p in all_photos if p != cover_photo][:8]
+    if heritage:
+        # 照片：封面 + 其余（最多展示 8 张附图，避免撑破页面）
+        all_photos = list(heritage.photos.exclude(image="").order_by("-is_cover", "-shot_at", "-uploaded_at"))
+        cover_photo = next((p for p in all_photos if p.is_cover), None) or (all_photos[0] if all_photos else None)
+        other_photos = [p for p in all_photos if p != cover_photo][:8]
+    else:
+        # 兼容旧档案库：当 pk 来自 HeritageSite 时，回退到基础档案并构造预览对象。
+        site = get_object_or_404(HeritageSite, pk=pk)
+        heritage = SimpleNamespace(
+            survey_code=site.sip_code or f"HS-{site.id}",
+            previous_survey_code="",
+            collected_at=getattr(site, "created_at", None),
+            reviewed_at=None,
+            name=site.name,
+            former_name="",
+            era="——",
+            category=site.category,
+            heritage_type="",
+            province="新疆维吾尔自治区",
+            city="吐鲁番市",
+            county="鄯善县",
+            township="",
+            village="",
+            address=site.address or "",
+            coordinate_system="CGCS2000",
+            longitude=site.longitude,
+            latitude=site.latitude,
+            altitude=None,
+            area=None,
+            preservation_status="一般",
+            is_disappeared=False,
+            disappear_reason="",
+            is_relocated=False,
+            relocation_note="",
+            damage_cause="",
+            threat_factors="",
+            ownership="state",
+            ownership_detail="",
+            user_unit="",
+            management_unit="",
+            manager=site.manager or "",
+            protection_level=site.level,
+            protection_announced_batch="",
+            protection_announced_date=None,
+            has_marker_stele=False,
+            has_protection_zone_announced=False,
+            has_construction_control_zone_announced=False,
+            description=site.description or "",
+            remarks="",
+            collector=None,
+            input_by=None,
+            reviewer=None,
+            coord_list=[],
+            get_category_display=site.get_category_display,
+            get_coordinate_system_display=lambda: "2000国家大地坐标系（CGCS2000）",
+            get_protection_level_display=site.get_level_display,
+            get_ownership_display=lambda: "国有",
+        )
+        all_photos = []
+        cover_photo = None
+        other_photos = []
 
     # 度分秒在视图层计算，保持模板简洁
     lon_dms = _decimal_to_dms(heritage.longitude, is_longitude=True)
