@@ -42,8 +42,7 @@ else:
 
 SYSTEM_REGION = env('SYSTEM_REGION', default='鄯善县')
 SYSTEM_NAME = env('SYSTEM_NAME', default=f'{SYSTEM_REGION}文物管理平台')
-SYSTEM_VERSION_BASE = env('SYSTEM_VERSION_BASE', default='v2.0')
-USE_LEGACY_ADMIN_UI = str(env('USE_LEGACY_ADMIN_UI', default='1')).lower() in ('1', 'true', 'yes', 'on')
+SYSTEM_VERSION_BASE = env('SYSTEM_VERSION_BASE', default='v2.1')
 
 
 def build_system_version():
@@ -126,9 +125,6 @@ INSTALLED_APPS = [
     'corsheaders',
 ]
 
-if USE_LEGACY_ADMIN_UI:
-    INSTALLED_APPS.insert(0, 'simpleui')
-
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
@@ -138,6 +134,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'core.middleware.AdminFullPathGateMiddleware',  # /admin/* 全路径强制门禁
     'core.middleware.DeviceAutoRedirectMiddleware',  # 自动设备检测重定向
 ]
 
@@ -221,129 +218,6 @@ STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
-SIMPLEUI_CONFIG = {
-    'system_keep': True,  # 设置为True，系统会自动保留原有的所有菜单，即使你没定义
-    'menu_display': ['文物管理', '采集管理', '日常办公', '可视化分析', '坎儿井专项', '系统设置'],
-    'menus': [
-        {
-            'name': '首页',
-            'icon': 'fas fa-home',
-            'url': '/admin/',  # 指向后台首页
-        },
-        {
-            'name': '文物管理',
-            'icon': 'fas fa-university',
-            'models': [
-                {
-                    'name': '不可移动文物',
-                    'icon': 'fas fa-fw fa-book',
-                    'url': 'core/heritagesite/' # 注意这里必须是 core/heritagesite/
-                },
-            {
-                    'name': 'KML叠加检查',
-                    'icon': 'fas fa-layer-group',
-                    'url': '/admin/kml-overlay-check/'
-                },
-                {
-                    'name': 'kml处理和转换',
-                    'icon': 'fas fa-file-export',
-                    'url': '/admin/kml-process-convert/'
-                },
-            ]
-        },
-        {
-            'name': '日常办公',
-            'icon': 'fas fa-tasks',
-            'models': [
-                {'name': '巡查记录', 'url': 'core/inspectionrecord/', 'icon': 'fas fa-camera'},
-                {'name': '项目管理', 'url': '/admin/land-projects/', 'icon': 'fas fa-project-diagram'},
-            ]
-        },
-        {
-            'name': '采集管理',
-            'icon': 'fas fa-clipboard-check',
-            'models': [
-                {
-                    'name': '鄯善县不可移动文物采集',
-                    'icon': 'fas fa-mobile-alt',
-                    'url': '/mobile/collect/'
-                },
-                {
-                    'name': '采集数据管理',
-                    'icon': 'fas fa-database',
-                    'url': 'core/immovableheritage/'
-                },
-                {
-                    'name': '采集照片管理',
-                    'icon': 'fas fa-images',
-                    'url': 'core/heritagephoto/'
-                },
-            ]
-        },
-        {
-            'name': '可视化分析',
-            'icon': 'fas fa-chart-pie',
-            'models': [
-                {
-                    'name': '统计仪表板',
-                    'icon': 'fas fa-chart-bar',
-                    'url': '/admin/heritage-dashboard/' # 统计图表页面
-                },
-                {
-                    'name': '文物分布一张图',
-                    'icon': 'fas fa-map-marked-alt',
-                    'url': '/admin/heritage-map/' # 对应刚才定义的 URL
-                }
-            ]
-        },
-        {
-            'name': '坎儿井专项',
-            'icon': 'fas fa-water',
-            'models': [
-                {
-                    'name': '坎儿井管理',
-                    'icon': 'fas fa-list-ul',
-                    'url': '/admin/kanerjing/' # 坎儿井专项管理页面
-                },
-                {
-                    'name': '导入检查',
-                    'icon': 'fas fa-check-circle',
-                    'url': '/admin/kanerjing-import-check/' # 导入检查报告
-                }
-            ]
-        },
-        {
-            'name': '系统设置',
-            'icon': 'fas fa-cogs',
-            'models': [
-                {
-                    'name': '用户组管理',
-                    'icon': 'fas fa-users',
-                    'url': 'auth/group/'
-                },
-                {'name': '用户管理', 'url': 'auth/user/', 'icon': 'fas fa-user-tie'},
-            ]
-        },
-    ]
-}
-
-
-# 修改后台标题
-SIMPLEUI_HOME_TITLE = f'{SYSTEM_NAME} ({SYS_VERSION})'
-SIMPLEUI_LOGO = '/static/img/logo.jpg' # 使用本地logo.jpg
-# 隐藏右侧的 Django 官方相关广告和链接（让界面更清爽）
-SIMPLEUI_HOME_INFO = False
-SIMPLEUI_HOME_QUICK = True  # 保留快速操作栏
-SIMPLEUI_HOME_ACTION = False # 隐藏最近动作
-SIMPLEUI_STATIC_OFFLINE = True
-SIMPLEUI_DEFAULT_THEME = 'purple.css'
-SIMPLEUI_CUSTOM_JS = '/static/admin/js/simpleui_custom.js'
-
-# 自定义登录页标题
-SIMPLEUI_LOGIN_TITLE = f'{SYSTEM_NAME} ({SYS_VERSION}) - 请登录'
-# 配置自定义首页 URL 路径 - 显示统计仪表板
-SIMPLEUI_HOME_PAGE = '/admin/home/'
-
 # DRF and CORS settings
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
@@ -362,8 +236,8 @@ CORS_ALLOWED_ORIGINS = [
 ]
 CORS_ALLOW_CREDENTIALS = True
 
-# 未登录访问受保护页面时统一跳转到 Django Admin 登录页，避免默认 /accounts/login/ 404
-LOGIN_URL = '/admin/login/'
+# 未登录访问受保护页面时统一跳转到 Vue 入口页（由前端路由接管登录）
+LOGIN_URL = '/static/frontend/?redirect=/system/admin'
 
 
 # DEM（SRTM 30m）按需下载缓存配置

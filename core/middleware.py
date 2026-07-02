@@ -106,3 +106,33 @@ class DeviceAutoRedirectMiddleware:
         
         response = self.get_response(request)
         return response
+
+
+class AdminFullPathGateMiddleware:
+    """
+    Django Admin 全路径门禁：
+    - 仅允许通过 Vue 系统入口建立的 SSO 会话访问 /admin/*
+    - 其他直接访问统一重定向到 Vue 登录/受控入口
+    """
+
+    VUE_LOGIN_REDIRECT = '/static/frontend/?redirect=/system/admin'
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        path = request.path or ''
+
+        if not path.startswith('/admin/'):
+            return self.get_response(request)
+
+        # 仅放行已认证、具备后台权限且携带Vue入口会话标记的请求。
+        user = getattr(request, 'user', None)
+        is_authenticated = bool(user and user.is_authenticated)
+        has_admin_permission = bool(is_authenticated and (user.is_staff or user.is_superuser))
+        has_vue_sso_flag = bool(request.session.get('admin_sso_from_vue'))
+
+        if has_admin_permission and has_vue_sso_flag:
+            return self.get_response(request)
+
+        return redirect(self.VUE_LOGIN_REDIRECT)

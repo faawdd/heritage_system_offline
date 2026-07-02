@@ -17,6 +17,11 @@ export async function logoutSystem() {
   return response.data
 }
 
+export async function enterDjangoAdmin() {
+  const response = await client.post('/api/v1/system/admin-entry/')
+  return response.data
+}
+
 export async function fetchSystemProfile() {
   const response = await client.get('/api/v1/system/profile/')
   return response.data
@@ -64,5 +69,20 @@ export async function fetchSystemPermissions() {
 
 export async function fetchSystemMenus() {
   const response = await client.get('/api/v1/system/menus/')
+  return response.data
+}
+
+export async function createSystemMenu(payload) {
+  const response = await client.post('/api/v1/system/menus/', payload)
+  return response.data
+}
+
+export async function updateSystemMenu(menuId, payload) {
+  const response = await client.patch(`/api/v1/system/menus/${menuId}/`, payload)
+  return response.data
+}
+
+export async function deleteSystemMenu(menuId) {
+  const response = await client.delete(`/api/v1/system/menus/${menuId}/`)
   return response.data
 }

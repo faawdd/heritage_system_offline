@@ -32,6 +32,7 @@
         <el-option label="异常" value="false" />
       </el-select>
       <el-button type="primary" :loading="loading" @click="loadRows">查询</el-button>
+      <el-button type="success" @click="goCreate">新增巡查</el-button>
     </div>
 
     <div class="card top-space">
@@ -90,11 +91,13 @@
 
 <script setup>
 import { reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 import { deleteInspection, fetchInspections, fetchInspectionStats, patchInspection } from '../../api/inspectionApi'
 
 const loading = ref(false)
+const router = useRouter()
 const rows = ref([])
 const currentPhotoUrl = ref('')
 const photoDialogVisible = ref(false)
@@ -218,6 +221,10 @@ async function removeRow(row) {
 function onPageChange(page) {
   pagination.page = page
   loadRows()
+}
+
+function goCreate() {
+  router.push('/heritage/inspections/new')
 }
 
 loadRows()

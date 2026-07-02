@@ -28,7 +28,7 @@
 
       <el-scrollbar class="floating-menu-scroll">
         <el-collapse v-model="activePanels">
-          <el-collapse-item title="上传与即时分析" name="upload">
+          <el-collapse-item title="上传与即时分析" name="upload" class="panel-upload">
             <div class="floating-form-block">
               <input ref="uploadInputRef" type="file" accept=".kml,.kmz,.ovkml,.ovkmz" multiple />
               <div class="floating-row">
@@ -41,7 +41,7 @@
             </div>
           </el-collapse-item>
 
-          <el-collapse-item title="批量查询与导出" name="batch">
+          <el-collapse-item title="批量查询与导出" name="batch" class="panel-batch">
             <div class="floating-form-block">
               <div class="floating-row">
                 <span>阈值(米)</span>
@@ -62,11 +62,21 @@
             </div>
           </el-collapse-item>
 
-          <el-collapse-item title="KML叠加检查" name="overlap" v-if="overlapRows.length > 0">
+          <el-collapse-item title="KML叠加检查" name="overlap" class="panel-overlap" v-if="overlapRows.length > 0">
             <div class="floating-form-block">
               <el-input v-model="overlapKeyword" placeholder="按文件名或要素名称筛选" clearable />
 
               <h4 class="floating-subtitle">按文件组合聚合</h4>
+              <div class="gis-info-cards">
+                <article class="gis-info-card">
+                  <span class="label">组合总数</span>
+                  <strong>{{ overlapGroupRows.length }}</strong>
+                </article>
+                <article class="gis-info-card">
+                  <span class="label">叠加明细</span>
+                  <strong>{{ filteredOverlapRows.length }}</strong>
+                </article>
+              </div>
               <el-table :data="overlapGroupRows" stripe size="small" max-height="160">
                 <el-table-column prop="pair_name" label="文件组合" min-width="180" />
                 <el-table-column prop="overlap_count" label="叠加数" width="90" />
@@ -88,11 +98,25 @@
             </div>
           </el-collapse-item>
 
-          <el-collapse-item title="记录选择与操作" name="records">
+          <el-collapse-item title="记录选择与操作" name="records" class="panel-records">
             <div class="floating-form-block">
               <div class="floating-row">
                 <el-button type="primary" @click="loadRows">刷新记录</el-button>
                 <span class="muted-text">已选 {{ selectedRows.length }} 条</span>
+              </div>
+              <div class="gis-info-cards">
+                <article class="gis-info-card">
+                  <span class="label">记录总数</span>
+                  <strong>{{ rows.length }}</strong>
+                </article>
+                <article class="gis-info-card">
+                  <span class="label">当前选中</span>
+                  <strong>{{ selectedRows.length }}</strong>
+                </article>
+                <article class="gis-info-card">
+                  <span class="label">冲突合计</span>
+                  <strong>{{ totalConflictCount }}</strong>
+                </article>
               </div>
               <el-table ref="recordsTableRef" :data="rows" v-loading="loading" stripe size="small" max-height="280" @selection-change="onSelectionChange">
                 <el-table-column type="selection" width="52" />
@@ -104,29 +128,49 @@
                     </el-tag>
                   </template>
                 </el-table-column>
-                <el-table-column label="操作" width="180">
+                <el-table-column label="操作" min-width="280">
                   <template #default="scope">
-                    <el-button link type="success" :loading="processing" @click="analyzeSingle(scope.row)">查询</el-button>
-                    <el-button link type="primary" @click="openFile(scope.row)">源文件</el-button>
-                    <el-button link type="danger" :loading="processing" @click="deleteRecord(scope.row)">删除</el-button>
+                    <div class="record-op-cell">
+                      <div class="record-op-actions">
+                        <el-button link type="success" :loading="processing" @click="analyzeSingle(scope.row)">查询</el-button>
+                        <el-button link type="primary" @click="openFile(scope.row)">源文件</el-button>
+                        <el-button link type="danger" :loading="processing" @click="deleteRecord(scope.row)">删除</el-button>
+                      </div>
+                      <div class="record-rename-inline">
+                        <el-input
+                          v-model="renameDraft[scope.row.id]"
+                          :placeholder="scope.row.title"
+                          size="small"
+                          @keyup.enter="renameRecord(scope.row)"
+                        />
+                        <el-button link type="warning" :loading="processing" @click="renameRecord(scope.row)">重命名</el-button>
+                      </div>
+                    </div>
                   </template>
                 </el-table-column>
               </el-table>
-
-              <div class="floating-rename-list" v-if="rows.length > 0">
-                <div class="rename-item" v-for="row in rows" :key="row.id">
-                  <el-input v-model="renameDraft[row.id]" :placeholder="row.title" />
-                  <el-button link type="success" :loading="processing" @click="renameRecord(row)">重命名</el-button>
-                </div>
-              </div>
             </div>
           </el-collapse-item>
 
-          <el-collapse-item title="冲突详情" name="conflicts" v-if="latestConflicts.length > 0">
+          <el-collapse-item title="冲突详情" name="conflicts" class="panel-conflicts" v-if="latestConflicts.length > 0">
             <div class="floating-form-block">
               <el-input v-model="conflictKeyword" placeholder="按文物名称或来源文件筛选" clearable />
 
               <h4 class="floating-subtitle">按文物点聚合</h4>
+              <div class="gis-info-cards">
+                <article class="gis-info-card">
+                  <span class="label">冲突总数</span>
+                  <strong>{{ filteredConflicts.length }}</strong>
+                </article>
+                <article class="gis-info-card">
+                  <span class="label">涉及文物点</span>
+                  <strong>{{ siteSummaryRows.length }}</strong>
+                </article>
+                <article class="gis-info-card">
+                  <span class="label">选中记录</span>
+                  <strong>{{ selectedRows.length }}</strong>
+                </article>
+              </div>
               <el-table :data="siteSummaryRows" stripe size="small" max-height="180" @row-click="onSiteSummaryClick">
                 <el-table-column prop="site_name" label="文物名称" min-width="140" />
                 <el-table-column prop="conflict_count" label="冲突数" width="90" />
@@ -243,6 +287,12 @@ const overlapGroupRows = computed(() => {
     grouped.get(pair).overlap_count += 1
   })
   return Array.from(grouped.values()).sort((a, b) => b.overlap_count - a.overlap_count)
+})
+
+const totalConflictCount = computed(() => {
+  return rows.value.reduce((sum, row) => {
+    return sum + Number(row?.conflict_count || 0)
+  }, 0)
 })
 
 function saveBlob(blob, filename) {
@@ -538,8 +588,22 @@ onMounted(() => {
   position: relative;
   height: 100dvh;
   min-height: 100dvh;
-  background: #f1f5f9;
+  background:
+    radial-gradient(circle at 6% 8%, rgba(14, 165, 233, 0.22) 0, rgba(14, 165, 233, 0) 36%),
+    radial-gradient(circle at 92% 12%, rgba(59, 130, 246, 0.24) 0, rgba(59, 130, 246, 0) 38%),
+    linear-gradient(165deg, #e0f2fe 0%, #ecfeff 36%, #f8fafc 72%, #f1f5f9 100%);
   overflow: hidden;
+}
+
+.kml-fullscreen-page::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(rgba(15, 23, 42, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(15, 23, 42, 0.03) 1px, transparent 1px);
+  background-size: 28px 28px;
+  opacity: 0.28;
 }
 
 .kml-fullscreen-map {
@@ -559,7 +623,14 @@ onMounted(() => {
   position: absolute;
   left: 16px;
   top: 16px;
-  z-index: 20;
+  z-index: 30;
+}
+
+.kml-menu-toggle :deep(.el-button) {
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  background: rgba(255, 255, 255, 0.76);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.18);
+  backdrop-filter: blur(6px);
 }
 
 .kml-floating-menu {
@@ -568,77 +639,217 @@ onMounted(() => {
   top: 62px;
   bottom: 16px;
   width: min(420px, calc(100vw - 32px));
-  z-index: 18;
-  background: rgba(255, 255, 255, 0.96);
-  border: 1px solid #dbe5ef;
-  border-radius: 14px;
-  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.22);
-  backdrop-filter: blur(5px);
+  z-index: 28;
+  background: linear-gradient(168deg, rgba(255, 255, 255, 0.9) 0%, rgba(248, 250, 252, 0.94) 100%);
+  border: 1px solid rgba(148, 163, 184, 0.38);
+  border-radius: 18px;
+  box-shadow: 0 20px 46px rgba(15, 23, 42, 0.2);
+  backdrop-filter: blur(10px);
   display: flex;
   flex-direction: column;
+  animation: menu-fade-in 220ms ease-out;
 }
 
 .floating-menu-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 14px 8px;
-  border-bottom: 1px solid #e2e8f0;
+  padding: 16px 16px 10px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.28);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.84) 0%, rgba(255, 255, 255, 0.38) 100%);
 }
 
 .floating-menu-header h3 {
   margin: 0;
-  font-size: 16px;
+  font-size: 17px;
+  letter-spacing: 0.2px;
+  color: #0f172a;
 }
 
 .floating-menu-header p {
-  margin: 4px 0 0;
+  margin: 5px 0 0;
   font-size: 12px;
-  color: #64748b;
+  color: #475569;
 }
 
 .floating-menu-scroll {
   flex: 1;
-  padding: 8px 10px 12px;
+  padding: 10px 12px 14px;
+}
+
+.floating-menu-scroll :deep(.el-collapse) {
+  border: 0;
+  background: transparent;
+}
+
+.floating-menu-scroll :deep(.el-collapse-item) {
+  background: rgba(255, 255, 255, 0.54);
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  border-radius: 12px;
+  margin-bottom: 10px;
+  overflow: hidden;
+  position: relative;
+}
+
+.floating-menu-scroll :deep(.el-collapse-item)::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: linear-gradient(180deg, #94a3b8 0%, #64748b 100%);
+  opacity: 0.55;
+}
+
+.floating-menu-scroll :deep(.panel-upload.el-collapse-item)::before {
+  background: linear-gradient(180deg, #0284c7 0%, #0ea5e9 100%);
+  opacity: 0.9;
+}
+
+.floating-menu-scroll :deep(.panel-batch.el-collapse-item)::before {
+  background: linear-gradient(180deg, #16a34a 0%, #14b8a6 100%);
+  opacity: 0.9;
+}
+
+.floating-menu-scroll :deep(.panel-overlap.el-collapse-item)::before,
+.floating-menu-scroll :deep(.panel-conflicts.el-collapse-item)::before {
+  background: linear-gradient(180deg, #dc2626 0%, #f97316 100%);
+  opacity: 0.9;
+}
+
+.floating-menu-scroll :deep(.panel-records.el-collapse-item)::before {
+  background: linear-gradient(180deg, #6366f1 0%, #2563eb 100%);
+  opacity: 0.85;
+}
+
+.floating-menu-scroll :deep(.el-collapse-item__header) {
+  height: 42px;
+  line-height: 42px;
+  padding: 0 12px 0 14px;
+  border: 0;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 600;
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.9) 0%, rgba(241, 245, 249, 0.8) 100%);
+}
+
+.floating-menu-scroll :deep(.el-collapse-item__wrap) {
+  border: 0;
+  background: transparent;
+}
+
+.floating-menu-scroll :deep(.el-collapse-item__content) {
+  padding: 12px;
 }
 
 .floating-form-block {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
 .floating-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
   gap: 10px;
+}
+
+.floating-row > span {
+  font-size: 12px;
+  color: #475569;
+  white-space: nowrap;
+}
+
+:deep(.floating-row .el-input-number),
+:deep(.floating-row .el-select),
+:deep(.floating-row .el-input) {
+  width: 100%;
 }
 
 .floating-btn-grid {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+}
+
+:deep(.floating-btn-grid .el-button) {
+  margin: 0;
+  width: 100%;
+}
+
+:deep(.floating-form-block .el-switch) {
+  align-self: flex-start;
+}
+
+:deep(.floating-form-block .el-input),
+:deep(.floating-form-block .el-select),
+:deep(.floating-form-block .el-input-number) {
+  width: 100%;
 }
 
 .floating-subtitle {
-  margin: 4px 0 0;
-  font-size: 13px;
-  color: #334155;
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: #0f172a;
+  font-weight: 600;
+  letter-spacing: 0.25px;
+  text-transform: uppercase;
 }
 
-.floating-rename-list {
-  border-top: 1px dashed #dbe5ef;
-  padding-top: 10px;
-  display: flex;
-  flex-direction: column;
+.gis-info-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 
-.rename-item {
+.gis-info-card {
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 10px;
+  padding: 7px 8px;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.92) 0%, rgba(241, 245, 249, 0.88) 100%);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.gis-info-card .label {
+  font-size: 11px;
+  color: #64748b;
+  line-height: 1.2;
+}
+
+.gis-info-card strong {
+  font-size: 15px;
+  color: #0f172a;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.record-op-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.record-op-actions {
   display: flex;
   align-items: center;
   gap: 8px;
+  line-height: 1;
+}
+
+.record-rename-inline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+:deep(.record-rename-inline .el-input__wrapper) {
+  min-height: 28px;
 }
 
 .muted-text {
@@ -648,13 +859,112 @@ onMounted(() => {
 
 .hint-text {
   margin: 0;
-  color: #64748b;
+  color: #475569;
   font-size: 12px;
   line-height: 1.5;
 }
 
+:deep(.el-table) {
+  --el-table-bg-color: rgba(255, 255, 255, 0.86);
+  --el-table-tr-bg-color: rgba(255, 255, 255, 0.86);
+  --el-table-header-bg-color: rgba(241, 245, 249, 0.92);
+  --el-table-border-color: rgba(148, 163, 184, 0.3);
+  --el-table-row-hover-bg-color: rgba(219, 234, 254, 0.52);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+:deep(.floating-form-block .el-input__wrapper),
+:deep(.floating-form-block .el-textarea__inner),
+:deep(.floating-form-block .el-select__wrapper),
+:deep(.floating-form-block .el-input-number),
+:deep(.floating-form-block .el-switch) {
+  box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.38) inset;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+:deep(.floating-form-block .el-input__wrapper:hover),
+:deep(.floating-form-block .el-select__wrapper:hover),
+:deep(.floating-form-block .el-input-number:hover) {
+  box-shadow: 0 0 0 1px rgba(14, 116, 144, 0.45) inset;
+}
+
+:deep(.floating-form-block .el-button--primary),
+:deep(.floating-form-block .el-button--success),
+:deep(.floating-form-block .el-button--warning) {
+  border: 0;
+  box-shadow: 0 8px 18px rgba(14, 116, 144, 0.22);
+  transition: transform 140ms ease, box-shadow 140ms ease, filter 140ms ease, opacity 140ms ease;
+}
+
+:deep(.floating-form-block .el-button--primary) {
+  background: linear-gradient(135deg, #0284c7 0%, #2563eb 100%);
+}
+
+:deep(.floating-form-block .el-button--success) {
+  background: linear-gradient(135deg, #059669 0%, #0ea5e9 100%);
+}
+
+:deep(.floating-form-block .el-button--warning) {
+  background: linear-gradient(135deg, #d97706 0%, #f59e0b 100%);
+  color: #fff;
+}
+
+:deep(.floating-form-block .el-button:hover) {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 24px rgba(14, 116, 144, 0.25);
+}
+
+:deep(.floating-form-block .el-button:active) {
+  transform: translateY(0) scale(0.98);
+  filter: saturate(1.06);
+  box-shadow: 0 5px 12px rgba(14, 116, 144, 0.2);
+}
+
+:deep(.floating-form-block .el-button.is-disabled),
+:deep(.floating-form-block .el-button.is-loading) {
+  filter: saturate(0.5) brightness(1.02);
+  opacity: 0.72;
+  transform: none;
+  box-shadow: none;
+}
+
+/* 给地图右上工具栏预留用户面板空间，避免模块重叠 */
+.kml-fullscreen-page :deep(.kml-overlay-toolbar) {
+  top: 76px;
+  right: 14px;
+  z-index: 14;
+  max-width: min(360px, calc(100vw - 32px));
+}
+
+.kml-fullscreen-page :deep(.kml-legend-panel) {
+  z-index: 13;
+}
+
+.kml-fullscreen-page :deep(.kml-overlay-tip) {
+  z-index: 12;
+}
+
 :deep(.conflict-row-active > td) {
-  background: #fff7ed !important;
+  background: rgba(254, 215, 170, 0.35) !important;
+}
+
+@keyframes menu-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 1360px) {
+  .kml-fullscreen-page :deep(.kml-overlay-toolbar) {
+    top: 88px;
+  }
 }
 
 @media (max-width: 1024px) {
@@ -669,11 +979,37 @@ onMounted(() => {
     right: 10px;
     width: auto;
     bottom: 10px;
+    border-radius: 14px;
   }
 
   .kml-menu-toggle {
     left: 10px;
     top: 10px;
+  }
+
+  .floating-btn-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .gis-info-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .kml-fullscreen-page :deep(.kml-overlay-toolbar) {
+    top: auto;
+    right: 10px;
+    bottom: 210px;
+    max-width: min(320px, calc(100vw - 20px));
+  }
+
+  .floating-menu-scroll :deep(.el-collapse-item__content) {
+    padding: 10px;
+  }
+}
+
+@media (max-width: 640px) {
+  .gis-info-cards {
+    grid-template-columns: 1fr;
   }
 }
 </style>
