@@ -48,11 +48,16 @@
           </template>
         </el-table-column>
         <el-table-column prop="issue_details" label="问题描述" min-width="220" show-overflow-tooltip />
-        <el-table-column label="照片" width="100">
+        <el-table-column label="照片" width="110">
           <template #default="scope">
-            <el-button link type="primary" :disabled="!scope.row.photo_url" @click="previewPhoto(scope.row.photo_url)">
-              查看
-            </el-button>
+            <el-image
+              v-if="getPhotoUrl(scope.row)"
+              :src="getPhotoUrl(scope.row)"
+              fit="cover"
+              style="width: 64px; height: 64px; border-radius: 6px; cursor: pointer"
+              @click="previewPhoto(scope.row)"
+            />
+            <span v-else>无照片</span>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="210">
@@ -144,7 +149,31 @@ async function loadRows() {
   }
 }
 
-function previewPhoto(url) {
+function normalizePhotoUrl(url) {
+  const raw = String(url || '').trim()
+  if (!raw) {
+    return ''
+  }
+  if (/^(https?:)?\/\//i.test(raw) || raw.startsWith('data:') || raw.startsWith('blob:')) {
+    return raw
+  }
+  const normalizedPath = raw.startsWith('/') ? raw : `/${raw}`
+  return new URL(normalizedPath, window.location.origin).toString()
+}
+
+function getPhotoUrl(row) {
+  return normalizePhotoUrl(
+    row?.photo_url || row?.photoUrl || row?.photo || row?.image_url || row?.imageUrl
+  )
+}
+
+function previewPhoto(row) {
+  const url = getPhotoUrl(row)
+  if (!url) {
+    ElMessage.warning('当前记录没有照片')
+    return
+  }
+
   currentPhotoUrl.value = url
   photoDialogVisible.value = true
 }
