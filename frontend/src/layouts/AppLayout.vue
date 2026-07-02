@@ -297,9 +297,10 @@ function ensureHeritageEntries(groups = []) {
     { label: '不可移动文物采集', to: '/collect/immovable' },
     { label: '采集数据管理', to: '/collect/records' }
   ]
-  const requiredSystemItems = [
-    { label: '后台管理', to: '/admin/' }
-  ]
+  const requiredSystemItems = [{ label: '后台管理', to: '/admin/' }]
+  if (isSuperAdminUser()) {
+    requiredSystemItems.push({ label: '菜单管理', to: '/system/menus' })
+  }
 
   function isSystemGroup(title, items = []) {
     if ((title || '').trim() === '系统管理') {
@@ -365,11 +366,29 @@ function ensureHeritageEntries(groups = []) {
 
 const menuGroups = computed(() => {
   const dynamic = buildMenuGroupsFromTree(authStore.menuTree)
-  if (dynamic.length > 0) {
-    return ensureHeritageEntries(dynamic)
+  const restrictForNonSuperAdmin = (groups = []) => {
+    if (isSuperAdminUser()) {
+      return groups
+    }
+    return groups
+      .map((group) => ({
+        ...group,
+        items: (group.items || []).filter((item) => item.to !== '/system/menus')
+      }))
+      .filter((group) => Array.isArray(group.items) && group.items.length > 0)
   }
-  return ensureHeritageEntries(staticMenuGroups)
+
+  if (dynamic.length > 0) {
+    return restrictForNonSuperAdmin(ensureHeritageEntries(dynamic))
+  }
+  return restrictForNonSuperAdmin(ensureHeritageEntries(staticMenuGroups))
 })
+
+function isSuperAdminUser() {
+  const user = authStore.user || {}
+  const roles = Array.isArray(user.roles) ? user.roles : []
+  return Boolean(user.is_superuser) || roles.includes('超级管理员')
+}
 
 function isDjangoAdminPath(path) {
   return typeof path === 'string' && path.startsWith('/admin/')

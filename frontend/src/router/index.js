@@ -55,7 +55,7 @@ const routes = [
       { path: 'system/users', component: UserListView },
       { path: 'system/roles', component: RoleListView },
       { path: 'system/admin', component: AdminEntryView },
-      { path: 'system/menus', component: MenuListView }
+      { path: 'system/menus', component: MenuListView, meta: { requiresSuperAdmin: true } }
     ]
   }
 ]
@@ -83,6 +83,16 @@ router.beforeEach(async (to) => {
       query: {
         redirect: to.fullPath
       }
+    }
+  }
+
+  const requiresSuperAdmin = to.matched.some((record) => record.meta.requiresSuperAdmin)
+  if (requiresSuperAdmin) {
+    const user = authStore.user || {}
+    const roles = Array.isArray(user.roles) ? user.roles : []
+    const isSuperAdmin = Boolean(user.is_superuser) || roles.includes('超级管理员')
+    if (!isSuperAdmin) {
+      return '/dashboard'
     }
   }
 
