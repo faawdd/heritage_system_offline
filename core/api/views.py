@@ -31,6 +31,19 @@ from core.services.system_service import get_system_version_payload
 from core.ovkml_converter import build_csv_outputs, parse_kml_or_kmz
 
 
+def _build_inspection_photo_url(photo_field) -> str:
+    if not photo_field:
+        return ''
+
+    base_url = os.environ.get('DJANGO_WEB_BASE_URL', 'https://beichenhome.top:9081').rstrip('/')
+    photo_path = str(getattr(photo_field, 'url', photo_field) or '').strip()
+    if not photo_path:
+        return ''
+    if photo_path.startswith('http://') or photo_path.startswith('https://'):
+        return photo_path
+    return f"{base_url}/{photo_path.lstrip('/')}"
+
+
 class HealthAPIView(APIView):
     permission_classes = []
     authentication_classes = []
@@ -1188,7 +1201,7 @@ class InspectionListAPIView(APIView):
             'issue_details': item.issue_details or '',
             'latitude': item.latitude,
             'longitude': item.longitude,
-            'photo_url': request.build_absolute_uri(item.photo.url) if item.photo else '',
+            'photo_url': _build_inspection_photo_url(item.photo),
         }
 
     def _parse_bool(self, value, default=True):
@@ -1427,7 +1440,7 @@ class InspectionDetailAPIView(APIView):
                     'issue_details': item.issue_details or '',
                     'latitude': item.latitude,
                     'longitude': item.longitude,
-                    'photo_url': request.build_absolute_uri(item.photo.url) if item.photo else '',
+                    'photo_url': _build_inspection_photo_url(item.photo),
                 },
             }
         )
