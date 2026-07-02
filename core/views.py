@@ -282,6 +282,11 @@ def admin_index_view(request):
     return redirect('/static/frontend/dashboard')
 
 
+def admin_direct_entry_block_view(request):
+    """禁止直接进入 Django Admin，统一走 Vue 系统登录后进入。"""
+    return redirect('/static/frontend/login?redirect=/system/admin')
+
+
 @staff_member_required  # 确保只有登录后台的人能看
 def heritage_map_view(request):
     """旧地图页已迁移到 Vue，保留兼容入口。"""
