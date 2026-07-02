@@ -321,6 +321,15 @@ function ensureHeritageEntries(groups = []) {
     })
   }
 
+  const systemExists = patchedGroups.some((group) => (group.title || '').trim() === '系统管理')
+  if (!systemExists) {
+    patchedGroups.push({
+      key: 'system',
+      title: '系统管理',
+      items: [...requiredSystemItems]
+    })
+  }
+
   return patchedGroups
 }
 
