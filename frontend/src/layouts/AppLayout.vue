@@ -15,18 +15,30 @@
       </div>
 
       <div class="collapsed-icon-nav" v-if="isSidebarCollapsed">
-        <router-link
-          v-for="group in collapsedShortcutGroups"
-          :key="group.key"
-          class="collapsed-icon-item"
-          :class="{ active: group.active }"
-          :to="group.to"
-          :data-title="group.title"
-        >
-          <span class="menu-icon" :class="`menu-icon--${getGroupIconType(group.title)}`" aria-hidden="true">
-            {{ getGroupIconLabel(group.title) }}
-          </span>
-        </router-link>
+        <template v-for="group in collapsedShortcutGroups" :key="group.key">
+          <a
+            v-if="isDjangoAdminPath(group.to)"
+            class="collapsed-icon-item"
+            :class="{ active: group.active }"
+            :href="group.to"
+            :data-title="group.title"
+          >
+            <span class="menu-icon" :class="`menu-icon--${getGroupIconType(group.title)}`" aria-hidden="true">
+              {{ getGroupIconLabel(group.title) }}
+            </span>
+          </a>
+          <router-link
+            v-else
+            class="collapsed-icon-item"
+            :class="{ active: group.active }"
+            :to="group.to"
+            :data-title="group.title"
+          >
+            <span class="menu-icon" :class="`menu-icon--${getGroupIconType(group.title)}`" aria-hidden="true">
+              {{ getGroupIconLabel(group.title) }}
+            </span>
+          </router-link>
+        </template>
       </div>
 
       <div class="sidebar-group" v-for="group in menuGroups" :key="group.key" v-show="!isSidebarCollapsed">
@@ -40,14 +52,22 @@
           <span class="sidebar-group-arrow" :class="{ open: isGroupOpen(group.key) }">▾</span>
         </button>
         <div class="sidebar-submenu" v-show="isGroupOpen(group.key)">
-          <router-link
-            v-for="item in group.items"
-            :key="item.to"
-            class="nav-link nav-sublink"
-            :to="item.to"
-          >
-            {{ item.label }}
-          </router-link>
+          <template v-for="item in group.items" :key="item.to">
+            <a
+              v-if="isDjangoAdminPath(item.to)"
+              class="nav-link nav-sublink"
+              :href="item.to"
+            >
+              {{ item.label }}
+            </a>
+            <router-link
+              v-else
+              class="nav-link nav-sublink"
+              :to="item.to"
+            >
+              {{ item.label }}
+            </router-link>
+          </template>
         </div>
       </div>
 
@@ -239,7 +259,7 @@ const staticMenuGroups = [
     items: [
       { label: '用户管理', to: '/system/users' },
       { label: '角色管理', to: '/system/roles' },
-      { label: '后台管理', to: '/system/admin' },
+      { label: '后台管理', to: '/admin/' },
       { label: '菜单管理', to: '/system/menus' }
     ]
   }
@@ -278,23 +298,33 @@ function ensureHeritageEntries(groups = []) {
     { label: '采集数据管理', to: '/collect/records' }
   ]
   const requiredSystemItems = [
-    { label: '后台管理', to: '/system/admin' }
+    { label: '后台管理', to: '/admin/' }
   ]
+
+  function isSystemGroup(title, items = []) {
+    if ((title || '').trim() === '系统管理') {
+      return true
+    }
+    return (items || []).some((item) => typeof item?.to === 'string' && item.to.startsWith('/system/'))
+  }
 
   const patchedGroups = groups.map((group) => {
     const title = (group.title || '').trim()
-    if (title !== '文物管理' && title !== '文物采集' && title !== '系统管理') {
+    const groupItems = group.items || []
+    const systemGroup = isSystemGroup(title, groupItems)
+
+    if (title !== '文物管理' && title !== '文物采集' && !systemGroup) {
       return group
     }
 
     let requiredItems = requiredHeritageItems
     if (title === '文物采集') {
       requiredItems = requiredCollectItems
-    } else if (title === '系统管理') {
+    } else if (systemGroup) {
       requiredItems = requiredSystemItems
     }
 
-    const existingItems = [...(group.items || [])]
+    const existingItems = [...groupItems]
     const existingToSet = new Set(existingItems.map((item) => item.to))
     requiredItems.forEach((item) => {
       if (!existingToSet.has(item.to)) {
@@ -321,7 +351,7 @@ function ensureHeritageEntries(groups = []) {
     })
   }
 
-  const systemExists = patchedGroups.some((group) => (group.title || '').trim() === '系统管理')
+  const systemExists = patchedGroups.some((group) => isSystemGroup(group.title, group.items || []))
   if (!systemExists) {
     patchedGroups.push({
       key: 'system',
@@ -340,6 +370,10 @@ const menuGroups = computed(() => {
   }
   return ensureHeritageEntries(staticMenuGroups)
 })
+
+function isDjangoAdminPath(path) {
+  return typeof path === 'string' && path.startsWith('/admin/')
+}
 
 const collapsedShortcutGroups = computed(() => {
   return menuGroups.value
