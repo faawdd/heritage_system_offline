@@ -239,6 +239,7 @@ const staticMenuGroups = [
     items: [
       { label: '用户管理', to: '/system/users' },
       { label: '角色管理', to: '/system/roles' },
+      { label: '后台管理', to: '/system/admin' },
       { label: '菜单管理', to: '/system/menus' }
     ]
   }
@@ -276,14 +277,22 @@ function ensureHeritageEntries(groups = []) {
     { label: '不可移动文物采集', to: '/collect/immovable' },
     { label: '采集数据管理', to: '/collect/records' }
   ]
+  const requiredSystemItems = [
+    { label: '后台管理', to: '/system/admin' }
+  ]
 
   const patchedGroups = groups.map((group) => {
     const title = (group.title || '').trim()
-    if (title !== '文物管理' && title !== '文物采集') {
+    if (title !== '文物管理' && title !== '文物采集' && title !== '系统管理') {
       return group
     }
 
-    const requiredItems = title === '文物采集' ? requiredCollectItems : requiredHeritageItems
+    let requiredItems = requiredHeritageItems
+    if (title === '文物采集') {
+      requiredItems = requiredCollectItems
+    } else if (title === '系统管理') {
+      requiredItems = requiredSystemItems
+    }
 
     const existingItems = [...(group.items || [])]
     const existingToSet = new Set(existingItems.map((item) => item.to))

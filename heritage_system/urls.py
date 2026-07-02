@@ -21,6 +21,7 @@ from django.conf.urls.static import static
 from django.views.generic import RedirectView
 from core.views import (heritage_map_view, heritage_dashboard_view, heritage_stats_api,
                         heritage_stats_by_category_api, admin_index_view,
+                        admin_direct_entry_block_view,
                         kanerjing_list_view, kanerjing_stats_api, kanerjing_import_check_view,
                         CustomPasswordChangeDoneView, inspection_mobile_add_view,
                         inspection_mobile_list_view, kml_overlay_check_view,
@@ -41,6 +42,7 @@ from core.views import (heritage_map_view, heritage_dashboard_view, heritage_sta
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 urlpatterns = [
+    path('', RedirectView.as_view(url='/static/frontend/', permanent=False), name='root_to_vue'),
     path('api/v1/', include('core.api.urls')),
     path('api/v1/system/', include('system.urls')),
     # 兼容旧项目管理入口，统一跳转到新重构页面
@@ -84,5 +86,7 @@ urlpatterns = [
     path('api/land-projects/next-shanshan-doc/', land_project_next_doc_num_api, name='land_project_next_doc_num_api'),
     path('api/land-projects/<uuid:project_id>/workflow-action/', land_project_workflow_action_api, name='land_project_workflow_action_api'),
     path('api/land-projects/<uuid:project_id>/controls/', land_project_controls_api, name='land_project_controls_api'),
+    path('admin/login/', admin_direct_entry_block_view, name='admin_login_block'),
+    path('admin/', admin_direct_entry_block_view, name='admin_direct_block'),
     path('admin/', admin.site.urls),
 ] + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT) + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

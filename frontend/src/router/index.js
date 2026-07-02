@@ -18,6 +18,7 @@ import KmlManagementView from '../views/gis/KmlManagementView.vue'
 import KmlProcessConvertView from '../views/gis/KmlProcessConvertView.vue'
 import OvkmlConvertView from '../views/gis/OvkmlConvertView.vue'
 import LoginView from '../views/system/auth/LoginView.vue'
+import AdminEntryView from '../views/system/admin/AdminEntryView.vue'
 import UserListView from '../views/system/user/UserListView.vue'
 import RoleListView from '../views/system/role/RoleListView.vue'
 import MenuListView from '../views/system/menu/MenuListView.vue'
@@ -53,6 +54,7 @@ const routes = [
       { path: 'gis/ovkml-convert', component: OvkmlConvertView },
       { path: 'system/users', component: UserListView },
       { path: 'system/roles', component: RoleListView },
+      { path: 'system/admin', component: AdminEntryView },
       { path: 'system/menus', component: MenuListView }
     ]
   }

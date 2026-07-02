@@ -1,4 +1,4 @@
-from django.contrib.auth import authenticate
+from django.contrib.auth import authenticate, login as auth_login
 from django.contrib.auth.models import Group, Permission, User
 from django.db.models import Q
 from core.permission_decorators import can_modify_core_data
@@ -145,6 +145,33 @@ class SystemLogoutAPIView(APIView):
 
     def post(self, request):
         return Response({'success': True, 'message': '已退出登录'})
+
+
+class SystemAdminEntryAPIView(APIView):
+    permission_classes = [IsManagementAdmin]
+
+    def post(self, request):
+        user = request.user
+        if not user or not user.is_authenticated:
+            return Response({'success': False, 'message': '未登录'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        if not user.is_active:
+            return Response({'success': False, 'message': '用户已禁用'}, status=status.HTTP_403_FORBIDDEN)
+
+        if not (user.is_staff or user.is_superuser):
+            return Response({'success': False, 'message': '当前账号无权进入后台管理'}, status=status.HTTP_403_FORBIDDEN)
+
+        auth_login(request, user, backend='django.contrib.auth.backends.ModelBackend')
+        request.session['admin_sso_from_vue'] = True
+
+        return Response(
+            {
+                'success': True,
+                'data': {
+                    'redirect_url': '/admin/home/',
+                },
+            }
+        )
 
 
 class SystemProfileAPIView(APIView):

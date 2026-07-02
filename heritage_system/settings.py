@@ -134,6 +134,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'core.middleware.AdminFullPathGateMiddleware',  # /admin/* 全路径强制门禁
     'core.middleware.DeviceAutoRedirectMiddleware',  # 自动设备检测重定向
 ]
 
@@ -235,8 +236,8 @@ CORS_ALLOWED_ORIGINS = [
 ]
 CORS_ALLOW_CREDENTIALS = True
 
-# 未登录访问受保护页面时统一跳转到 Django Admin 登录页，避免默认 /accounts/login/ 404
-LOGIN_URL = '/admin/login/'
+# 未登录访问受保护页面时统一跳转到 Vue 登录页
+LOGIN_URL = '/static/frontend/login?redirect=/system/admin'
 
 
 # DEM（SRTM 30m）按需下载缓存配置
