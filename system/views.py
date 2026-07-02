@@ -1,4 +1,4 @@
-from django.contrib.auth import authenticate
+from django.contrib.auth import authenticate, login as auth_login
 from django.contrib.auth.models import Group, Permission, User
 from django.db.models import Q
 from core.permission_decorators import can_modify_core_data
@@ -81,6 +81,27 @@ def _forbid_if_no_write_permission(request, module, action):
     return Response({'success': False, 'message': '当前角色仅可查看，禁止修改'}, status=status.HTTP_403_FORBIDDEN)
 
 
+def _is_super_admin_user(user):
+    if not user or not user.is_authenticated:
+        return False
+    if user.is_superuser:
+        return True
+    return user.groups.filter(name='超级管理员').exists()
+
+
+def _filter_menu_rows_for_user(rows, user):
+    if _is_super_admin_user(user):
+        return rows
+    return [row for row in rows if (row.get('path') or '').strip() != '/system/menus']
+
+
+def _forbid_if_not_super_admin(request, module, action):
+    if _is_super_admin_user(request.user):
+        return None
+    _record_operation(request, module, action, success=False, detail='仅超级管理员可操作菜单管理')
+    return Response({'success': False, 'message': '仅超级管理员可操作该功能'}, status=status.HTTP_403_FORBIDDEN)
+
+
 class SystemLoginAPIView(APIView):
     permission_classes = []
     authentication_classes = []
@@ -114,6 +135,7 @@ class SystemLoginAPIView(APIView):
         if not user.is_superuser:
             menu_queryset = menu_queryset.filter(Q(roles__in=user.groups.all()) | Q(roles__isnull=True)).distinct()
         menu_rows = MenuSerializer(menu_queryset.order_by('order_num', 'id'), many=True).data
+        menu_rows = _filter_menu_rows_for_user(list(menu_rows), user)
 
         return Response(
             {
@@ -145,6 +167,33 @@ class SystemLogoutAPIView(APIView):
 
     def post(self, request):
         return Response({'success': True, 'message': '已退出登录'})
+
+
+class SystemAdminEntryAPIView(APIView):
+    permission_classes = [IsManagementAdmin]
+
+    def post(self, request):
+        user = request.user
+        if not user or not user.is_authenticated:
+            return Response({'success': False, 'message': '未登录'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        if not user.is_active:
+            return Response({'success': False, 'message': '用户已禁用'}, status=status.HTTP_403_FORBIDDEN)
+
+        if not (user.is_staff or user.is_superuser):
+            return Response({'success': False, 'message': '当前账号无权进入后台管理'}, status=status.HTTP_403_FORBIDDEN)
+
+        auth_login(request, user, backend='django.contrib.auth.backends.ModelBackend')
+        request.session['admin_sso_from_vue'] = True
+
+        return Response(
+            {
+                'success': True,
+                'data': {
+                    'redirect_url': '/admin/home/',
+                },
+            }
+        )
 
 
 class SystemProfileAPIView(APIView):
@@ -306,10 +355,11 @@ class MenuListAPIView(APIView):
     def get(self, request):
         queryset = Menu.objects.all().order_by('order_num', 'id')
         rows = MenuSerializer(queryset, many=True).data
+        rows = _filter_menu_rows_for_user(list(rows), request.user)
         return Response({'success': True, 'rows': rows, 'tree': _build_menu_tree(list(rows))})
 
     def post(self, request):
-        denied = _forbid_if_no_write_permission(request, 'system_menu', 'create_menu')
+        denied = _forbid_if_not_super_admin(request, 'system_menu', 'create_menu')
         if denied:
             return denied
 
@@ -361,7 +411,7 @@ class MenuDetailAPIView(APIView):
         return Menu.objects.filter(id=menu_id).first()
 
     def patch(self, request, menu_id):
-        denied = _forbid_if_no_write_permission(request, 'system_menu', 'update_menu')
+        denied = _forbid_if_not_super_admin(request, 'system_menu', 'update_menu')
         if denied:
             return denied
 
@@ -419,7 +469,7 @@ class MenuDetailAPIView(APIView):
         return Response({'success': True, 'message': '菜单更新成功', 'data': MenuSerializer(menu).data})
 
     def delete(self, request, menu_id):
-        denied = _forbid_if_no_write_permission(request, 'system_menu', 'delete_menu')
+        denied = _forbid_if_not_super_admin(request, 'system_menu', 'delete_menu')
         if denied:
             return denied
 

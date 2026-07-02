@@ -30,6 +30,7 @@ from .utils import generate_word_log
 import json
 from django.shortcuts import render
 from django.urls import reverse
+from urllib.parse import urlencode
 import re
 from django.conf import settings
 from django.utils import timezone
@@ -745,7 +746,7 @@ class CoordinateAdmin(admin.ModelAdmin):
 
 
 
-# 修改后台标题，确保 SimpleUI 与 Django Admin 同步显示动态版本号
+# 修改后台标题，统一显示动态版本号
 sys_version = getattr(settings, 'SYS_VERSION', 'BuildUnknown')
 system_name = getattr(settings, 'SYSTEM_NAME', '鄯善县文物管理平台')
 admin.site.site_header = f'{system_name} ({sys_version})'
@@ -1222,7 +1223,8 @@ class ImmovableHeritageAdmin(admin.ModelAdmin):
     ordering = ('-collected_at', '-id')
 
     def name_preview_link(self, obj):
-        url = reverse('heritage_detail_preview', kwargs={'pk': obj.pk})
+        base_url = reverse('heritage_detail_preview', kwargs={'pk': obj.pk})
+        url = f"{base_url}?{urlencode({'mode': 'view'})}"
         return format_html('<a href="{}" target="_blank">{}</a>', url, obj.name)
     name_preview_link.short_description = '文物名称'
     name_preview_link.admin_order_field = 'name'

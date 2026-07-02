@@ -1528,12 +1528,14 @@ watch(
   left: 12px;
   bottom: 12px;
   max-width: min(520px, calc(100% - 24px));
-  background: rgba(15, 23, 42, 0.82);
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.84) 0%, rgba(30, 41, 59, 0.8) 100%);
   color: #f8fafc;
-  border-radius: 8px;
-  padding: 8px 10px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 10px;
+  padding: 9px 11px;
   font-size: 12px;
   line-height: 1.45;
+  backdrop-filter: blur(4px);
 }
 
 .kml-overlay-toolbar {
@@ -1541,14 +1543,15 @@ watch(
   top: 12px;
   right: 12px;
   z-index: 6;
-  background: rgba(255, 255, 255, 0.95);
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.16);
-  padding: 10px;
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.88) 0%, rgba(241, 245, 249, 0.84) 100%);
+  border: 1px solid rgba(148, 163, 184, 0.34);
+  border-radius: 12px;
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.18);
+  padding: 11px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 9px;
+  backdrop-filter: blur(8px);
 }
 
 .toolbar-row {
@@ -1560,26 +1563,34 @@ watch(
 
 .toolbar-label {
   font-size: 12px;
-  color: #334155;
-  min-width: 32px;
+  color: #0f172a;
+  min-width: 34px;
+  font-weight: 600;
 }
 
 .toolbar-btn {
-  border: 1px solid #cbd5e1;
-  border-radius: 7px;
-  background: #fff;
-  color: #1e293b;
+  border: 1px solid rgba(148, 163, 184, 0.55);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #0f172a;
   font-size: 12px;
   line-height: 1;
-  padding: 6px 8px;
+  padding: 6px 9px;
   cursor: pointer;
+  transition: all 180ms ease;
+}
+
+.toolbar-btn:hover {
+  border-color: rgba(2, 132, 199, 0.6);
+  color: #0369a1;
+  transform: translateY(-1px);
 }
 
 .toolbar-select {
-  border: 1px solid #cbd5e1;
-  border-radius: 7px;
-  background: #fff;
-  color: #1e293b;
+  border: 1px solid rgba(148, 163, 184, 0.55);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #0f172a;
   font-size: 12px;
   line-height: 1;
   padding: 5px 6px;
@@ -1587,14 +1598,15 @@ watch(
 }
 
 .toolbar-btn.active {
-  border-color: #1d4ed8;
-  background: #dbeafe;
-  color: #1e40af;
+  border-color: rgba(2, 132, 199, 0.7);
+  background: linear-gradient(135deg, rgba(224, 242, 254, 0.96) 0%, rgba(219, 234, 254, 0.94) 100%);
+  color: #0c4a6e;
 }
 
 .measure-text {
   font-size: 12px;
   color: #0f172a;
+  font-weight: 600;
 }
 
 .kml-legend-panel {
@@ -1604,14 +1616,15 @@ watch(
   z-index: 6;
   min-width: 196px;
   max-width: 250px;
-  background: rgba(255, 255, 255, 0.95);
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.16);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.9) 0%, rgba(241, 245, 249, 0.9) 100%);
+  border: 1px solid rgba(148, 163, 184, 0.34);
+  border-radius: 12px;
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.18);
   padding: 10px 10px 8px;
   display: flex;
   flex-direction: column;
   gap: 7px;
+  backdrop-filter: blur(8px);
 }
 
 .legend-title {
@@ -1619,6 +1632,7 @@ watch(
   color: #0f172a;
   font-weight: 600;
   margin-bottom: 2px;
+  letter-spacing: 0.2px;
 }
 
 .legend-item {
@@ -1626,7 +1640,7 @@ watch(
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  color: #334155;
+  color: #1e293b;
   line-height: 1.2;
 }
 

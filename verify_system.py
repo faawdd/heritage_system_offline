@@ -95,24 +95,11 @@ def check_system():
         if stats.count() > 5:
             print(f"     ... ({stats.count() - 5}个其他)")
     
-    # 6. 检查菜单配置
+    # 6. 检查Django设置
     print("\n6️⃣  检查Django设置...")
     from django.conf import settings
-    
-    # 检查SIMPLEUI配置
-    if hasattr(settings, 'SIMPLEUI_CONFIG'):
-        config = settings.SIMPLEUI_CONFIG
-        if 'menus' in config:
-            menus = config['menus']
-            print(f"   ✓ 已配置 {len(menus)} 个菜单")
-            for menu in menus:
-                print(f"     • {menu['name']}")
-        else:
-            print("   ✗ 菜单配置缺失")
-    
-    # 检查首页配置
-    if hasattr(settings, 'SIMPLEUI_HOME_PAGE'):
-        print(f"   ✓ 自定义首页: {settings.SIMPLEUI_HOME_PAGE}")
+    print(f"   ✓ 系统名称: {getattr(settings, 'SYSTEM_NAME', '未配置')}")
+    print(f"   ✓ 系统版本: {getattr(settings, 'SYS_VERSION', '未配置')}")
     
     print("\n" + "="*60)
     print("✅ 检查完成!")
