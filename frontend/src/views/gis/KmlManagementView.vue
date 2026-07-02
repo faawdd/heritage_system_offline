@@ -128,21 +128,27 @@
                     </el-tag>
                   </template>
                 </el-table-column>
-                <el-table-column label="操作" width="180">
+                <el-table-column label="操作" min-width="280">
                   <template #default="scope">
-                    <el-button link type="success" :loading="processing" @click="analyzeSingle(scope.row)">查询</el-button>
-                    <el-button link type="primary" @click="openFile(scope.row)">源文件</el-button>
-                    <el-button link type="danger" :loading="processing" @click="deleteRecord(scope.row)">删除</el-button>
+                    <div class="record-op-cell">
+                      <div class="record-op-actions">
+                        <el-button link type="success" :loading="processing" @click="analyzeSingle(scope.row)">查询</el-button>
+                        <el-button link type="primary" @click="openFile(scope.row)">源文件</el-button>
+                        <el-button link type="danger" :loading="processing" @click="deleteRecord(scope.row)">删除</el-button>
+                      </div>
+                      <div class="record-rename-inline">
+                        <el-input
+                          v-model="renameDraft[scope.row.id]"
+                          :placeholder="scope.row.title"
+                          size="small"
+                          @keyup.enter="renameRecord(scope.row)"
+                        />
+                        <el-button link type="warning" :loading="processing" @click="renameRecord(scope.row)">重命名</el-button>
+                      </div>
+                    </div>
                   </template>
                 </el-table-column>
               </el-table>
-
-              <div class="floating-rename-list" v-if="rows.length > 0">
-                <div class="rename-item" v-for="row in rows" :key="row.id">
-                  <el-input v-model="renameDraft[row.id]" :placeholder="row.title" />
-                  <el-button link type="success" :loading="processing" @click="renameRecord(row)">重命名</el-button>
-                </div>
-              </div>
             </div>
           </el-collapse-item>
 
@@ -822,18 +828,28 @@ onMounted(() => {
   line-height: 1;
 }
 
-.floating-rename-list {
-  border-top: 1px dashed rgba(148, 163, 184, 0.54);
-  padding-top: 10px;
+.record-op-cell {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
 }
 
-.rename-item {
+.record-op-actions {
   display: flex;
   align-items: center;
   gap: 8px;
+  line-height: 1;
+}
+
+.record-rename-inline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+:deep(.record-rename-inline .el-input__wrapper) {
+  min-height: 28px;
 }
 
 .muted-text {

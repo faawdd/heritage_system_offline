@@ -186,6 +186,7 @@ import { changeSystemPassword, fetchSystemProfile, updateSystemProfile } from '.
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+const DJANGO_ADMIN_URL = 'https://beichenhome.top:9081/admin'
 const THEME_MODE_KEY = 'heritage_theme_mode'
 const SIDEBAR_COLLAPSE_KEY = 'heritage_sidebar_collapsed'
 const themeMode = ref('system')
@@ -259,7 +260,7 @@ const staticMenuGroups = [
     items: [
       { label: '用户管理', to: '/system/users' },
       { label: '角色管理', to: '/system/roles' },
-      { label: '后台管理', to: '/admin/' },
+      { label: '后台管理', to: DJANGO_ADMIN_URL },
       { label: '菜单管理', to: '/system/menus' }
     ]
   }
@@ -297,7 +298,7 @@ function ensureHeritageEntries(groups = []) {
     { label: '不可移动文物采集', to: '/collect/immovable' },
     { label: '采集数据管理', to: '/collect/records' }
   ]
-  const requiredSystemItems = [{ label: '后台管理', to: '/admin/' }]
+  const requiredSystemItems = [{ label: '后台管理', to: DJANGO_ADMIN_URL }]
   if (isSuperAdminUser()) {
     requiredSystemItems.push({ label: '菜单管理', to: '/system/menus' })
   }
@@ -325,7 +326,22 @@ function ensureHeritageEntries(groups = []) {
       requiredItems = requiredSystemItems
     }
 
-    const existingItems = [...groupItems]
+    let existingItems = [...groupItems]
+    if (systemGroup) {
+      existingItems = existingItems.map((item) => {
+        const label = String(item?.label || '').trim()
+        const to = String(item?.to || '').trim()
+        if (label === '后台管理' || to.startsWith('/admin/')) {
+          return {
+            ...item,
+            label: '后台管理',
+            to: DJANGO_ADMIN_URL
+          }
+        }
+        return item
+      })
+    }
+
     const existingToSet = new Set(existingItems.map((item) => item.to))
     requiredItems.forEach((item) => {
       if (!existingToSet.has(item.to)) {
@@ -391,7 +407,10 @@ function isSuperAdminUser() {
 }
 
 function isDjangoAdminPath(path) {
-  return typeof path === 'string' && path.startsWith('/admin/')
+  if (typeof path !== 'string') {
+    return false
+  }
+  return path.startsWith('/admin/') || path.startsWith('https://beichenhome.top:9081/admin')
 }
 
 const collapsedShortcutGroups = computed(() => {
