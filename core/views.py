@@ -284,7 +284,7 @@ def admin_index_view(request):
 
 def admin_direct_entry_block_view(request):
     """禁止直接进入 Django Admin，统一走 Vue 系统登录后进入。"""
-    return redirect('/static/frontend/?redirect=/system/admin')
+    return redirect('/?redirect=/system/admin')
 
 
 @staff_member_required  # 确保只有登录后台的人能看

@@ -115,7 +115,7 @@ class AdminFullPathGateMiddleware:
     - 其他直接访问统一重定向到 Vue 登录/受控入口
     """
 
-    VUE_LOGIN_REDIRECT = '/static/frontend/?redirect=/system/admin'
+    VUE_LOGIN_REDIRECT = '/?redirect=/system/admin'
 
     def __init__(self, get_response):
         self.get_response = get_response

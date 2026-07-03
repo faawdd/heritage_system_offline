@@ -426,7 +426,9 @@ async function loadRows() {
     })
 
     await nextTick()
-    await syncTableSelectionByIds(previousSelectedIds)
+    const fallbackSelectedIds = rows.value.length > 0 ? [rows.value[0].id] : []
+    const targetSelectedIds = previousSelectedIds.length > 0 ? previousSelectedIds : fallbackSelectedIds
+    await syncTableSelectionByIds(targetSelectedIds)
   } catch (error) {
     ElMessage.error(error?.message || '加载记录失败')
   } finally {

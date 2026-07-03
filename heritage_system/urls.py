@@ -18,6 +18,7 @@ from django.contrib import admin
 from django.urls import path, include, re_path
 from django.conf import settings
 from django.conf.urls.static import static
+from django.http import HttpResponse
 from django.views.generic import RedirectView
 from core.views import (heritage_map_view, heritage_dashboard_view, heritage_stats_api,
                         heritage_stats_by_category_api, admin_index_view,
@@ -41,8 +42,18 @@ from core.views import (heritage_map_view, heritage_dashboard_view, heritage_sta
                         land_project_workflow_action_api, land_project_controls_api)
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
+
+def frontend_spa_entry_view(request):
+    index_path = settings.BASE_DIR / 'static' / 'frontend' / 'index.html'
+    if not index_path.exists():
+        return HttpResponse('Frontend bundle not found. Build frontend first.', status=404)
+    return HttpResponse(index_path.read_text(encoding='utf-8'), content_type='text/html; charset=utf-8')
+
 urlpatterns = [
-    path('', RedirectView.as_view(url='/static/frontend/', permanent=False), name='root_to_vue'),
+    path('', frontend_spa_entry_view, name='root_to_vue'),
+    path('static/frontend', RedirectView.as_view(url='/', permanent=False), name='frontend_spa_entry_redirect_plain'),
+    path('static/frontend/', RedirectView.as_view(url='/', permanent=False), name='frontend_spa_entry_redirect'),
+    path('static/frontend/index.html', RedirectView.as_view(url='/', permanent=False), name='frontend_spa_index_redirect'),
     path('api/v1/', include('core.api.urls')),
     path('api/v1/system/', include('system.urls')),
     # 兼容旧项目管理入口，统一跳转到新重构页面

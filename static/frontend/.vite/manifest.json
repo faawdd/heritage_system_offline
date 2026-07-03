@@ -1,24 +1,24 @@
 {
-  "_vendor-echarts-CyS3npCo.js": {
-    "file": "assets/vendor-echarts-CyS3npCo.js",
+  "_vendor-echarts-kW7DVlUo.js": {
+    "file": "assets/vendor-echarts-kW7DVlUo.js",
     "name": "vendor-echarts",
     "imports": [
-      "_vendor-misc-xfagq95B.js"
+      "_vendor-misc-BJwlgrkc.js"
     ]
   },
-  "_vendor-misc-xfagq95B.js": {
-    "file": "assets/vendor-misc-xfagq95B.js",
+  "_vendor-misc-BJwlgrkc.js": {
+    "file": "assets/vendor-misc-BJwlgrkc.js",
     "name": "vendor-misc"
   },
   "_vendor-ol-!~{004}~.js": {
     "file": "assets/vendor-ol-BtPuoxOl.css",
     "src": "_vendor-ol-!~{004}~.js"
   },
-  "_vendor-ol-lo-LhK1u.js": {
-    "file": "assets/vendor-ol-lo-LhK1u.js",
+  "_vendor-ol-Bg62gBCa.js": {
+    "file": "assets/vendor-ol-Bg62gBCa.js",
     "name": "vendor-ol",
     "imports": [
-      "_vendor-misc-xfagq95B.js"
+      "_vendor-misc-BJwlgrkc.js"
     ],
     "css": [
       "assets/vendor-ol-BtPuoxOl.css"
@@ -28,29 +28,36 @@
     "file": "assets/vendor-vue-B68ugBY9.css",
     "src": "_vendor-vue-!~{002}~.js"
   },
-  "_vendor-vue-CMPL_ViR.js": {
-    "file": "assets/vendor-vue-CMPL_ViR.js",
+  "_vendor-vue-CGFdyV2I.js": {
+    "file": "assets/vendor-vue-CGFdyV2I.js",
     "name": "vendor-vue",
     "imports": [
-      "_vendor-misc-xfagq95B.js"
+      "_vendor-misc-BJwlgrkc.js"
     ],
     "css": [
       "assets/vendor-vue-B68ugBY9.css"
     ]
   },
   "index.html": {
-    "file": "assets/index-B2dRy-W9.js",
+    "file": "assets/index-PcpB6gcc.js",
     "name": "index",
     "src": "index.html",
     "isEntry": true,
     "imports": [
-      "_vendor-vue-CMPL_ViR.js",
-      "_vendor-ol-lo-LhK1u.js",
-      "_vendor-misc-xfagq95B.js",
-      "_vendor-echarts-CyS3npCo.js"
+      "_vendor-vue-CGFdyV2I.js",
+      "_vendor-ol-Bg62gBCa.js",
+      "_vendor-misc-BJwlgrkc.js",
+      "_vendor-echarts-kW7DVlUo.js"
     ],
     "css": [
-      "assets/index-DHaUsJJ2.css"
+      "assets/index-Bt8o_JlI.css"
+    ],
+    "assets": [
+      "assets/login-illustration-B9XkfA8Q.png"
     ]
+  },
+  "src/assets/login-illustration.png": {
+    "file": "assets/login-illustration-B9XkfA8Q.png",
+    "src": "src/assets/login-illustration.png"
   }
 }

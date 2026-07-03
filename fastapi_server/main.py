@@ -71,6 +71,13 @@ app.add_middleware(
 )
 
 
+def resolve_django_web_base_url() -> str:
+    configured = (os.environ.get("DJANGO_WEB_BASE_URL") or "").strip()
+    if configured:
+        return configured.rstrip("/")
+    return "http://127.0.0.1:8000"
+
+
 def get_conn() -> sqlite3.Connection:
     if not DB_PATH.exists():
         raise HTTPException(status_code=500, detail="Django database file not found")
@@ -285,7 +292,7 @@ def normalize_heritage_category(category_value: str) -> str:
 
 
 def serialize_inspection(record: InspectionRecord) -> dict:
-    base_url = os.environ.get("DJANGO_WEB_BASE_URL", "https://beichenhome.top:9081").rstrip("/")
+    base_url = resolve_django_web_base_url()
     photo_url = ""
     if record.photo:
         photo_url = f"{base_url}/media/{str(record.photo).lstrip('/')}"
@@ -625,7 +632,7 @@ def update_project(
 
 @app.get("/api/admin/kml-overlay-entry")
 def kml_overlay_entry(current_user: Any = Depends(require_admin)) -> dict:
-    base_url = os.environ.get("DJANGO_WEB_BASE_URL", "https://beichenhome.top:9081")
+    base_url = resolve_django_web_base_url()
     token = create_token(current_user, expires_in=60 * 10)
     target = quote("/admin/kml-overlay-check/", safe="/")
     return {
@@ -636,7 +643,7 @@ def kml_overlay_entry(current_user: Any = Depends(require_admin)) -> dict:
 
 @app.get("/api/admin/collect-entry")
 def collect_entry(current_user: Any = Depends(require_admin)) -> dict:
-    base_url = os.environ.get("DJANGO_WEB_BASE_URL", "https://beichenhome.top:9081")
+    base_url = resolve_django_web_base_url()
     token = create_token(current_user, expires_in=60 * 10)
     target = quote("/mobile/collect/", safe="/")
     return {
@@ -911,7 +918,7 @@ def collect_upload_photo(
     filename = f"collect_{heritage_id}_{now.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}{suffix}"
     hp.image.save(filename, ContentFile(raw_bytes), save=True)
 
-    base_url = os.environ.get("DJANGO_WEB_BASE_URL", "https://beichenhome.top:9081").rstrip("/")
+    base_url = resolve_django_web_base_url()
     return {
         "photo_id": hp.id,
         "photo_url": f"{base_url}/media/{str(hp.image)}",
@@ -927,7 +934,7 @@ def collect_my_records(
     current_user: Any = Depends(get_current_user),
 ) -> dict:
     """返回当前用户采集的文物记录（分页），供 App 端"我的采集"列表使用。"""
-    base_url = os.environ.get("DJANGO_WEB_BASE_URL", "https://beichenhome.top:9081").rstrip("/")
+    base_url = resolve_django_web_base_url()
 
     qs = (
         ImmovableHeritage.objects
