@@ -1642,10 +1642,12 @@ class SipuFetchAndImportAPIView(APIView):
             page_size = max(1, int(data.get('page_size') or 100))
             timeout = max(5, int(data.get('timeout') or 25))
             workers = max(1, int(data.get('workers') or 8))
+            retries = max(1, int(data.get('retries') or 3))
+            retry_backoff = max(0.2, float(data.get('retry_backoff') or 1.5))
             max_pages_raw = data.get('max_pages')
             max_pages = int(max_pages_raw) if str(max_pages_raw or '').strip() else None
         except (TypeError, ValueError):
-            return Response({'success': False, 'message': 'page_size/timeout/workers/max_pages 参数格式错误'}, status=400)
+            return Response({'success': False, 'message': 'page_size/timeout/workers/retries/max_pages 参数格式错误'}, status=400)
 
         if sort_type not in {'asc', 'desc'}:
             return Response({'success': False, 'message': 'sort_type 仅支持 asc 或 desc'}, status=400)
@@ -1662,6 +1664,8 @@ class SipuFetchAndImportAPIView(APIView):
             sort_field=sort_field,
             sort_type=sort_type,
             back_status=back_status,
+            retries=retries,
+            retry_backoff=retry_backoff,
         )
 
         try:

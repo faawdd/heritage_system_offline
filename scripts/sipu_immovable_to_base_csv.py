@@ -102,6 +102,8 @@ class FetchConfig:
     sort_field: str
     sort_type: str
     back_status: str
+    retries: int = 3
+    retry_backoff: float = 1.5
 
 
 class SipuClient:
@@ -144,22 +146,32 @@ class SipuClient:
             "backStatus": self.cfg.back_status,
         }
 
-        resp = self.session.post(
-            self._build_url(),
-            data=payload,
-            headers=self._headers(),
-            timeout=self.cfg.timeout,
-        )
-        resp.raise_for_status()
+        last_exc: Optional[Exception] = None
+        for attempt in range(1, max(self.cfg.retries, 1) + 1):
+            try:
+                resp = self.session.post(
+                    self._build_url(),
+                    data=payload,
+                    headers=self._headers(),
+                    timeout=self.cfg.timeout,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                status = str(data.get("status", ""))
+                if status and status != "200":
+                    raise RuntimeError(f"四普接口返回非成功状态: status={status}, body={data}")
 
-        data = resp.json()
-        status = str(data.get("status", ""))
-        if status and status != "200":
-            raise RuntimeError(f"四普接口返回非成功状态: status={status}, body={data}")
+                rows = data.get("data") or []
+                total = int(data.get("count") or 0)
+                return rows, total
+            except (requests.RequestException, ValueError, RuntimeError) as exc:
+                last_exc = exc
+                if attempt >= max(self.cfg.retries, 1):
+                    break
+                sleep_seconds = self.cfg.retry_backoff * attempt
+                time.sleep(sleep_seconds)
 
-        rows = data.get("data") or []
-        total = int(data.get("count") or 0)
-        return rows, total
+        raise RuntimeError(f"分页抓取失败(page={page})，已重试{max(self.cfg.retries, 1)}次: {last_exc}")
 
     def fetch_detail_html(self, cul_rid: str, page_type: str = "") -> str:
         params = {
@@ -194,19 +206,30 @@ def decode_text(raw: bytes) -> str:
 def fetch_detail_html_once(cfg: FetchConfig, jsessionid: str, cul_rid: str, page_type: str = "") -> str:
     base = cfg.base_url.rstrip("/")
     detail_url = f"{base}/{cfg.detail_endpoint.lstrip('/')}"
-    resp = requests.get(
-        detail_url,
-        params={"type": page_type, "culRid": cul_rid},
-        headers={
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Referer": f"{base}/tBBdataBasicController.do?viewDetail&id={cul_rid}",
-            "Cookie": f"JSESSIONID={jsessionid}",
-            "User-Agent": "Mozilla/5.0",
-        },
-        timeout=cfg.timeout,
-    )
-    resp.raise_for_status()
-    return decode_text(resp.content)
+    last_exc: Optional[Exception] = None
+    for attempt in range(1, max(cfg.retries, 1) + 1):
+        try:
+            resp = requests.get(
+                detail_url,
+                params={"type": page_type, "culRid": cul_rid},
+                headers={
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Referer": f"{base}/tBBdataBasicController.do?viewDetail&id={cul_rid}",
+                    "Cookie": f"JSESSIONID={jsessionid}",
+                    "User-Agent": "Mozilla/5.0",
+                },
+                timeout=cfg.timeout,
+            )
+            resp.raise_for_status()
+            return decode_text(resp.content)
+        except requests.RequestException as exc:
+            last_exc = exc
+            if attempt >= max(cfg.retries, 1):
+                break
+            sleep_seconds = cfg.retry_backoff * attempt
+            time.sleep(sleep_seconds)
+
+    raise RuntimeError(f"详情页抓取失败(culRid={cul_rid})，已重试{max(cfg.retries, 1)}次: {last_exc}")
 
 
 class ProgressBar:
@@ -548,6 +571,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", default="data/sipu_base_data.csv", help="输出 CSV 路径")
     parser.add_argument("--skip-detail", action="store_true", help="仅使用列表数据，不抓取详情页")
     parser.add_argument("--workers", type=int, default=8, help="并发线程数（用于详情抓取与转换）")
+    parser.add_argument("--retries", type=int, default=3, help="网络请求重试次数")
+    parser.add_argument("--retry-backoff", type=float, default=1.5, help="重试退避系数（秒）")
     parser.add_argument("--strict", action="store_true", help="严格模式：遇到坏数据直接失败")
     return parser.parse_args()
 
@@ -568,6 +593,8 @@ def main() -> int:
         sort_field=args.sort_field,
         sort_type=args.sort_type,
         back_status=args.back_status,
+        retries=max(args.retries, 1),
+        retry_backoff=max(args.retry_backoff, 0.2),
     )
 
     client = SipuClient(cfg)
