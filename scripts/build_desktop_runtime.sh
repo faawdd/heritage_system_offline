@@ -42,6 +42,7 @@ echo "[desktop-runtime] Building backend executable..."
   --name heritage_backend \
   --noconfirm \
   --clean \
+  --collect-data rasterio \
   --onedir
 
 OUTPUT_DIR="$PROJECT_ROOT/$OUTPUT_ROOT"
