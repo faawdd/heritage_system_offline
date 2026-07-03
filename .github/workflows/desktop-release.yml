@@ -126,6 +126,24 @@ jobs:
             Start-Sleep -Seconds 20
           }
 
+      - name: Derive app version from tag (macOS/Linux)
+        if: github.ref_type == 'tag' && runner.os != 'Windows'
+        working-directory: frontend
+        shell: bash
+        run: |
+          APP_VERSION="${GITHUB_REF_NAME#v}"
+          echo "Using app version: ${APP_VERSION}"
+          npm version "${APP_VERSION}" --no-git-tag-version
+
+      - name: Derive app version from tag (Windows)
+        if: github.ref_type == 'tag' && runner.os == 'Windows'
+        working-directory: frontend
+        shell: pwsh
+        run: |
+          $appVersion = "${env:GITHUB_REF_NAME}" -replace '^v', ''
+          Write-Host "Using app version: $appVersion"
+          npm version $appVersion --no-git-tag-version
+
       - name: Build frontend assets
         working-directory: frontend
         run: npm run build

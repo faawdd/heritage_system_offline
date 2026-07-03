@@ -1,6 +1,6 @@
 <template>
   <section class="w3l-hotair-form">
-    <h1>鄯善县文物综合管理平台</h1>
+    <h1>基层文物管理系统（离线版）</h1>
     <div class="container">
       <div class="workinghny-form-grid">
         <div class="main-hotair">
@@ -30,7 +30,7 @@
       </div>
     </div>
     <div class="copyright text-center">
-      <p class="copy-footer-29">© {{ new Date().getFullYear() }} 鄯善县文物综合管理平台。保留所有权利</p>
+      <p class="copy-footer-29">© {{ new Date().getFullYear() }} 基层文物管理系统（离线版）。保留所有权利</p>
     </div>
   </section>
 </template>

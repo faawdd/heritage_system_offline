@@ -2,8 +2,8 @@
   <div class="app-shell" :class="{ 'is-sidebar-collapsed': isSidebarCollapsed }">
     <aside class="sidebar" :class="{ 'is-collapsed': isSidebarCollapsed }">
       <div class="brand-row">
-        <div class="brand" :title="isSidebarCollapsed ? '鄯善县文物管理平台' : ''">
-          {{ isSidebarCollapsed ? '文保' : '鄯善县文物管理平台' }}
+        <div class="brand" :title="isSidebarCollapsed ? '基层文物管理系统（离线版）' : ''">
+          {{ isSidebarCollapsed ? '文保' : '基层文物管理系统（离线版）' }}
         </div>
         <div class="header-actions" v-if="!isSidebarCollapsed">
           <el-button link type="info" class="collapse-btn" @click="toggleSidebar">折叠</el-button>
@@ -260,6 +260,7 @@ const staticMenuGroups = [
     items: [
       { label: '用户管理', to: '/system/users' },
       { label: '角色管理', to: '/system/roles' },
+      { label: '关于系统', to: '/system/about' },
       { label: '后台管理', to: DJANGO_ADMIN_URL },
       { label: '菜单管理', to: '/system/menus' }
     ]
@@ -298,7 +299,10 @@ function ensureHeritageEntries(groups = []) {
     { label: '不可移动文物采集', to: '/collect/immovable' },
     { label: '采集数据管理', to: '/collect/records' }
   ]
-  const requiredSystemItems = [{ label: '后台管理', to: DJANGO_ADMIN_URL }]
+  const requiredSystemItems = [
+    { label: '关于系统', to: '/system/about' },
+    { label: '后台管理', to: DJANGO_ADMIN_URL }
+  ]
   if (isSuperAdminUser()) {
     requiredSystemItems.push({ label: '菜单管理', to: '/system/menus' })
   }

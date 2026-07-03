@@ -9,7 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "desktop:dev": "node electron/dev-runner.cjs",
-    "desktop:pack": "npm run build && electron-builder --win portable",
+    "desktop:pack": "npm run build && electron-builder --win nsis portable",
     "desktop:pack:dir": "npm run build && electron-builder --win dir"
   },
   "dependencies": {
@@ -32,7 +32,8 @@
   },
   "build": {
     "appId": "com.heritage.offline.desktop",
-    "productName": "Heritage Offline Desktop",
+    "productName": "基层文物管理系统（离线版）",
+    "icon": "../uniapp/AppIcons/Assets.xcassets/AppIcon.appiconset/1024.png",
     "files": [
       "dist/**/*",
       "electron/**/*",
@@ -48,9 +49,24 @@
       }
     ],
     "win": {
+      "icon": "../uniapp/AppIcons/android/mipmap-xxxhdpi/ic_launcher.png",
       "target": [
+        "nsis",
         "portable"
       ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "mac": {
+      "icon": "../uniapp/AppIcons/Assets.xcassets/AppIcon.appiconset/1024.png"
+    },
+    "linux": {
+      "icon": "../uniapp/AppIcons/Assets.xcassets/AppIcon.appiconset/1024.png"
     },
     "directories": {
       "output": "dist-electron"

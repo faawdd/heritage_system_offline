@@ -20,10 +20,14 @@ function getConfigPath() {
 }
 
 function getDefaultConfig() {
+  const packagedInstallRoot = path.dirname(process.execPath)
+  const useInstallRootDefaults = app.isPackaged && process.platform === 'win32'
+  const defaultRoot = useInstallRootDefaults ? packagedInstallRoot : app.getPath('userData')
+
   return {
     initialized: false,
-    dataDir: path.join(app.getPath('userData'), 'data'),
-    logDir: app.getPath('logs'),
+    dataDir: path.join(defaultRoot, 'data'),
+    logDir: path.join(defaultRoot, 'logs'),
     backendPort: BACKEND_PORT,
   }
 }
