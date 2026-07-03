@@ -53,9 +53,10 @@
             {{ scope.row.longitude }}, {{ scope.row.latitude }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="90" fixed="right">
+        <el-table-column label="操作" width="130" fixed="right">
           <template #default="scope">
             <el-button link type="primary" @click="openEdit(scope.row)">编辑</el-button>
+            <el-button link type="danger" @click="handleDelete(scope.row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -320,9 +321,10 @@
 
 <script setup>
 import { reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 import {
+  deleteImmovableHeritage,
   exportImmovableHeritage,
   fetchImmovableHeritageList,
   importImmovableHeritage,
@@ -583,6 +585,37 @@ async function submitEdit() {
     ElMessage.error(error?.message || '保存失败')
   } finally {
     dialog.loading = false
+  }
+}
+
+async function handleDelete(row) {
+  if (!row?.id) {
+    return
+  }
+
+  try {
+    await ElMessageBox.confirm(`确认删除文物档案“${row.name || row.id}”吗？`, '删除确认', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+  } catch {
+    return
+  }
+
+  try {
+    const result = await deleteImmovableHeritage(row.id)
+    if (!result?.success) {
+      throw new Error(result?.message || '删除失败')
+    }
+
+    ElMessage.success('删除成功')
+    if (rows.value.length === 1 && pagination.page > 1) {
+      pagination.page -= 1
+    }
+    await loadRows()
+  } catch (error) {
+    ElMessage.error(error?.message || '删除失败')
   }
 }
 

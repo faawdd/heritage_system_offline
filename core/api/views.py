@@ -75,6 +75,138 @@ def _build_inspection_photo_url(photo_field, request=None) -> str:
     return f"{base_url}/{photo_path.lstrip('/')}"
 
 
+_IMMOVABLE_SITE_CODE_RE = re.compile(r'^IMM-(\d+)$', re.IGNORECASE)
+
+
+def _build_immovable_link_code(heritage_obj) -> str:
+    survey_code = (getattr(heritage_obj, 'survey_code', '') or '').strip()
+    if survey_code:
+        return survey_code
+    return f"IMM-{heritage_obj.id:06d}"
+
+
+def _resolve_immovable_by_site_code(sip_code: str):
+    code = (sip_code or '').strip()
+    if not code:
+        return None
+
+    by_survey = ImmovableHeritage.objects.filter(survey_code=code).first()
+    if by_survey:
+        return by_survey
+
+    match = _IMMOVABLE_SITE_CODE_RE.match(code)
+    if match:
+        try:
+            return ImmovableHeritage.objects.filter(id=int(match.group(1))).first()
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _sync_immovable_to_site(heritage_obj, previous_sip_code: str = ''):
+    target_sip_code = _build_immovable_link_code(heritage_obj)
+    manager = (getattr(heritage_obj, 'management_unit', '') or '').strip() or (getattr(heritage_obj, 'manager', '') or '').strip()
+    description = (getattr(heritage_obj, 'description', '') or '').strip() or (getattr(heritage_obj, 'remarks', '') or '').strip()
+
+    site_obj, _ = HeritageSite.objects.update_or_create(
+        sip_code=target_sip_code,
+        defaults={
+            'name': heritage_obj.name,
+            'category': heritage_obj.category,
+            'level': heritage_obj.protection_level,
+            'address': heritage_obj.address,
+            'longitude': float(heritage_obj.longitude),
+            'latitude': float(heritage_obj.latitude),
+            'manager': manager,
+            'description': description,
+        },
+    )
+
+    previous = (previous_sip_code or '').strip()
+    if previous and previous != target_sip_code:
+        HeritageSite.objects.filter(sip_code=previous).exclude(id=site_obj.id).delete()
+
+    return site_obj
+
+
+def _delete_site_for_immovable(heritage_obj, previous_sip_code: str = ''):
+    target_codes = {_build_immovable_link_code(heritage_obj)}
+    previous = (previous_sip_code or '').strip()
+    if previous:
+        target_codes.add(previous)
+    HeritageSite.objects.filter(sip_code__in=list(target_codes)).delete()
+
+
+def _sync_site_to_immovable(site_obj, previous_sip_code: str = ''):
+    category_values = {value for value, _label in ImmovableHeritage.CATEGORY_CHOICES}
+    level_values = {value for value, _label in ImmovableHeritage.PROTECTION_LEVEL_CHOICES}
+
+    current_code = (site_obj.sip_code or '').strip()
+    previous_code = (previous_sip_code or '').strip()
+
+    heritage = None
+    if previous_code and previous_code != current_code:
+        heritage = _resolve_immovable_by_site_code(previous_code)
+    if not heritage:
+        heritage = _resolve_immovable_by_site_code(current_code)
+
+    mapped_category = site_obj.category if site_obj.category in category_values else 'QT'
+    mapped_level = site_obj.level if site_obj.level in level_values else 'DS'
+
+    if not heritage:
+        survey_code = '' if _IMMOVABLE_SITE_CODE_RE.match(current_code) else current_code
+        heritage = ImmovableHeritage.objects.create(
+            survey_code=survey_code,
+            name=site_obj.name,
+            era='未详',
+            category=mapped_category,
+            province='新疆维吾尔自治区',
+            address=site_obj.address,
+            coordinate_system='CGCS2000',
+            longitude=float(site_obj.longitude),
+            latitude=float(site_obj.latitude),
+            preservation_status='一般',
+            ownership='state',
+            manager=(site_obj.manager or '').strip(),
+            management_unit=(site_obj.manager or '').strip(),
+            protection_level=mapped_level,
+            description=(site_obj.description or '').strip(),
+        )
+        return heritage
+
+    if current_code:
+        if _IMMOVABLE_SITE_CODE_RE.match(current_code):
+            if not heritage.survey_code:
+                heritage.survey_code = ''
+        else:
+            heritage.survey_code = current_code
+
+    heritage.name = site_obj.name
+    heritage.address = site_obj.address
+    heritage.longitude = float(site_obj.longitude)
+    heritage.latitude = float(site_obj.latitude)
+    heritage.category = mapped_category
+    heritage.protection_level = mapped_level
+
+    if not heritage.province:
+        heritage.province = '新疆维吾尔自治区'
+    if site_obj.manager and not heritage.management_unit:
+        heritage.management_unit = site_obj.manager
+    if site_obj.manager and not heritage.manager:
+        heritage.manager = site_obj.manager
+    if site_obj.description and not heritage.description:
+        heritage.description = site_obj.description
+
+    heritage.save()
+    return heritage
+
+
+def _delete_immovable_for_site(site_obj):
+    heritage = _resolve_immovable_by_site_code((site_obj.sip_code or '').strip())
+    if heritage:
+        heritage.delete()
+
+
 class HealthAPIView(APIView):
     permission_classes = []
     authentication_classes = []
@@ -380,6 +512,8 @@ class HeritageSiteManageDetailAPIView(APIView):
         if not site:
             return Response({'success': False, 'message': '文物档案不存在'}, status=404)
 
+        previous_sip_code = site.sip_code
+
         if 'name' in request.data:
             site.name = (request.data.get('name') or '').strip()
         if not site.name:
@@ -426,10 +560,27 @@ class HeritageSiteManageDetailAPIView(APIView):
 
         try:
             site.save()
+            _sync_site_to_immovable(site, previous_sip_code=previous_sip_code)
         except Exception as exc:
             return Response({'success': False, 'message': f'保存失败: {exc}'}, status=400)
 
         return Response({'success': True, 'message': '文物档案已更新'})
+
+    def delete(self, request, site_id):
+        if not can_modify_core_data(request.user):
+            return Response({'success': False, 'message': '当前角色仅可查看，禁止删除'}, status=403)
+
+        site = HeritageSite.objects.filter(id=site_id).first()
+        if not site:
+            return Response({'success': False, 'message': '文物档案不存在'}, status=404)
+
+        try:
+            _delete_immovable_for_site(site)
+            site.delete()
+        except Exception as exc:
+            return Response({'success': False, 'message': f'删除失败: {exc}'}, status=400)
+
+        return Response({'success': True, 'message': '文物档案已删除'})
 
 
 class HeritageSiteManageImportAPIView(APIView):
@@ -719,6 +870,8 @@ class ImmovableHeritageDetailAPIView(APIView):
         if not heritage:
             return Response({'success': False, 'message': '文物档案不存在'}, status=404)
 
+        previous_sip_code = _build_immovable_link_code(heritage)
+
         text_fields = [
             'survey_code', 'name', 'former_name', 'era', 'heritage_type',
             'province', 'city', 'county', 'township', 'village', 'address',
@@ -834,10 +987,27 @@ class ImmovableHeritageDetailAPIView(APIView):
 
         try:
             heritage.save()
+            _sync_immovable_to_site(heritage, previous_sip_code=previous_sip_code)
         except Exception as exc:
             return Response({'success': False, 'message': f'保存失败: {exc}'}, status=400)
 
         return Response({'success': True, 'message': '文物档案已更新'})
+
+    def delete(self, request, site_id):
+        if not can_modify_core_data(request.user):
+            return Response({'success': False, 'message': '当前角色仅可查看，禁止删除'}, status=403)
+
+        heritage = ImmovableHeritage.objects.filter(id=site_id).first()
+        if not heritage:
+            return Response({'success': False, 'message': '文物档案不存在'}, status=404)
+
+        try:
+            _delete_site_for_immovable(heritage)
+            heritage.delete()
+        except Exception as exc:
+            return Response({'success': False, 'message': f'删除失败: {exc}'}, status=400)
+
+        return Response({'success': True, 'message': '文物档案已删除'})
 
 
 class ImmovableHeritageCollectAPIView(APIView):
@@ -1031,6 +1201,8 @@ class ImmovableHeritageCollectAPIView(APIView):
                 uploaded_by=request.user,
             )
 
+            _sync_immovable_to_site(heritage)
+
         return Response(
             {
                 'success': True,
@@ -1048,6 +1220,34 @@ class ImmovableHeritageCollectAPIView(APIView):
 class ImmovableHeritageImportAPIView(APIView):
     permission_classes = [IsManagementAdmin]
     parser_classes = [MultiPartParser, FormParser]
+
+    @staticmethod
+    def _normalize_choice_text(value):
+        text = str(value or '').strip()
+        if not text:
+            return ''
+        text = text.replace('（', '(').replace('）', ')')
+        text = text.replace('，', ',').replace('／', '/').replace('、', '')
+        for ch in (' ', '\t', '\r', '\n', '(', ')', ',', '/', '-', '_'):
+            text = text.replace(ch, '')
+        return text.lower()
+
+    def _build_choice_resolver(self, choices, aliases=None):
+        resolver = {}
+        for value, label in choices:
+            resolver[self._normalize_choice_text(value)] = value
+            resolver[self._normalize_choice_text(label)] = value
+
+        for alias, mapped in (aliases or {}).items():
+            resolver[self._normalize_choice_text(alias)] = mapped
+
+        return resolver
+
+    def _resolve_choice_value(self, raw_value, resolver, default=''):
+        raw = (raw_value or '').strip()
+        if not raw:
+            return default
+        return resolver.get(self._normalize_choice_text(raw), raw)
 
     def post(self, request):
         if not can_modify_core_data(request.user):
@@ -1073,16 +1273,38 @@ class ImmovableHeritageImportAPIView(APIView):
         if not reader.fieldnames:
             return Response({'success': False, 'message': 'CSV表头为空'}, status=400)
 
-        category_map = {label: value for value, label in ImmovableHeritage.CATEGORY_CHOICES}
-        level_map = {label: value for value, label in ImmovableHeritage.PROTECTION_LEVEL_CHOICES}
-        ownership_map = {label: value for value, label in ImmovableHeritage.OWNERSHIP_CHOICES}
-        preservation_map = {label: value for value, label in ImmovableHeritage.PRESERVATION_STATUS_CHOICES}
+        category_map = self._build_choice_resolver(ImmovableHeritage.CATEGORY_CHOICES)
+        level_map = self._build_choice_resolver(
+            ImmovableHeritage.PROTECTION_LEVEL_CHOICES,
+            aliases={
+                '国家级文物保护单位': 'GB',
+                '省级文物保护单位': 'SB',
+                '自治区级文物保护单位': 'SB',
+                '直辖市级文物保护单位': 'SB',
+                '市级文物保护单位': 'XB',
+                '县级文物保护单位': 'XB',
+                '未定级不可移动文物': 'DS',
+                '未定级': 'DS',
+            },
+        )
+        ownership_map = self._build_choice_resolver(ImmovableHeritage.OWNERSHIP_CHOICES)
+        preservation_map = self._build_choice_resolver(
+            ImmovableHeritage.PRESERVATION_STATUS_CHOICES,
+            aliases={
+                '良好': '较好',
+                '中等': '一般',
+                '不好': '较差',
+            },
+        )
 
         updated_count = 0
         created_count = 0
         skipped_rows = []
 
         for index, row in enumerate(reader, start=2):
+            if not any(str(value or '').strip() for value in row.values()):
+                continue
+
             survey_code = (row.get('采集编号') or row.get('survey_code') or row.get('四普编号') or row.get('sip_code') or '').strip()
             name = (row.get('文物名称') or row.get('name') or '').strip()
             era = (row.get('时代') or row.get('era') or '').strip()
@@ -1106,10 +1328,10 @@ class ImmovableHeritageImportAPIView(APIView):
             level_raw = (row.get('保护级别') or row.get('protection_level') or row.get('level') or '').strip()
             ownership_raw = (row.get('权属') or row.get('ownership') or '').strip()
             preservation_raw = (row.get('保存现状') or row.get('preservation_status') or '').strip()
-            category = category_map.get(category_raw, category_raw)
-            level = level_map.get(level_raw, level_raw)
-            ownership = ownership_map.get(ownership_raw, ownership_raw or 'state')
-            preservation_status = preservation_map.get(preservation_raw, preservation_raw or '一般')
+            category = self._resolve_choice_value(category_raw, category_map)
+            level = self._resolve_choice_value(level_raw, level_map)
+            ownership = self._resolve_choice_value(ownership_raw, ownership_map, default='state')
+            preservation_status = self._resolve_choice_value(preservation_raw, preservation_map, default='一般')
 
             valid_categories = {value for value, _label in ImmovableHeritage.CATEGORY_CHOICES}
             valid_levels = {value for value, _label in ImmovableHeritage.PROTECTION_LEVEL_CHOICES}
@@ -1169,7 +1391,8 @@ class ImmovableHeritageImportAPIView(APIView):
             if survey_code:
                 payload['survey_code'] = survey_code
 
-            _, created = ImmovableHeritage.objects.update_or_create(**lookup, defaults=payload)
+            heritage_obj, created = ImmovableHeritage.objects.update_or_create(**lookup, defaults=payload)
+            _sync_immovable_to_site(heritage_obj)
             if created:
                 created_count += 1
             else:
