@@ -10,9 +10,9 @@ This project can run as a local offline desktop system on Windows without mobile
 
 ## 1. Prerequisites
 
-- Windows 10/11
-- Python 3.10+
-- Browser (Edge/Chrome)
+- Windows 10/11 or macOS/Linux
+- Python 3.10+ (recommended: 3.11)
+- Browser (Edge/Chrome/Safari)
 
 ## 2. One-click start (recommended)
 
@@ -34,6 +34,33 @@ For next runs (no dependency reinstall):
 ```powershell
 .\scripts\start_offline.bat
 ```
+
+For macOS/Linux:
+
+```bash
+chmod +x ./scripts/start_offline.sh
+./scripts/start_offline.sh --init-deps
+```
+
+If you see dependency errors like `No matching distribution found for Django>=5.0.3`, your Python version is too low (commonly 3.9). Install Python 3.10+ and rerun the script.
+
+For next runs (no dependency reinstall):
+
+```bash
+./scripts/start_offline.sh
+```
+
+Optional debug args:
+
+```bash
+./scripts/start_offline.sh --host 0.0.0.0 --port 18000 --no-browser
+```
+
+Debug account (auto ensured after migration in offline startup scripts):
+
+- Username: `test`
+- Password: `test`
+- Role: super admin (highest permission)
 
 ## 3. Manual start (fallback)
 

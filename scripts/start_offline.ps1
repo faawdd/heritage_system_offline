@@ -34,6 +34,9 @@ $env:DJANGO_WEB_BASE_URL = "http://${BindHost}:${Port}"
 Write-Host "[offline] Running database migrations..."
 & $pythonExe manage.py migrate --noinput
 
+Write-Host "[offline] Ensuring debug super admin account (test/test)..."
+& $pythonExe manage.py shell -c "from django.contrib.auth import get_user_model; from django.contrib.auth.models import Group, Permission; ROLE_SUPER_ADMIN='超级管理员'; ROLE_ADMIN='管理员'; User=get_user_model(); super_group,_=Group.objects.get_or_create(name=ROLE_SUPER_ADMIN); admin_group,_=Group.objects.get_or_create(name=ROLE_ADMIN); super_group.permissions.set(Permission.objects.all()); admin_group.permissions.set(Permission.objects.exclude(content_type__app_label__in=['auth','contenttypes','sessions','admin'])); user,created=User.objects.get_or_create(username='test', defaults={'is_staff':True,'is_superuser':True,'is_active':True,'first_name':'调试账号'}); user.is_staff=True; user.is_superuser=True; user.is_active=True; user.set_password('test'); user.save(); user.groups.add(super_group); print('debug user ensured: test')"
+
 $url = "http://${BindHost}:${Port}/"
 Write-Host "[offline] Opening browser: $url"
 Start-Process $url | Out-Null
