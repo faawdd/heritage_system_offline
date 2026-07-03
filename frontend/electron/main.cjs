@@ -4,6 +4,8 @@ const fs = require('fs')
 const { spawn } = require('child_process')
 const http = require('http')
 const net = require('net')
+const os = require('os')
+const AdmZip = require('adm-zip')
 
 const BACKEND_HOST = process.env.BACKEND_HOST || '127.0.0.1'
 const BACKEND_PORT = Number(process.env.BACKEND_PORT || 18000)
@@ -23,6 +25,13 @@ function formatTimestamp(date = new Date()) {
 function copyDirSync(fromPath, toPath) {
   fs.mkdirSync(toPath, { recursive: true })
   fs.cpSync(fromPath, toPath, { recursive: true, force: true })
+}
+
+function clearDirSync(targetPath) {
+  if (fs.existsSync(targetPath)) {
+    fs.rmSync(targetPath, { recursive: true, force: true })
+  }
+  fs.mkdirSync(targetPath, { recursive: true })
 }
 
 function getConfigPath() {
@@ -386,23 +395,23 @@ function setupInitIpc() {
     }
 
     const config = runtimeConfig || loadDesktopConfig()
-    const backupName = `heritage_backup_${formatTimestamp()}`
-    const backupRoot = path.join(destinationRoot, backupName)
+    const backupName = `heritage_backup_${formatTimestamp()}.zip`
+    const backupPath = path.join(destinationRoot, backupName)
 
     try {
-      fs.mkdirSync(backupRoot, { recursive: true })
+      const zip = new AdmZip()
 
       if (fs.existsSync(config.dataDir)) {
-        copyDirSync(config.dataDir, path.join(backupRoot, 'data'))
+        zip.addLocalFolder(config.dataDir, 'data')
       }
 
       if (fs.existsSync(config.logDir)) {
-        copyDirSync(config.logDir, path.join(backupRoot, 'logs'))
+        zip.addLocalFolder(config.logDir, 'logs')
       }
 
       const desktopConfigPath = getConfigPath()
       if (fs.existsSync(desktopConfigPath)) {
-        fs.copyFileSync(desktopConfigPath, path.join(backupRoot, 'desktop-config.json'))
+        zip.addLocalFile(desktopConfigPath, '', 'desktop-config.json')
       }
 
       const metadata = {
@@ -411,24 +420,26 @@ function setupInitIpc() {
         log_dir: config.logDir,
         backend_port: config.backendPort,
       }
-      fs.writeFileSync(path.join(backupRoot, 'metadata.json'), JSON.stringify(metadata, null, 2), 'utf-8')
+      zip.addFile('metadata.json', Buffer.from(JSON.stringify(metadata, null, 2), 'utf-8'))
+      zip.writeZip(backupPath)
 
       return {
         ok: true,
         message: '备份完成',
-        backupPath: backupRoot,
+        backupPath,
       }
     } catch (error) {
       return { ok: false, message: `备份失败: ${String(error?.message || error)}` }
     }
   })
 
-  ipcMain.handle('desktop-data:pick-restore-dir', async () => {
+  ipcMain.handle('desktop-data:pick-restore-file', async () => {
     const parentWindow = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
     const result = await dialog.showOpenDialog(parentWindow, {
-      title: '选择要恢复的备份目录',
+      title: '选择要恢复的备份压缩包',
       defaultPath: app.getPath('documents'),
-      properties: ['openDirectory'],
+      properties: ['openFile'],
+      filters: [{ name: '备份压缩包', extensions: ['zip'] }],
     })
 
     if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
@@ -439,24 +450,35 @@ function setupInitIpc() {
   })
 
   ipcMain.handle('desktop-data:restore-backup', async (_event, payload = {}) => {
-    const backupRoot = String(payload.backupRoot || '').trim()
-    if (!backupRoot) {
-      return { ok: false, message: '请选择备份目录' }
+    const backupPath = String(payload.backupPath || '').trim()
+    if (!backupPath) {
+      return { ok: false, message: '请选择备份压缩包' }
     }
 
-    const dataBackupPath = path.join(backupRoot, 'data')
-    if (!fs.existsSync(dataBackupPath)) {
-      return { ok: false, message: '备份目录缺少 data 子目录，无法恢复' }
+    if (!fs.existsSync(backupPath)) {
+      return { ok: false, message: '备份文件不存在' }
     }
 
     const config = runtimeConfig || loadDesktopConfig()
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'heritage-restore-'))
+    const unpackRoot = path.join(tempRoot, 'unpack')
 
     try {
+      const zip = new AdmZip(backupPath)
+      zip.extractAllTo(unpackRoot, true)
+
+      const dataBackupPath = path.join(unpackRoot, 'data')
+      if (!fs.existsSync(dataBackupPath)) {
+        throw new Error('备份压缩包缺少 data 目录')
+      }
+
       stopBackend()
+      clearDirSync(config.dataDir)
       copyDirSync(dataBackupPath, config.dataDir)
 
-      const logsBackupPath = path.join(backupRoot, 'logs')
+      const logsBackupPath = path.join(unpackRoot, 'logs')
       if (fs.existsSync(logsBackupPath)) {
+        clearDirSync(config.logDir)
         copyDirSync(logsBackupPath, config.logDir)
       }
 
@@ -473,6 +495,10 @@ function setupInitIpc() {
       return { ok: true, message: '恢复完成，正在重启应用' }
     } catch (error) {
       return { ok: false, message: `恢复失败: ${String(error?.message || error)}` }
+    } finally {
+      if (fs.existsSync(tempRoot)) {
+        fs.rmSync(tempRoot, { recursive: true, force: true })
+      }
     }
   })
 }
