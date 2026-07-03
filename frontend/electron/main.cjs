@@ -50,6 +50,7 @@ function getDefaultConfig() {
     logDir: path.join(defaultRoot, 'logs'),
     backendPort: BACKEND_PORT,
     openImportAfterInit: false,
+    bootstrapAdminPassword: '',
   }
 }
 
@@ -249,8 +250,9 @@ function startBackend(config) {
     DJANGO_WEB_BASE_URL: `http://${BACKEND_HOST}:${config.backendPort}`,
   }
 
-  if (bootstrapAdminPassword) {
-    backendEnv.HERITAGE_BOOTSTRAP_ADMIN_PASSWORD = bootstrapAdminPassword
+  const bootstrapPassword = String(bootstrapAdminPassword || config.bootstrapAdminPassword || '')
+  if (bootstrapPassword) {
+    backendEnv.HERITAGE_BOOTSTRAP_ADMIN_PASSWORD = bootstrapPassword
   }
 
   if (app.isPackaged) {
@@ -354,6 +356,7 @@ function setupInitIpc() {
       openImportAfterInit: Boolean(payload.openImportAfterInit),
       initialized: true,
       backendPort: chosenPort,
+      bootstrapAdminPassword: '',
     }
 
     const state = await buildInitState(merged)
@@ -381,6 +384,7 @@ function setupInitIpc() {
       }
     }
 
+    merged.bootstrapAdminPassword = superAdminPassword
     saveDesktopConfig(merged)
     runtimeConfig = merged
     bootstrapAdminPassword = superAdminPassword
@@ -675,6 +679,13 @@ app.whenReady().then(async () => {
         throw new Error(`后端服务未在限定时间内就绪，请检查日志文件：${path.join(runtimeConfig.logDir, 'backend.log')}`)
       }
 
+      if (runtimeConfig?.bootstrapAdminPassword) {
+        runtimeConfig = {
+          ...runtimeConfig,
+          bootstrapAdminPassword: '',
+        }
+        saveDesktopConfig(runtimeConfig)
+      }
       bootstrapAdminPassword = ''
     }
 

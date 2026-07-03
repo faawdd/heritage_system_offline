@@ -32,6 +32,7 @@ Write-Host "[desktop-runtime] Building backend executable..."
     --name heritage_backend `
     --noconfirm `
     --clean `
+    --collect-data rasterio `
     --onedir
 
 $outputDir = Join-Path $projectRoot $OutputRoot

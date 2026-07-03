@@ -31,11 +31,24 @@ def _configure_gdal_data(app_dir: Path) -> None:
   if os.environ.get('GDAL_DATA'):
     return
 
+  rasterio_data = None
+  try:
+    import rasterio
+    rasterio_data = getattr(rasterio, '__gdal_data__', None)
+  except Exception:
+    rasterio_data = None
+
   candidates = [
     app_dir / 'gdal-data',
+    app_dir / 'gdal_data',
+    app_dir / '_internal' / 'rasterio' / 'gdal_data',
+    app_dir / '_internal' / 'rasterio' / 'proj_data' / '..' / 'gdal_data',
     app_dir / 'Library' / 'share' / 'gdal',
     app_dir / 'share' / 'gdal',
   ]
+
+  if rasterio_data:
+    candidates.insert(0, Path(str(rasterio_data)).resolve())
 
   for candidate in candidates:
     if candidate.exists():
@@ -69,7 +82,7 @@ def _ensure_roles_and_super_admin() -> None:
 
   bootstrap_password = (os.environ.get('HERITAGE_BOOTSTRAP_ADMIN_PASSWORD') or '').strip()
   if not bootstrap_password:
-    raise RuntimeError('未检测到超级管理员账号，且未提供首次初始化密码。请在首次启动向导中设置 admin 密码。')
+    raise RuntimeError('No super admin account found and no bootstrap password provided. Complete first-run wizard and set admin password.')
 
   user = User.objects.filter(username='admin').first()
   if user is None:
@@ -116,14 +129,18 @@ def main() -> None:
   os.environ.setdefault('DJANGO_WEB_BASE_URL', f'http://{host}:{port}')
 
   from django.core.management import execute_from_command_line
+  from django.core.servers.basehttp import run
+  from django.core.wsgi import get_wsgi_application
 
   execute_from_command_line(['desktop_backend.py', 'migrate', '--noinput'])
   _ensure_roles_and_super_admin()
 
-  runserver_args = ['desktop_backend.py', 'runserver', f'{host}:{port}', '--noreload']
   if getattr(sys, 'frozen', False):
-    runserver_args.append('--nothreading')
+    application = get_wsgi_application()
+    run(host, int(port), application, threading=True)
+    return
 
+  runserver_args = ['desktop_backend.py', 'runserver', f'{host}:{port}', '--noreload']
   execute_from_command_line(runserver_args)
 
 
