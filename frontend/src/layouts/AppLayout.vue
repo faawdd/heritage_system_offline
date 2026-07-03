@@ -260,6 +260,7 @@ const staticMenuGroups = [
     items: [
       { label: '用户管理', to: '/system/users' },
       { label: '角色管理', to: '/system/roles' },
+      { label: '数据管理', to: '/system/data-management' },
       { label: '关于系统', to: '/system/about' },
       { label: '后台管理', to: DJANGO_ADMIN_URL },
       { label: '菜单管理', to: '/system/menus' }
@@ -300,6 +301,7 @@ function ensureHeritageEntries(groups = []) {
     { label: '采集数据管理', to: '/collect/records' }
   ]
   const requiredSystemItems = [
+    { label: '数据管理', to: '/system/data-management' },
     { label: '关于系统', to: '/system/about' },
     { label: '后台管理', to: DJANGO_ADMIN_URL }
   ]

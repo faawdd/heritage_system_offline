@@ -102,6 +102,40 @@
         gap: 12px;
       }
 
+      .stack {
+        display: grid;
+        gap: 10px;
+      }
+
+      .inline-note {
+        font-size: 13px;
+        color: #64748b;
+      }
+
+      .inline-tools {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .ghost-btn {
+        height: 34px;
+        border: 1px solid #94a3b8;
+        border-radius: 8px;
+        background: #fff;
+        color: #334155;
+        padding: 0 12px;
+        cursor: pointer;
+      }
+
+      .checkbox-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        color: #334155;
+      }
+
       .path-action {
         display: flex;
         align-items: center;
@@ -197,6 +231,20 @@
       </div>
 
       <div class="card">
+        <div class="stack">
+          <div class="label">首次基础数据导入</div>
+          <div class="inline-note">离线运行前建议先导入基础文物数据。你可以先下载 CSV 模板，填写后在系统内导入。</div>
+          <div class="inline-tools">
+            <button id="downloadTemplateBtn" class="ghost-btn" type="button">下载CSV导入模板</button>
+            <label class="checkbox-row">
+              <input id="openImportAfterInitCheckbox" type="checkbox" checked />
+              完成初始化后自动进入“数据管理-基础数据导入”页面
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
         <div class="action">
           <label for="portInput" class="label">启动端口</label>
           <input id="portInput" type="number" min="1024" max="65535" />
@@ -218,6 +266,8 @@
       const messageEl = document.getElementById('message')
       const pickDataDirBtn = document.getElementById('pickDataDirBtn')
       const pickLogDirBtn = document.getElementById('pickLogDirBtn')
+      const downloadTemplateBtn = document.getElementById('downloadTemplateBtn')
+      const openImportAfterInitCheckbox = document.getElementById('openImportAfterInitCheckbox')
 
       let currentConfig = {
         dataDir: '',
@@ -241,6 +291,64 @@
           return
         }
         messageEl.className = ''
+      }
+
+      function downloadCsvTemplate() {
+        const headers = [
+          '采集编号',
+          '文物名称',
+          '时代',
+          '文物类别',
+          '保护级别',
+          '权属',
+          '保存现状',
+          '省/自治区/直辖市',
+          '市/州',
+          '县/市/区',
+          '乡镇/街道',
+          '村/社区',
+          '详细地址',
+          '经度',
+          '纬度',
+          '管理责任人',
+          '文物简介',
+          '备注'
+        ]
+        const sample = [
+          'SS-CJ-2026-0001',
+          '示例文物点',
+          '清',
+          '古建筑',
+          '县级文物保护单位',
+          '国有',
+          '一般',
+          '新疆维吾尔自治区',
+          '吐鲁番市',
+          '鄯善县',
+          '辟展镇',
+          '示例村',
+          '示例路1号',
+          '90.123456',
+          '42.654321',
+          '示例管理单位',
+          '用于演示的文物简介',
+          '可按需补充'
+        ]
+
+        const toCsv = (cells) => cells.map((cell) => {
+          const text = String(cell ?? '')
+          return `"${text.replaceAll('"', '""')}"`
+        }).join(',')
+
+        const csv = `\ufeff${toCsv(headers)}\n${toCsv(sample)}\n`
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+        const link = document.createElement('a')
+        link.href = URL.createObjectURL(blob)
+        link.download = '基础文物数据导入模板.csv'
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        URL.revokeObjectURL(link.href)
       }
 
       async function loadState(options = {}) {
@@ -315,6 +423,15 @@
         }
       })
 
+      downloadTemplateBtn.addEventListener('click', () => {
+        try {
+          downloadCsvTemplate()
+          setMessage('CSV 模板已下载，请填写后在系统内导入。')
+        } catch (error) {
+          setMessage(String(error?.message || error), 'error')
+        }
+      })
+
       confirmBtn.addEventListener('click', async () => {
         const backendPort = Number(portInputEl.value || 0)
         if (!backendPort || backendPort < 1024 || backendPort > 65535) {
@@ -331,6 +448,7 @@
             backendPort,
             dataDir: currentConfig.dataDir,
             logDir: currentConfig.logDir,
+            openImportAfterInit: !!openImportAfterInitCheckbox.checked,
           })
           if (!result?.ok) {
             setMessage(result?.message || '保存失败，请检查配置。', 'error')
