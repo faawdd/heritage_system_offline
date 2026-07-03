@@ -14,6 +14,6 @@ contextBridge.exposeInMainWorld('desktopInit', {
 contextBridge.exposeInMainWorld('desktopData', {
   pickBackupDir: () => ipcRenderer.invoke('desktop-data:pick-backup-dir'),
   createBackup: (payload) => ipcRenderer.invoke('desktop-data:create-backup', payload),
-  pickRestoreDir: () => ipcRenderer.invoke('desktop-data:pick-restore-dir'),
+  pickRestoreFile: () => ipcRenderer.invoke('desktop-data:pick-restore-file'),
   restoreBackup: (payload) => ipcRenderer.invoke('desktop-data:restore-backup', payload),
 })

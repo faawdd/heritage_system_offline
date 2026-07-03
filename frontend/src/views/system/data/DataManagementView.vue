@@ -48,7 +48,7 @@
 
       <article class="pane">
         <h2>用户数据备份/恢复</h2>
-        <p class="hint">备份包含数据目录、日志目录及运行配置。恢复后应用会自动重启。</p>
+        <p class="hint">备份将生成单文件 ZIP 压缩包，包含数据目录、日志目录及运行配置。恢复后应用会自动重启。</p>
 
         <div class="row">
           <el-button type="primary" :disabled="!desktopAvailable" :loading="backingUp" @click="createBackup">
@@ -225,12 +225,12 @@ async function restoreBackup() {
 
   restoring.value = true
   try {
-    const selected = await window.desktopData.pickRestoreDir()
+    const selected = await window.desktopData.pickRestoreFile()
     if (!selected || selected.canceled) {
       return
     }
 
-    const result = await window.desktopData.restoreBackup({ backupRoot: selected.path })
+    const result = await window.desktopData.restoreBackup({ backupPath: selected.path })
     if (!result?.ok) {
       throw new Error(result?.message || '恢复失败')
     }
