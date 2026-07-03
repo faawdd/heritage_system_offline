@@ -28,8 +28,8 @@
     "file": "assets/vendor-vue-B68ugBY9.css",
     "src": "_vendor-vue-!~{002}~.js"
   },
-  "_vendor-vue-CGFdyV2I.js": {
-    "file": "assets/vendor-vue-CGFdyV2I.js",
+  "_vendor-vue-uE3UeHMN.js": {
+    "file": "assets/vendor-vue-uE3UeHMN.js",
     "name": "vendor-vue",
     "imports": [
       "_vendor-misc-BJwlgrkc.js"
@@ -39,12 +39,12 @@
     ]
   },
   "index.html": {
-    "file": "assets/index-C8UB7ZVi.js",
+    "file": "assets/index-CjeKaJ6W.js",
     "name": "index",
     "src": "index.html",
     "isEntry": true,
     "imports": [
-      "_vendor-vue-CGFdyV2I.js",
+      "_vendor-vue-uE3UeHMN.js",
       "_vendor-ol-Bg62gBCa.js",
       "_vendor-misc-BJwlgrkc.js",
       "_vendor-echarts-kW7DVlUo.js"

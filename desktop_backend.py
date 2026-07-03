@@ -3,6 +3,10 @@ import sys
 from pathlib import Path
 
 
+ROLE_SUPER_ADMIN = '超级管理员'
+ROLE_ADMIN = '管理员'
+
+
 def _resolve_base_dir() -> Path:
   if getattr(sys, 'frozen', False):
     return Path(sys.executable).resolve().parent
@@ -39,6 +43,56 @@ def _configure_gdal_data(app_dir: Path) -> None:
       return
 
 
+def _ensure_roles_and_super_admin() -> None:
+  from django.contrib.auth import get_user_model
+  from django.contrib.auth.models import Group, Permission
+
+  super_group, _ = Group.objects.get_or_create(name=ROLE_SUPER_ADMIN)
+  admin_group, _ = Group.objects.get_or_create(name=ROLE_ADMIN)
+
+  all_permissions = Permission.objects.all()
+  super_group.permissions.set(all_permissions)
+
+  admin_permissions = Permission.objects.exclude(
+    content_type__app_label__in=['auth', 'contenttypes', 'sessions', 'admin']
+  )
+  admin_group.permissions.set(admin_permissions)
+
+  User = get_user_model()
+  has_super_admin = User.objects.filter(is_superuser=True, is_active=True).exists() or User.objects.filter(
+    is_active=True,
+    groups__name=ROLE_SUPER_ADMIN,
+  ).exists()
+
+  if has_super_admin:
+    return
+
+  bootstrap_password = (os.environ.get('HERITAGE_BOOTSTRAP_ADMIN_PASSWORD') or '').strip()
+  if not bootstrap_password:
+    raise RuntimeError('未检测到超级管理员账号，且未提供首次初始化密码。请在首次启动向导中设置 admin 密码。')
+
+  user = User.objects.filter(username='admin').first()
+  if user is None:
+    user = User.objects.create_user(
+      username='admin',
+      password=bootstrap_password,
+      is_staff=True,
+      is_superuser=True,
+      is_active=True,
+      first_name='超级管理员',
+    )
+  else:
+    user.set_password(bootstrap_password)
+    user.is_staff = True
+    user.is_superuser = True
+    user.is_active = True
+    if not user.first_name:
+      user.first_name = '超级管理员'
+    user.save()
+
+  user.groups.add(super_group)
+
+
 def main() -> None:
   base_dir = _resolve_base_dir()
   app_dir, data_dir, config_dir = _resolve_runtime_dirs(base_dir)
@@ -64,6 +118,7 @@ def main() -> None:
   from django.core.management import execute_from_command_line
 
   execute_from_command_line(['desktop_backend.py', 'migrate', '--noinput'])
+  _ensure_roles_and_super_admin()
 
   runserver_args = ['desktop_backend.py', 'runserver', f'{host}:{port}', '--noreload']
   if getattr(sys, 'frozen', False):

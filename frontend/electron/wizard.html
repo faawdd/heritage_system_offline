@@ -245,6 +245,21 @@
       </div>
 
       <div class="card">
+        <div class="stack">
+          <div class="label">超级管理员初始化</div>
+          <div class="inline-note">首次启动将创建超级管理员账号 <strong>admin</strong>，请设置登录密码。</div>
+          <div class="action" style="justify-content: flex-start; gap: 10px;">
+            <label for="superAdminPasswordInput" class="label" style="min-width: 72px;">登录密码</label>
+            <input id="superAdminPasswordInput" type="password" placeholder="至少6位" />
+          </div>
+          <div class="action" style="justify-content: flex-start; gap: 10px;">
+            <label for="superAdminPasswordConfirmInput" class="label" style="min-width: 72px;">确认密码</label>
+            <input id="superAdminPasswordConfirmInput" type="password" placeholder="再次输入密码" />
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
         <div class="action">
           <label for="portInput" class="label">启动端口</label>
           <input id="portInput" type="number" min="1024" max="65535" />
@@ -264,6 +279,8 @@
       const portInputEl = document.getElementById('portInput')
       const confirmBtn = document.getElementById('confirmBtn')
       const messageEl = document.getElementById('message')
+      const superAdminPasswordInputEl = document.getElementById('superAdminPasswordInput')
+      const superAdminPasswordConfirmInputEl = document.getElementById('superAdminPasswordConfirmInput')
       const pickDataDirBtn = document.getElementById('pickDataDirBtn')
       const pickLogDirBtn = document.getElementById('pickLogDirBtn')
       const downloadTemplateBtn = document.getElementById('downloadTemplateBtn')
@@ -439,6 +456,17 @@
           return
         }
 
+        const superAdminPassword = String(superAdminPasswordInputEl.value || '').trim()
+        const superAdminPasswordConfirm = String(superAdminPasswordConfirmInputEl.value || '').trim()
+        if (superAdminPassword.length < 6) {
+          setMessage('超级管理员密码长度不能少于 6 位。', 'error')
+          return
+        }
+        if (superAdminPassword !== superAdminPasswordConfirm) {
+          setMessage('两次输入的超级管理员密码不一致。', 'error')
+          return
+        }
+
         confirmBtn.disabled = true
         setMessage('正在保存配置并二次校验...')
 
@@ -448,6 +476,7 @@
             backendPort,
             dataDir: currentConfig.dataDir,
             logDir: currentConfig.logDir,
+            superAdminPassword,
             openImportAfterInit: !!openImportAfterInitCheckbox.checked,
           })
           if (!result?.ok) {

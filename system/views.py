@@ -22,6 +22,18 @@ from system.serializers import (
     UserListSerializer,
 )
 
+ROLE_SUPER_ADMIN = '超级管理员'
+ROLE_ADMIN = '管理员'
+
+
+def _ensure_system_roles():
+    super_group, _ = Group.objects.get_or_create(name=ROLE_SUPER_ADMIN)
+    admin_group, _ = Group.objects.get_or_create(name=ROLE_ADMIN)
+    return {
+        'super_group': super_group,
+        'admin_group': admin_group,
+    }
+
 
 def _get_client_ip(request):
     x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
@@ -86,7 +98,7 @@ def _is_super_admin_user(user):
         return False
     if user.is_superuser:
         return True
-    return user.groups.filter(name='超级管理员').exists()
+    return user.groups.filter(name=ROLE_SUPER_ADMIN).exists()
 
 
 def _filter_menu_rows_for_user(rows, user):
@@ -102,11 +114,21 @@ def _forbid_if_not_super_admin(request, module, action):
     return Response({'success': False, 'message': '仅超级管理员可操作该功能'}, status=status.HTTP_403_FORBIDDEN)
 
 
+def _normalize_admin_only_group_ids(group_ids, admin_group_id):
+    if not group_ids:
+        return [admin_group_id]
+    normalized = [int(item) for item in group_ids]
+    if any(item != admin_group_id for item in normalized):
+        raise ValueError('仅允许分配“管理员”角色')
+    return [admin_group_id]
+
+
 class SystemLoginAPIView(APIView):
     permission_classes = []
     authentication_classes = []
 
     def post(self, request):
+        _ensure_system_roles()
         username = (request.data.get('username') or '').strip()
         password = request.data.get('password') or ''
         ip = _get_client_ip(request)
@@ -245,6 +267,10 @@ class UserListCreateAPIView(APIView):
     permission_classes = [IsManagementAdmin]
 
     def get(self, request):
+        denied = _forbid_if_not_super_admin(request, 'system_user', 'list_users')
+        if denied:
+            return denied
+
         keyword = (request.GET.get('keyword') or '').strip()
         queryset = User.objects.all().order_by('-id')
         if keyword:
@@ -258,6 +284,11 @@ class UserListCreateAPIView(APIView):
         return Response({'success': True, 'rows': rows, 'total': queryset.count()})
 
     def post(self, request):
+        denied = _forbid_if_not_super_admin(request, 'system_user', 'create_user')
+        if denied:
+            return denied
+
+        roles = _ensure_system_roles()
         serializer = UserCreateUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
@@ -274,9 +305,13 @@ class UserListCreateAPIView(APIView):
             is_active=data.get('is_active', True),
             is_staff=data.get('is_staff', True),
         )
-        group_ids = data.get('group_ids') or []
-        if group_ids:
-            user.groups.set(Group.objects.filter(id__in=group_ids))
+        try:
+            group_ids = _normalize_admin_only_group_ids(data.get('group_ids') or [], roles['admin_group'].id)
+        except ValueError as exc:
+            user.delete()
+            return Response({'success': False, 'message': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        user.groups.set(Group.objects.filter(id__in=group_ids))
 
         return Response({'success': True, 'message': '用户创建成功', 'data': UserListSerializer(user).data}, status=status.HTTP_201_CREATED)
 
@@ -294,9 +329,17 @@ class UserDetailAPIView(APIView):
         return Response({'success': True, 'data': UserListSerializer(user).data})
 
     def patch(self, request, user_id):
+        denied = _forbid_if_not_super_admin(request, 'system_user', 'update_user')
+        if denied:
+            return denied
+
+        roles = _ensure_system_roles()
         user = self.get_object(user_id)
         if not user:
             return Response({'success': False, 'message': '用户不存在'}, status=status.HTTP_404_NOT_FOUND)
+
+        if user.is_superuser:
+            return Response({'success': False, 'message': '不能在此处编辑超级管理员账号'}, status=status.HTTP_400_BAD_REQUEST)
 
         serializer = UserCreateUpdateSerializer(data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
@@ -317,17 +360,28 @@ class UserDetailAPIView(APIView):
         user.save()
 
         if 'group_ids' in data:
-            user.groups.set(Group.objects.filter(id__in=data['group_ids']))
+            try:
+                group_ids = _normalize_admin_only_group_ids(data['group_ids'], roles['admin_group'].id)
+            except ValueError as exc:
+                return Response({'success': False, 'message': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            user.groups.set(Group.objects.filter(id__in=group_ids))
 
         return Response({'success': True, 'message': '用户更新成功', 'data': UserListSerializer(user).data})
 
     def delete(self, request, user_id):
+        denied = _forbid_if_not_super_admin(request, 'system_user', 'delete_user')
+        if denied:
+            return denied
+
         user = self.get_object(user_id)
         if not user:
             return Response({'success': False, 'message': '用户不存在'}, status=status.HTTP_404_NOT_FOUND)
 
         if user.id == request.user.id:
             return Response({'success': False, 'message': '不能删除当前登录用户'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if user.is_superuser or user.groups.filter(name=ROLE_SUPER_ADMIN).exists():
+            return Response({'success': False, 'message': '不能删除超级管理员账号'}, status=status.HTTP_400_BAD_REQUEST)
 
         user.delete()
         return Response({'success': True, 'message': '用户已删除'})
@@ -337,7 +391,8 @@ class RoleListAPIView(APIView):
     permission_classes = [IsManagementAdmin]
 
     def get(self, request):
-        roles = Group.objects.all().order_by('id')
+        _ensure_system_roles()
+        roles = Group.objects.filter(name__in=[ROLE_SUPER_ADMIN, ROLE_ADMIN]).order_by('id')
         return Response({'success': True, 'rows': RoleSerializer(roles, many=True).data})
 
 

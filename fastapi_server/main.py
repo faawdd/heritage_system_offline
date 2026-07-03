@@ -49,6 +49,7 @@ django.setup()
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import check_password
+from django.contrib.auth.models import Group
 from django.db import models
 from core.models import HeritageSite, InspectionRecord, ProjectAudit  # type: ignore[import]
 from core.models import ImmovableHeritage, HeritagePhoto            # type: ignore[import]
@@ -61,6 +62,8 @@ MEDIA_ROOT = Path(settings.MEDIA_ROOT)
 app = FastAPI(title="Heritage Patrol FastAPI", version="1.0.0")
 security = HTTPBearer(auto_error=False)
 User = get_user_model()
+ROLE_SUPER_ADMIN = '超级管理员'
+ROLE_ADMIN = '管理员'
 
 app.add_middleware(
     CORSMiddleware,
@@ -110,10 +113,10 @@ def b64url_decode(raw: str) -> bytes:
 
 
 def get_user_role(user: Any) -> str:
-    if user.is_superuser or user.groups.filter(name="超级管理员").exists():
-        return "超级管理员"
-    if user.groups.filter(name="管理员").exists():
-        return "管理员"
+    if user.is_superuser or user.groups.filter(name=ROLE_SUPER_ADMIN).exists():
+        return ROLE_SUPER_ADMIN
+    if user.groups.filter(name=ROLE_ADMIN).exists():
+        return ROLE_ADMIN
     if user.groups.filter(name="管理员用户组").exists():
         return "管理员用户组"
     if user.groups.filter(name="文物看护员").exists():
@@ -123,12 +126,17 @@ def get_user_role(user: Any) -> str:
 
 def has_management_access(user: Any) -> bool:
     role = get_user_role(user)
-    return role in {"超级管理员", "管理员", "管理员用户组"}
+    return role in {ROLE_SUPER_ADMIN, ROLE_ADMIN, "管理员用户组"}
 
 
 def can_modify_core_data(user: Any) -> bool:
     role = get_user_role(user)
-    return role in {"超级管理员", "管理员"}
+    return role in {ROLE_SUPER_ADMIN, ROLE_ADMIN}
+
+
+def ensure_system_roles() -> None:
+    Group.objects.get_or_create(name=ROLE_SUPER_ADMIN)
+    Group.objects.get_or_create(name=ROLE_ADMIN)
 
 
 def serialize_user(user: Any) -> dict:
@@ -326,13 +334,36 @@ def api_health() -> dict:
 
 @app.post("/api/auth/login")
 def login(payload: LoginRequest) -> dict:
+    ensure_system_roles()
     user = User.objects.filter(username=payload.username, is_active=True).first()
     if user is None or not check_password(payload.password, user.password):
         raise HTTPException(status_code=401, detail="用户名或密码错误")
+
+    token = create_token(user)
     return {
-        "token": create_token(user),
+        "token": token,
+        "access_token": token,
+        "token_type": "Bearer",
+        "expires_in": 60 * 60 * 12,
         "user": serialize_user(user),
     }
+
+
+@app.post("/api/auth/refresh")
+def refresh_auth_token(current_user: Any = Depends(get_current_user)) -> dict:
+    token = create_token(current_user)
+    return {
+        "token": token,
+        "access_token": token,
+        "token_type": "Bearer",
+        "expires_in": 60 * 60 * 12,
+        "user": serialize_user(current_user),
+    }
+
+
+@app.post("/api/auth/logout")
+def logout_auth(current_user: Any = Depends(get_current_user)) -> dict:
+    return {"success": True, "message": "logout_ok"}
 
 
 @app.get("/api/auth/me")
