@@ -44,8 +44,12 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 
 def frontend_spa_entry_view(request):
-    index_path = settings.BASE_DIR / 'static' / 'frontend' / 'index.html'
-    if not index_path.exists():
+    candidate_paths = [
+        settings.APP_DIR / 'static' / 'frontend' / 'index.html',
+        settings.BASE_DIR / 'static' / 'frontend' / 'index.html',
+    ]
+    index_path = next((path for path in candidate_paths if path.exists()), None)
+    if index_path is None:
         return HttpResponse('Frontend bundle not found. Build frontend first.', status=404)
     return HttpResponse(index_path.read_text(encoding='utf-8'), content_type='text/html; charset=utf-8')
 

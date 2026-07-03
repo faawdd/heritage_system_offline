@@ -44,7 +44,7 @@ class RoleSerializer(serializers.ModelSerializer):
 
 class UserListSerializer(serializers.ModelSerializer):
     roles = serializers.SerializerMethodField()
-    is_super_admin = serializers.BooleanField(source='is_superuser', read_only=True)
+    is_super_admin = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -64,6 +64,11 @@ class UserListSerializer(serializers.ModelSerializer):
 
     def get_roles(self, obj):
         return list(obj.groups.values_list('name', flat=True))
+
+    def get_is_super_admin(self, obj):
+        if obj.is_superuser:
+            return True
+        return obj.groups.filter(name='超级管理员').exists()
 
 
 class UserCreateUpdateSerializer(serializers.Serializer):

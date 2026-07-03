@@ -16,6 +16,7 @@ let backendLogStream = null
 let mainWindow = null
 let initWizardWindow = null
 let runtimeConfig = null
+let bootstrapAdminPassword = ''
 
 function formatTimestamp(date = new Date()) {
   const pad = (num) => String(num).padStart(2, '0')
@@ -248,6 +249,10 @@ function startBackend(config) {
     DJANGO_WEB_BASE_URL: `http://${BACKEND_HOST}:${config.backendPort}`,
   }
 
+  if (bootstrapAdminPassword) {
+    backendEnv.HERITAGE_BOOTSTRAP_ADMIN_PASSWORD = bootstrapAdminPassword
+  }
+
   if (app.isPackaged) {
     const backendFileName = process.platform === 'win32' ? 'heritage_backend.exe' : 'heritage_backend'
     const backendPath = path.join(process.resourcesPath, 'runtime', 'app', backendFileName)
@@ -368,8 +373,17 @@ function setupInitIpc() {
       }
     }
 
+    const superAdminPassword = String(payload.superAdminPassword || '').trim()
+    if (superAdminPassword.length < 6) {
+      return {
+        ok: false,
+        message: '超级管理员密码长度不能少于 6 位',
+      }
+    }
+
     saveDesktopConfig(merged)
     runtimeConfig = merged
+    bootstrapAdminPassword = superAdminPassword
     return { ok: true }
   })
 
@@ -660,6 +674,8 @@ app.whenReady().then(async () => {
       if (!ok) {
         throw new Error(`后端服务未在限定时间内就绪，请检查日志文件：${path.join(runtimeConfig.logDir, 'backend.log')}`)
       }
+
+      bootstrapAdminPassword = ''
     }
 
     createWindow()

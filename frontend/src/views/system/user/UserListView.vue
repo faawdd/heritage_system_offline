@@ -8,8 +8,16 @@
     <div class="toolbar card top-space">
       <el-input v-model="filters.keyword" placeholder="用户名/姓名/邮箱" clearable style="max-width: 320px" />
       <el-button type="primary" :loading="loading" @click="loadUsers">查询</el-button>
-      <el-button @click="openCreateDialog">新增用户</el-button>
+      <el-button v-if="isSuperAdmin" @click="openCreateDialog">新增管理员</el-button>
     </div>
+
+    <el-alert
+      v-if="!isSuperAdmin"
+      class="top-space"
+      type="warning"
+      :closable="false"
+      title="仅超级管理员可新增、编辑或删除管理员账号"
+    />
 
     <div class="card top-space">
       <el-table :data="rows" stripe v-loading="loading">
@@ -36,11 +44,11 @@
         </el-table-column>
         <el-table-column label="操作" width="220">
           <template #default="scope">
-            <el-button link type="primary" @click="openEditDialog(scope.row)">编辑</el-button>
-            <el-button link type="warning" @click="toggleUserStatus(scope.row)">
+            <el-button link type="primary" :disabled="!isSuperAdmin" @click="openEditDialog(scope.row)">编辑</el-button>
+            <el-button link type="warning" :disabled="!isSuperAdmin" @click="toggleUserStatus(scope.row)">
               {{ scope.row.is_active ? '禁用' : '启用' }}
             </el-button>
-            <el-button link type="danger" @click="removeUser(scope.row)">删除</el-button>
+            <el-button link type="danger" :disabled="!isSuperAdmin" @click="removeUser(scope.row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -82,6 +90,7 @@
 
 <script setup>
 import { reactive, ref } from 'vue'
+import { storeToRefs } from 'pinia'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 import {
@@ -91,10 +100,14 @@ import {
   fetchSystemUsers,
   updateSystemUser
 } from '../../../api/system/systemApi'
+import { useAuthStore } from '../../../stores/system/authStore'
 
 const loading = ref(false)
 const rows = ref([])
 const roleOptions = ref([])
+const authStore = useAuthStore()
+const { user } = storeToRefs(authStore)
+const isSuperAdmin = ref(false)
 
 const filters = reactive({
   keyword: ''
@@ -133,13 +146,17 @@ function resetDialogForm() {
 async function loadRoles() {
   const result = await fetchSystemRoles()
   if (result.success) {
-    roleOptions.value = result.rows || []
+    roleOptions.value = (result.rows || []).filter((item) => item.name === '管理员')
   }
 }
 
 async function loadUsers() {
   loading.value = true
   try {
+    const currentUser = user.value || {}
+    const roles = Array.isArray(currentUser.roles) ? currentUser.roles : []
+    isSuperAdmin.value = Boolean(currentUser.is_superuser) || roles.includes('超级管理员')
+
     const result = await fetchSystemUsers({ keyword: filters.keyword })
     if (!result.success) {
       throw new Error(result.message || '加载失败')
@@ -154,6 +171,10 @@ async function loadUsers() {
 }
 
 function openCreateDialog() {
+  if (!isSuperAdmin.value) {
+    ElMessage.warning('仅超级管理员可创建管理员账号')
+    return
+  }
   dialog.mode = 'create'
   dialog.editId = null
   resetDialogForm()
@@ -161,6 +182,10 @@ function openCreateDialog() {
 }
 
 function openEditDialog(row) {
+  if (!isSuperAdmin.value) {
+    ElMessage.warning('仅超级管理员可编辑管理员账号')
+    return
+  }
   dialog.mode = 'edit'
   dialog.editId = row.id
   dialog.form = {
@@ -179,6 +204,11 @@ function openEditDialog(row) {
 }
 
 async function submitDialog() {
+  if (!isSuperAdmin.value) {
+    ElMessage.warning('仅超级管理员可保存管理员账号')
+    return
+  }
+
   if (!dialog.form.username && dialog.mode === 'create') {
     ElMessage.warning('用户名不能为空')
     return
@@ -214,6 +244,11 @@ async function submitDialog() {
 }
 
 async function toggleUserStatus(row) {
+  if (!isSuperAdmin.value) {
+    ElMessage.warning('仅超级管理员可修改用户状态')
+    return
+  }
+
   try {
     const result = await updateSystemUser(row.id, {
       is_active: !row.is_active
@@ -229,6 +264,11 @@ async function toggleUserStatus(row) {
 }
 
 async function removeUser(row) {
+  if (!isSuperAdmin.value) {
+    ElMessage.warning('仅超级管理员可删除管理员账号')
+    return
+  }
+
   try {
     await ElMessageBox.confirm(`确认删除用户 ${row.username} 吗？`, '删除确认', {
       type: 'warning'

@@ -64,18 +64,6 @@ jobs:
             libgtk-3-0 libnss3 libasound2t64 libxss1 libxtst6 libatspi2.0-0 \
             libdrm2 libgbm1 libxkbcommon0 libxrandr2 libxcomposite1 libxdamage1
 
-      - name: Build backend runtime (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: ./scripts/build_desktop_runtime.ps1
-
-      - name: Build backend runtime (macOS/Linux)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          chmod +x ./scripts/build_desktop_runtime.sh
-          ./scripts/build_desktop_runtime.sh
-
       - name: Configure npm network settings
         working-directory: frontend
         run: |
@@ -147,6 +135,127 @@ jobs:
       - name: Build frontend assets
         working-directory: frontend
         run: npm run build
+
+      - name: Build backend runtime (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/build_desktop_runtime.ps1
+
+      - name: Build backend runtime (macOS/Linux)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          chmod +x ./scripts/build_desktop_runtime.sh
+          ./scripts/build_desktop_runtime.sh
+
+      - name: Validate desktop runtime layout (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $backendExe = "desktop_runtime\app\heritage_backend.exe"
+          $frontendIndex = "desktop_runtime\app\static\frontend\index.html"
+          if (-not (Test-Path $backendExe)) {
+            throw "Missing backend executable: $backendExe"
+          }
+          if (-not (Test-Path $frontendIndex)) {
+            throw "Missing frontend entry: $frontendIndex"
+          }
+          Write-Host "Runtime layout OK"
+
+      - name: Validate desktop runtime layout (macOS/Linux)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          test -f desktop_runtime/app/heritage_backend || { echo "Missing backend executable"; exit 1; }
+          test -f desktop_runtime/app/static/frontend/index.html || { echo "Missing frontend entry"; exit 1; }
+          echo "Runtime layout OK"
+
+      - name: Smoke test backend executable (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $port = 18081
+          $healthUrl = "http://127.0.0.1:$port/api/v1/health/"
+          $env:BACKEND_HOST = "127.0.0.1"
+          $env:BACKEND_PORT = "$port"
+          $env:HERITAGE_APP_DIR = (Resolve-Path "desktop_runtime\app").Path
+          $env:HERITAGE_DATA_DIR = (Join-Path $PWD ".ci-runtime\data")
+          $env:HERITAGE_CONFIG_DIR = (Join-Path $PWD ".ci-runtime\config")
+          $env:HERITAGE_LOG_DIR = (Join-Path $PWD ".ci-runtime\logs")
+          $env:HERITAGE_BOOTSTRAP_ADMIN_PASSWORD = "Admin@123456"
+
+          New-Item -ItemType Directory -Path $env:HERITAGE_DATA_DIR -Force | Out-Null
+          New-Item -ItemType Directory -Path $env:HERITAGE_CONFIG_DIR -Force | Out-Null
+          New-Item -ItemType Directory -Path $env:HERITAGE_LOG_DIR -Force | Out-Null
+
+          $backendExe = (Resolve-Path "desktop_runtime\app\heritage_backend.exe").Path
+          $proc = Start-Process -FilePath $backendExe -PassThru -WindowStyle Hidden
+          try {
+            $ok = $false
+            for ($i = 0; $i -lt 80; $i++) {
+              try {
+                $res = Invoke-WebRequest -Uri $healthUrl -UseBasicParsing -TimeoutSec 2
+                if ($res.StatusCode -ge 200 -and $res.StatusCode -lt 500) {
+                  $ok = $true
+                  break
+                }
+              } catch {
+              }
+              Start-Sleep -Milliseconds 500
+            }
+
+            if (-not $ok) {
+              throw "Backend smoke test failed: health endpoint not ready"
+            }
+            Write-Host "Backend smoke test OK"
+          }
+          finally {
+            if ($proc -and -not $proc.HasExited) {
+              Stop-Process -Id $proc.Id -Force
+            }
+          }
+
+      - name: Smoke test backend executable (macOS/Linux)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          PORT=18081
+          export BACKEND_HOST=127.0.0.1
+          export BACKEND_PORT="$PORT"
+          export HERITAGE_APP_DIR="$PWD/desktop_runtime/app"
+          export HERITAGE_DATA_DIR="$PWD/.ci-runtime/data"
+          export HERITAGE_CONFIG_DIR="$PWD/.ci-runtime/config"
+          export HERITAGE_LOG_DIR="$PWD/.ci-runtime/logs"
+          export HERITAGE_BOOTSTRAP_ADMIN_PASSWORD="Admin@123456"
+
+          mkdir -p "$HERITAGE_DATA_DIR" "$HERITAGE_CONFIG_DIR" "$HERITAGE_LOG_DIR"
+
+          "$HERITAGE_APP_DIR/heritage_backend" > "$HERITAGE_LOG_DIR/backend.stdout.log" 2> "$HERITAGE_LOG_DIR/backend.stderr.log" &
+          BACKEND_PID=$!
+
+          cleanup() {
+            if kill -0 "$BACKEND_PID" >/dev/null 2>&1; then
+              kill "$BACKEND_PID" || true
+            fi
+          }
+          trap cleanup EXIT
+
+          OK=0
+          for i in $(seq 1 80); do
+            if curl -fsS "http://127.0.0.1:${PORT}/api/v1/health/" >/dev/null 2>&1; then
+              OK=1
+              break
+            fi
+            sleep 0.5
+          done
+
+          if [ "$OK" -ne 1 ]; then
+            echo "Backend smoke test failed: health endpoint not ready"
+            echo "=== backend stderr ==="
+            cat "$HERITAGE_LOG_DIR/backend.stderr.log" || true
+            exit 1
+          fi
+          echo "Backend smoke test OK"
 
       - name: Build desktop package
         working-directory: frontend

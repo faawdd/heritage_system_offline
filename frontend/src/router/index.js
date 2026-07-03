@@ -54,7 +54,7 @@ const routes = [
       { path: 'gis/kml-management', component: KmlManagementView },
       { path: 'gis/kml-process-convert', component: KmlProcessConvertView },
       { path: 'gis/ovkml-convert', component: OvkmlConvertView },
-      { path: 'system/users', component: UserListView },
+      { path: 'system/users', component: UserListView, meta: { requiresSuperAdmin: true } },
       { path: 'system/roles', component: RoleListView },
       { path: 'system/data-management', component: DataManagementView },
       { path: 'system/about', component: AboutView },
