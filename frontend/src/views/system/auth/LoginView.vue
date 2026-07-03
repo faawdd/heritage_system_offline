@@ -18,8 +18,9 @@
               >
               <div class="form-tools">
                 <label class="remember-row">
-                  <input v-model="rememberPassword" type="checkbox">
-                  <span>记住账号密码</span>
+                  <input v-model="rememberPassword" type="checkbox" class="remember-checkbox">
+                  <span class="remember-indicator" aria-hidden="true"></span>
+                  <span class="remember-text">记住账号密码</span>
                 </label>
               </div>
               <p v-if="errorMessage" class="login-error">{{ errorMessage }}</p>
@@ -319,21 +320,73 @@ button:hover {
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  margin-bottom: 14px;
+  margin: 6px 0 18px;
 }
 
 .remember-row {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 8px;
-  color: #475569;
+  gap: 10px;
+  color: #334155;
   font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  line-height: 1;
+  white-space: nowrap;
+  flex-wrap: nowrap;
 }
 
-.remember-row input {
-  width: auto;
+.remember-text {
+  display: inline-block;
+  white-space: nowrap;
+}
+
+.remember-checkbox {
+  position: relative;
+  width: 0;
+  height: 0;
   margin: 0;
-  padding: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.remember-indicator {
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  border: 1.5px solid #9fb8d8;
+  background: #f3f8ff;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.65);
+  transition: all 0.2s ease;
+  position: relative;
+  flex: 0 0 18px;
+}
+
+.remember-row:hover .remember-indicator {
+  border-color: #2d77cc;
+  background: #e9f2ff;
+}
+
+.remember-checkbox:focus-visible + .remember-indicator {
+  outline: 2px solid rgba(5, 104, 193, 0.25);
+  outline-offset: 2px;
+}
+
+.remember-checkbox:checked + .remember-indicator {
+  border-color: #0568c1;
+  background: linear-gradient(135deg, #1976d2, #0358a7);
+}
+
+.remember-checkbox:checked + .remember-indicator::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 2px;
+  width: 4px;
+  height: 8px;
+  border: solid #ffffff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
 }
 
 .login-error {

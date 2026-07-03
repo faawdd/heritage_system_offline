@@ -54,7 +54,35 @@ SYSTEM_VERSION_BASE = env('SYSTEM_VERSION_BASE', default='v2.1')
 
 
 def build_system_version():
-    """优先使用 Git 最后提交时间生成版本号，失败时自动降级。"""
+    """优先使用 Git tag 作为版本号，失败时回退到时间戳版本号。"""
+    try:
+        tag_result = subprocess.run(
+            ['git', 'describe', '--tags', '--abbrev=0'],
+            cwd=BASE_DIR,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        tag_name = (tag_result.stdout or '').strip()
+        if tag_name:
+            try:
+                commit_result = subprocess.run(
+                    ['git', 'log', '-1', '--format=%ct'],
+                    cwd=BASE_DIR,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=2,
+                )
+                timestamp = int(commit_result.stdout.strip())
+                updated_at = datetime.fromtimestamp(timestamp, tz=PROJECT_TIME_ZONE)
+            except (subprocess.SubprocessError, FileNotFoundError, ValueError, OSError):
+                updated_at = datetime.now(PROJECT_TIME_ZONE)
+            return (tag_name, 'git_tag', updated_at)
+    except (subprocess.SubprocessError, FileNotFoundError, OSError):
+        pass
+
     try:
         result = subprocess.run(
             ['git', 'log', '-1', '--format=%ct'],

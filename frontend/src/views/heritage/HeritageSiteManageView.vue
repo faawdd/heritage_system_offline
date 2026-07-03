@@ -32,9 +32,8 @@
           <template #default="scope">
             <a
               class="heritage-view-link"
-              :href="buildViewModeHref(scope.row)"
-              target="_blank"
-              rel="noopener noreferrer"
+              href="#"
+              @click.prevent="openPreview(scope.row)"
             >
               {{ scope.row.name }}
             </a>
@@ -138,15 +137,24 @@
         <el-button type="primary" :loading="dialog.loading" @click="submitEdit">保存</el-button>
       </template>
     </el-dialog>
+
+    <HeritageA4PreviewDialog
+      v-model="preview.visible"
+      :record="preview.row"
+      :loading="preview.loading"
+      page-title="不可移动文物档案预览"
+    />
   </section>
 </template>
 
 <script setup>
 import { reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import HeritageA4PreviewDialog from '../../components/HeritageA4PreviewDialog.vue'
 
 import {
   exportHeritageSiteManage,
+  fetchHeritagePreview,
   fetchHeritageSiteManageList,
   importHeritageSiteManage,
   patchHeritageSiteManage
@@ -188,6 +196,12 @@ const dialog = reactive({
     protection_zone: '',
     control_zone: ''
   }
+})
+
+const preview = reactive({
+  visible: false,
+  loading: false,
+  row: {},
 })
 
 function buildParams() {
@@ -247,17 +261,23 @@ function openEdit(row) {
   dialog.visible = true
 }
 
-function buildViewModeHref(row) {
-  const id = row?.id
-  if (!id) {
-    return '#'
+async function openPreview(row) {
+  preview.row = row || {}
+  preview.visible = true
+  preview.loading = true
+  try {
+    if (!row?.id) {
+      return
+    }
+    const result = await fetchHeritagePreview({ site_id: row.id })
+    if (result?.success && result?.data) {
+      preview.row = { ...row, ...result.data }
+    }
+  } catch (error) {
+    ElMessage.warning(error?.message || '预览详情加载失败，已展示当前行数据')
+  } finally {
+    preview.loading = false
   }
-
-  if (row?.preview_url) {
-    return row.preview_url
-  }
-
-  return `/mobile/collect/${id}/preview/?mode=view`
 }
 
 async function submitEdit() {
