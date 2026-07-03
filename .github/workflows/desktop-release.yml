@@ -1,0 +1,113 @@
+name: Desktop Multi-Platform Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.id }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: windows-x64
+            os: windows-latest
+            asset_glob: frontend/dist-electron/*.exe
+            build_cmd: npx electron-builder --publish never --win nsis portable --x64
+            artifact_name: windows-x64
+          - id: macos-arm64
+            os: macos-14
+            asset_glob: |
+              frontend/dist-electron/*.dmg
+              frontend/dist-electron/*-mac-arm64.zip
+            build_cmd: npx electron-builder --publish never --mac dmg zip --arm64
+            artifact_name: macos-arm64
+          - id: linux-amd64
+            os: ubuntu-24.04
+            asset_glob: frontend/dist-electron/*.AppImage
+            build_cmd: npx electron-builder --publish never --linux AppImage --x64
+            artifact_name: linux-amd64
+          - id: linux-arm64
+            os: ubuntu-24.04-arm
+            asset_glob: frontend/dist-electron/*.AppImage
+            build_cmd: npx electron-builder --publish never --linux AppImage --arm64
+            artifact_name: linux-arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install system libraries (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-3-0 libnss3 libasound2t64 libxss1 libxtst6 libatspi2.0-0 \
+            libdrm2 libgbm1 libxkbcommon0 libxrandr2 libxcomposite1 libxdamage1
+
+      - name: Build backend runtime (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/build_desktop_runtime.ps1
+
+      - name: Build backend runtime (macOS/Linux)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          chmod +x ./scripts/build_desktop_runtime.sh
+          ./scripts/build_desktop_runtime.sh
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend assets
+        working-directory: frontend
+        run: npm run build
+
+      - name: Build desktop package
+        working-directory: frontend
+        run: ${{ matrix.build_cmd }}
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.asset_glob }}
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build]
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: Publish release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/**/*
+          generate_release_notes: true

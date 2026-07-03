@@ -12,7 +12,9 @@ if (Test-Path ".venv\Scripts\python.exe") {
 }
 
 Write-Host "[desktop-runtime] Installing build tools..."
-& $pythonExe -m pip install --upgrade pip pyinstaller
+& $pythonExe -m pip install --upgrade pip
+& $pythonExe -m pip install -r requirements.txt
+& $pythonExe -m pip install pyinstaller
 
 Write-Host "[desktop-runtime] Building backend executable..."
 & $pythonExe -m PyInstaller `
