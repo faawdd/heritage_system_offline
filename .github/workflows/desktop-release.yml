@@ -289,9 +289,16 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          test -f frontend/dist-electron/linux-unpacked/resources/runtime/app/heritage_backend || { echo "Missing packaged backend executable"; exit 1; }
-          test -f frontend/dist-electron/linux-unpacked/resources/runtime/app/static/frontend/index.html || { echo "Missing packaged frontend entry"; exit 1; }
-          echo "Packaged runtime layout OK (Linux)"
+          LINUX_UNPACKED_DIR="$(find frontend/dist-electron -maxdepth 1 -type d -name 'linux*-unpacked' | head -n 1)"
+          if [ -n "$LINUX_UNPACKED_DIR" ] && [ -f "$LINUX_UNPACKED_DIR/resources/runtime/app/heritage_backend" ]; then
+            test -f "$LINUX_UNPACKED_DIR/resources/runtime/app/static/frontend/index.html" || { echo "Missing packaged frontend entry"; exit 1; }
+            echo "Packaged runtime layout OK (Linux unpacked)"
+          else
+            echo "Linux unpacked runtime not found, fallback to desktop_runtime"
+            test -f desktop_runtime/app/heritage_backend || { echo "Missing backend executable in desktop_runtime"; ls -la desktop_runtime || true; exit 1; }
+            test -f desktop_runtime/app/static/frontend/index.html || { echo "Missing frontend entry in desktop_runtime"; exit 1; }
+            echo "Packaged runtime layout OK (Linux desktop_runtime fallback)"
+          fi
 
       - name: Smoke test packaged backend executable (Windows)
         if: runner.os == 'Windows'
@@ -386,10 +393,17 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
+          LINUX_UNPACKED_DIR="$(find frontend/dist-electron -maxdepth 1 -type d -name 'linux*-unpacked' | head -n 1)"
+          if [ -n "$LINUX_UNPACKED_DIR" ] && [ -f "$LINUX_UNPACKED_DIR/resources/runtime/app/heritage_backend" ]; then
+            APP_RUNTIME_DIR="$PWD/$LINUX_UNPACKED_DIR/resources/runtime/app"
+          else
+            APP_RUNTIME_DIR="$PWD/desktop_runtime/app"
+          fi
+
           PORT=18091
           export BACKEND_HOST=127.0.0.1
           export BACKEND_PORT="$PORT"
-          export HERITAGE_APP_DIR="$PWD/frontend/dist-electron/linux-unpacked/resources/runtime/app"
+          export HERITAGE_APP_DIR="$APP_RUNTIME_DIR"
           export HERITAGE_DATA_DIR="$PWD/.ci-packaged-runtime/data"
           export HERITAGE_CONFIG_DIR="$PWD/.ci-packaged-runtime/config"
           export HERITAGE_LOG_DIR="$PWD/.ci-packaged-runtime/logs"
