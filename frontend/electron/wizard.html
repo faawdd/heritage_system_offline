@@ -232,6 +232,21 @@
 
       <div class="card">
         <div class="stack">
+          <div class="label">系统名称配置</div>
+          <div class="inline-note">留空时默认显示为“文物管理系统（离线版）”；如填写鄯善县、高昌区、吐鲁番市，则系统名将显示为“鄯善县文物管理系统”等格式。</div>
+          <div class="action" style="justify-content: flex-start; gap: 10px;">
+            <label for="systemRegionInput" class="label" style="min-width: 72px;">地名</label>
+            <input id="systemRegionInput" type="text" placeholder="例如：鄯善县 / 高昌区 / 吐鲁番市" />
+          </div>
+          <div class="row">
+            <div class="label">名称预览</div>
+            <div id="systemNamePreview" class="value">文物管理系统（离线版）</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="stack">
           <div class="label">首次基础数据导入</div>
           <div class="inline-note">离线运行前建议先导入基础文物数据。你可以先下载 CSV 模板，填写后在系统内导入。</div>
           <div class="inline-tools">
@@ -279,6 +294,8 @@
       const portInputEl = document.getElementById('portInput')
       const confirmBtn = document.getElementById('confirmBtn')
       const messageEl = document.getElementById('message')
+      const systemRegionInputEl = document.getElementById('systemRegionInput')
+      const systemNamePreviewEl = document.getElementById('systemNamePreview')
       const superAdminPasswordInputEl = document.getElementById('superAdminPasswordInput')
       const superAdminPasswordConfirmInputEl = document.getElementById('superAdminPasswordConfirmInput')
       const pickDataDirBtn = document.getElementById('pickDataDirBtn')
@@ -290,6 +307,19 @@
         dataDir: '',
         logDir: '',
         backendPort: 18000,
+        systemRegion: '',
+        systemName: '文物管理系统（离线版）',
+      }
+
+      function buildSystemName(systemRegion = '') {
+        const normalizedRegion = String(systemRegion || '').trim()
+        return normalizedRegion ? `${normalizedRegion}文物管理系统` : '文物管理系统（离线版）'
+      }
+
+      function syncSystemNamePreview() {
+        currentConfig.systemRegion = String(systemRegionInputEl.value || '').trim()
+        currentConfig.systemName = buildSystemName(currentConfig.systemRegion)
+        systemNamePreviewEl.textContent = currentConfig.systemName
       }
 
       function setStatus(el, ok, message) {
@@ -378,10 +408,14 @@
           dataDir: config.dataDir || checks.dataDir?.path || currentConfig.dataDir,
           logDir: config.logDir || checks.logDir?.path || currentConfig.logDir,
           backendPort: Number(config.backendPort || currentConfig.backendPort || 18000),
+          systemRegion: String(config.systemRegion || currentConfig.systemRegion || '').trim(),
+          systemName: String(config.systemName || currentConfig.systemName || '文物管理系统（离线版）').trim(),
         }
 
         dataPathEl.textContent = currentConfig.dataDir || '-'
         logPathEl.textContent = currentConfig.logDir || '-'
+        systemRegionInputEl.value = currentConfig.systemRegion
+        syncSystemNamePreview()
 
         setStatus(dataStatusEl, !!checks.dataDir?.ok, checks.dataDir?.message || '-')
         setStatus(logStatusEl, !!checks.logDir?.ok, checks.logDir?.message || '-')
@@ -449,6 +483,11 @@
         }
       })
 
+      systemRegionInputEl.addEventListener('input', () => {
+        syncSystemNamePreview()
+        setMessage('')
+      })
+
       confirmBtn.addEventListener('click', async () => {
         const backendPort = Number(portInputEl.value || 0)
         if (!backendPort || backendPort < 1024 || backendPort > 65535) {
@@ -476,6 +515,7 @@
             backendPort,
             dataDir: currentConfig.dataDir,
             logDir: currentConfig.logDir,
+            systemRegion: currentConfig.systemRegion,
             superAdminPassword,
             openImportAfterInit: !!openImportAfterInitCheckbox.checked,
           })

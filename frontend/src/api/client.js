@@ -32,6 +32,14 @@ function clearAuthTokens() {
   localStorage.removeItem(REFRESH_TOKEN_KEY)
 }
 
+function attachApiErrorMessage(error) {
+  const responseMessage = error?.response?.data?.message || error?.response?.data?.detail
+  if (responseMessage && error && typeof error === 'object') {
+    error.message = String(responseMessage)
+  }
+  return Promise.reject(error)
+}
+
 client.interceptors.request.use((config) => {
   const token = getAccessToken()
   if (token) {
@@ -76,19 +84,19 @@ client.interceptors.response.use(
     const url = originalRequest?.url || ''
 
     if (!originalRequest || status !== 401 || originalRequest._retry) {
-      return Promise.reject(error)
+      return attachApiErrorMessage(error)
     }
 
     if (url.includes('/api/v1/system/login/') || url.includes('/api/v1/system/refresh/')) {
       clearAuthTokens()
-      return Promise.reject(error)
+      return attachApiErrorMessage(error)
     }
 
     originalRequest._retry = true
     const token = await refreshAccessToken()
     if (!token) {
       clearAuthTokens()
-      return Promise.reject(error)
+      return attachApiErrorMessage(error)
     }
 
     originalRequest.headers = originalRequest.headers || {}

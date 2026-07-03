@@ -13,6 +13,7 @@ from system.views import (
     RolePermissionAPIView,
     SystemLoginAPIView,
     SystemLogoutAPIView,
+    SystemPublicConfigAPIView,
     SystemProfileAPIView,
     SystemRefreshAPIView,
     UserDetailAPIView,
@@ -24,6 +25,7 @@ app_name = 'system'
 urlpatterns = [
     path('login/', SystemLoginAPIView.as_view(), name='login'),
     path('refresh/', SystemRefreshAPIView.as_view(), name='refresh'),
+    path('public-config/', SystemPublicConfigAPIView.as_view(), name='public_config'),
     path('logout/', SystemLogoutAPIView.as_view(), name='logout'),
     path('admin-entry/', SystemAdminEntryAPIView.as_view(), name='admin_entry'),
     path('profile/', SystemProfileAPIView.as_view(), name='profile'),

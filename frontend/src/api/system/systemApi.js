@@ -1,5 +1,10 @@
 import client from '../client'
 
+export async function fetchPublicSystemInfo() {
+  const response = await client.get('/api/v1/system/public-config/')
+  return response.data
+}
+
 export async function loginSystem(payload) {
   const response = await client.post('/api/v1/system/login/', payload)
   return response.data

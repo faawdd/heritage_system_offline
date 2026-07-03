@@ -748,7 +748,7 @@ class CoordinateAdmin(admin.ModelAdmin):
 
 # 修改后台标题，统一显示动态版本号
 sys_version = getattr(settings, 'SYS_VERSION', 'BuildUnknown')
-system_name = getattr(settings, 'SYSTEM_NAME', '鄯善县文物管理平台')
+system_name = getattr(settings, 'SYSTEM_NAME', '文物管理系统（离线版）')
 admin.site.site_header = f'{system_name} ({sys_version})'
 admin.site.site_title = f'{system_name} ({sys_version})'
 admin.site.index_title = f'欢迎使用{system_name}，当前版本 {sys_version}'

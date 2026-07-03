@@ -20,7 +20,7 @@ jobs:
           - id: windows-x64
             os: windows-latest
             asset_glob: frontend/dist-electron/*.exe
-            build_cmd: npx electron-builder --publish never --win nsis portable --x64
+            build_cmd: npx electron-builder --publish never --win nsis --x64
             artifact_name: windows-x64
           - id: macos-arm64
             os: macos-14
