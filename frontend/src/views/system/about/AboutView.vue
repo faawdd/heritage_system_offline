@@ -1,7 +1,7 @@
 <template>
   <section class="about-page card">
     <header class="about-header">
-      <h1>基层文物管理系统（离线版）</h1>
+      <h1>{{ systemName }}</h1>
       <p>面向基层文物保护、巡查与项目管理的本地化离线桌面系统。</p>
     </header>
 
@@ -9,7 +9,7 @@
       <article class="about-item">
         <h2>系统信息</h2>
         <ul>
-          <li><span>系统名称</span><strong>基层文物管理系统（离线版）</strong></li>
+          <li><span>系统名称</span><strong>{{ systemName }}</strong></li>
           <li><span>运行平台</span><strong>{{ runtimeLabel }}</strong></li>
           <li><span>前端框架</span><strong>Vue 3 + Element Plus</strong></li>
           <li><span>后端框架</span><strong>Django</strong></li>
@@ -39,6 +39,11 @@
 
 <script setup>
 import { computed } from 'vue'
+
+import { useAppStore } from '../../../stores/system/appStore'
+
+const appStore = useAppStore()
+const systemName = computed(() => appStore.systemName)
 
 const runtimeLabel = computed(() => {
   const runtime = window?.desktopMeta?.runtime

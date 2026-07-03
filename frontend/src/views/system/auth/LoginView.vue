@@ -1,13 +1,16 @@
 <template>
   <section class="w3l-hotair-form">
-    <h1>基层文物管理系统（离线版）</h1>
+    <h1>{{ systemName }}</h1>
     <div class="container">
       <div class="workinghny-form-grid">
         <div class="main-hotair">
           <div class="content-wthree">
             <h2>系统登录</h2>
             <form @submit.prevent="submitLogin">
-              <input v-model="form.username" type="text" class="text" name="username" placeholder="用户名" required autofocus>
+              <input v-model="form.username" type="text" class="text" name="username" placeholder="用户名" required autofocus list="saved-account-list">
+              <datalist id="saved-account-list">
+                <option v-for="account in savedAccounts" :key="account.username" :value="account.username"></option>
+              </datalist>
               <input
                 v-model="form.password"
                 type="password"
@@ -16,6 +19,25 @@
                 placeholder="密码"
                 required
               >
+              <div class="form-tools">
+                <label class="remember-row">
+                  <input v-model="rememberPassword" type="checkbox">
+                  <span>记住账号密码</span>
+                </label>
+                <button v-if="savedAccounts.length" class="clear-btn" type="button" @click="clearSavedAccounts">清除已保存账号</button>
+              </div>
+              <div v-if="savedAccounts.length" class="saved-account-row">
+                <button
+                  v-for="account in savedAccounts"
+                  :key="account.username"
+                  class="saved-account-chip"
+                  type="button"
+                  @click="applySavedAccount(account)"
+                >
+                  {{ account.username }}
+                </button>
+              </div>
+              <p v-if="errorMessage" class="login-error">{{ errorMessage }}</p>
               <button class="btn" type="submit" :disabled="loading">{{ loading ? '登录中...' : '登录' }}</button>
             </form>
 
@@ -30,27 +52,119 @@
       </div>
     </div>
     <div class="copyright text-center">
-      <p class="copy-footer-29">© {{ new Date().getFullYear() }} 基层文物管理系统（离线版）。保留所有权利</p>
+      <p class="copy-footer-29">© {{ new Date().getFullYear() }} {{ systemName }}。保留所有权利</p>
     </div>
   </section>
 </template>
 
 <script setup>
-import { reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 
 import loginIllustration from '../../../assets/login-illustration.png'
+import { useAppStore } from '../../../stores/system/appStore'
 import { useAuthStore } from '../../../stores/system/authStore'
+
+const SAVED_ACCOUNTS_KEY = 'heritage_saved_accounts'
 
 const router = useRouter()
 const route = useRoute()
+const appStore = useAppStore()
 const authStore = useAuthStore()
 
 const loading = ref(false)
+const rememberPassword = ref(true)
+const errorMessage = ref('')
+const savedAccounts = ref(loadSavedAccounts())
 const form = reactive({
   username: '',
   password: ''
+})
+
+const systemName = computed(() => appStore.systemName)
+
+function loadSavedAccounts() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SAVED_ACCOUNTS_KEY) || '[]')
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+    return parsed
+      .map((item) => ({
+        username: String(item?.username || '').trim(),
+        password: String(item?.password || ''),
+        lastUsedAt: String(item?.lastUsedAt || ''),
+      }))
+      .filter((item) => item.username)
+      .sort((left, right) => String(right.lastUsedAt || '').localeCompare(String(left.lastUsedAt || '')))
+  } catch (_error) {
+    return []
+  }
+}
+
+function persistSavedAccounts(accounts) {
+  const normalized = (accounts || [])
+    .filter((item) => item?.username)
+    .slice(0, 8)
+  savedAccounts.value = normalized
+  localStorage.setItem(SAVED_ACCOUNTS_KEY, JSON.stringify(normalized))
+}
+
+function applySavedAccount(account) {
+  form.username = account.username
+  form.password = account.password || ''
+  rememberPassword.value = Boolean(account.password)
+  errorMessage.value = ''
+}
+
+function saveCurrentAccount() {
+  const username = String(form.username || '').trim()
+  if (!username) {
+    return
+  }
+
+  const nextAccounts = savedAccounts.value.filter((item) => item.username !== username)
+  if (rememberPassword.value) {
+    nextAccounts.unshift({
+      username,
+      password: String(form.password || ''),
+      lastUsedAt: new Date().toISOString(),
+    })
+  }
+  persistSavedAccounts(nextAccounts)
+}
+
+function clearSavedAccounts() {
+  savedAccounts.value = []
+  localStorage.removeItem(SAVED_ACCOUNTS_KEY)
+}
+
+watch(
+  () => form.username,
+  (username) => {
+    errorMessage.value = ''
+    const matched = savedAccounts.value.find((item) => item.username === String(username || '').trim())
+    if (!matched) {
+      return
+    }
+    form.password = matched.password || ''
+    rememberPassword.value = Boolean(matched.password)
+  }
+)
+
+watch(
+  () => form.password,
+  () => {
+    errorMessage.value = ''
+  }
+)
+
+onMounted(() => {
+  appStore.initialize()
+  if (savedAccounts.value.length > 0) {
+    applySavedAccount(savedAccounts.value[0])
+  }
 })
 
 async function submitLogin() {
@@ -60,13 +174,15 @@ async function submitLogin() {
   }
 
   loading.value = true
+  errorMessage.value = ''
   try {
     await authStore.login(form.username, form.password)
+    saveCurrentAccount()
     ElMessage.success('登录成功')
     const redirect = route.query.redirect || '/dashboard'
     await router.replace(String(redirect))
   } catch (error) {
-    ElMessage.error(error?.message || '登录失败')
+    errorMessage.value = error?.message || '登录失败'
   } finally {
     loading.value = false
   }
@@ -213,6 +329,63 @@ button:hover {
 .w3l-hotair-form form {
   margin-top: 30px;
   margin-bottom: 30px;
+}
+
+.form-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.remember-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #475569;
+  font-size: 14px;
+}
+
+.remember-row input {
+  width: auto;
+  margin: 0;
+  padding: 0;
+}
+
+.clear-btn {
+  width: auto !important;
+  padding: 0 !important;
+  color: #0568c1 !important;
+  background: transparent !important;
+  font-size: 14px !important;
+  font-weight: 500 !important;
+}
+
+.saved-account-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.saved-account-chip {
+  width: auto !important;
+  padding: 8px 14px !important;
+  border: 1px solid #cbd5e1 !important;
+  background: #eff6ff !important;
+  color: #1d4ed8 !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+}
+
+.login-error {
+  margin: 0 0 16px;
+  color: #b91c1c;
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: left;
+  opacity: 1;
 }
 
 p.account,

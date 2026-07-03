@@ -9,7 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "desktop:dev": "node electron/dev-runner.cjs",
-    "desktop:pack": "npm run build && electron-builder --win nsis portable",
+    "desktop:pack": "npm run build && electron-builder --win nsis",
     "desktop:pack:dir": "npm run build && electron-builder --win dir"
   },
   "dependencies": {
@@ -50,8 +50,7 @@
     ],
     "win": {
       "target": [
-        "nsis",
-        "portable"
+        "nsis"
       ]
     },
     "nsis": {

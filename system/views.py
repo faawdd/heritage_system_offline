@@ -1,7 +1,9 @@
 from django.contrib.auth import authenticate, login as auth_login
 from django.contrib.auth.models import Group, Permission, User
+from django.conf import settings
 from django.db.models import Q
 from core.permission_decorators import can_modify_core_data
+from core.services.system_service import get_system_version_payload
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -182,6 +184,16 @@ class SystemRefreshAPIView(APIView):
         serializer = TokenRefreshSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         return Response({'success': True, 'data': serializer.validated_data})
+
+
+class SystemPublicConfigAPIView(APIView):
+    permission_classes = []
+    authentication_classes = []
+
+    def get(self, request):
+        payload = get_system_version_payload()
+        payload['system_region'] = getattr(settings, 'SYSTEM_REGION', '')
+        return Response({'success': True, 'data': payload})
 
 
 class SystemLogoutAPIView(APIView):

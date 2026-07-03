@@ -2,8 +2,8 @@
   <div class="app-shell" :class="{ 'is-sidebar-collapsed': isSidebarCollapsed }">
     <aside class="sidebar" :class="{ 'is-collapsed': isSidebarCollapsed }">
       <div class="brand-row">
-        <div class="brand" :title="isSidebarCollapsed ? '基层文物管理系统（离线版）' : ''">
-          {{ isSidebarCollapsed ? '文保' : '基层文物管理系统（离线版）' }}
+        <div class="brand" :title="isSidebarCollapsed ? systemName : ''">
+          {{ isSidebarCollapsed ? '文保' : systemName }}
         </div>
         <div class="header-actions" v-if="!isSidebarCollapsed">
           <el-button link type="info" class="collapse-btn" @click="toggleSidebar">折叠</el-button>
@@ -180,11 +180,13 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { useAppStore } from '../stores/system/appStore'
 import { useAuthStore } from '../stores/system/authStore'
 import { changeSystemPassword, fetchSystemProfile, updateSystemProfile } from '../api/system/systemApi'
 
 const route = useRoute()
 const router = useRouter()
+const appStore = useAppStore()
 const authStore = useAuthStore()
 const DJANGO_ADMIN_URL = 'https://beichenhome.top:9081/admin'
 const THEME_MODE_KEY = 'heritage_theme_mode'
@@ -196,6 +198,7 @@ const passwordDialogVisible = ref(false)
 const profileSubmitting = ref(false)
 const passwordSubmitting = ref(false)
 let mediaQueryList = null
+const systemName = computed(() => appStore.systemName)
 
 const profileForm = reactive({
   username: '',

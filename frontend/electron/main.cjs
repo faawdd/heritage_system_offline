@@ -10,6 +10,7 @@ const AdmZip = require('adm-zip')
 const BACKEND_HOST = process.env.BACKEND_HOST || '127.0.0.1'
 const BACKEND_PORT = Number(process.env.BACKEND_PORT || 18000)
 const CONFIG_FILE_NAME = 'desktop-config.json'
+const DEFAULT_SYSTEM_NAME = '文物管理系统（离线版）'
 
 let backendProcess = null
 let backendLogStream = null
@@ -39,6 +40,33 @@ function getConfigPath() {
   return path.join(app.getPath('userData'), CONFIG_FILE_NAME)
 }
 
+function normalizeSystemRegion(value = '') {
+  return String(value || '').trim()
+}
+
+function buildSystemName(systemRegion = '') {
+  const normalizedRegion = normalizeSystemRegion(systemRegion)
+  return normalizedRegion ? `${normalizedRegion}文物管理系统` : DEFAULT_SYSTEM_NAME
+}
+
+function normalizeDesktopConfig(rawConfig = {}) {
+  const systemRegion = normalizeSystemRegion(rawConfig.systemRegion)
+  const configuredSystemName = String(rawConfig.systemName || '').trim()
+
+  return {
+    ...rawConfig,
+    backendPort: Number(rawConfig.backendPort || BACKEND_PORT),
+    systemRegion,
+    systemName: configuredSystemName || buildSystemName(systemRegion),
+    systemNameConfigured: Boolean(rawConfig.systemNameConfigured),
+  }
+}
+
+function requiresInitialization(config = {}) {
+  const normalized = normalizeDesktopConfig(config)
+  return !normalized.initialized || !normalized.systemNameConfigured
+}
+
 function getDefaultConfig() {
   const packagedInstallRoot = path.dirname(process.execPath)
   const useInstallRootDefaults = app.isPackaged && process.platform === 'win32'
@@ -51,6 +79,9 @@ function getDefaultConfig() {
     backendPort: BACKEND_PORT,
     openImportAfterInit: false,
     bootstrapAdminPassword: '',
+    systemRegion: '',
+    systemName: DEFAULT_SYSTEM_NAME,
+    systemNameConfigured: false,
   }
 }
 
@@ -59,26 +90,25 @@ function loadDesktopConfig() {
   const configPath = getConfigPath()
 
   if (!fs.existsSync(configPath)) {
-    return defaults
+    return normalizeDesktopConfig(defaults)
   }
 
   try {
     const parsed = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
-    return {
+    return normalizeDesktopConfig({
       ...defaults,
       ...parsed,
-      backendPort: Number(parsed.backendPort || defaults.backendPort),
-    }
+    })
   } catch (error) {
-    return defaults
+    return normalizeDesktopConfig(defaults)
   }
 }
 
 function saveDesktopConfig(config) {
-  const merged = {
+  const merged = normalizeDesktopConfig({
     ...getDefaultConfig(),
     ...config,
-  }
+  })
 
   const configPath = getConfigPath()
   fs.mkdirSync(path.dirname(configPath), { recursive: true })
@@ -129,11 +159,10 @@ async function findAvailablePort(startPort, maxOffset = 20) {
 }
 
 async function buildInitState(config) {
-  const normalized = {
+  const normalized = normalizeDesktopConfig({
     ...getDefaultConfig(),
     ...config,
-    backendPort: Number(config?.backendPort || BACKEND_PORT),
-  }
+  })
 
   const dataDirCheck = testDirectoryWritable(normalized.dataDir)
   const logDirCheck = testDirectoryWritable(normalized.logDir)
@@ -241,6 +270,8 @@ function startBackend(config) {
     ...process.env,
     BACKEND_HOST: BACKEND_HOST,
     BACKEND_PORT: String(config.backendPort),
+    SYSTEM_REGION: String(config.systemRegion || ''),
+    SYSTEM_NAME: String(config.systemName || DEFAULT_SYSTEM_NAME),
     HERITAGE_APP_DIR: appDir,
     HERITAGE_DATA_DIR: config.dataDir,
     HERITAGE_CONFIG_DIR: configDir,
@@ -357,7 +388,11 @@ function setupInitIpc() {
       initialized: true,
       backendPort: chosenPort,
       bootstrapAdminPassword: '',
+      systemRegion: normalizeSystemRegion(payload.systemRegion || current.systemRegion),
+      systemNameConfigured: true,
     }
+
+    merged.systemName = buildSystemName(merged.systemRegion)
 
     const state = await buildInitState(merged)
     if (!state.checks.dataDir.ok) {
@@ -631,6 +666,7 @@ function createWindow() {
     height: 900,
     minWidth: 1100,
     minHeight: 700,
+    title: String(runtimeConfig?.systemName || DEFAULT_SYSTEM_NAME),
     autoHideMenuBar: true,
     webPreferences: {
       contextIsolation: true,
@@ -660,7 +696,7 @@ app.whenReady().then(async () => {
       const loaded = loadDesktopConfig()
       runtimeConfig = loaded
 
-      if (!loaded.initialized) {
+      if (requiresInitialization(loaded)) {
         await openInitWizard()
       }
 
