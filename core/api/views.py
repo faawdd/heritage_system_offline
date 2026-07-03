@@ -31,11 +31,42 @@ from core.services.system_service import get_system_version_payload
 from core.ovkml_converter import build_csv_outputs, parse_kml_or_kmz
 
 
-def _build_inspection_photo_url(photo_field) -> str:
+def _unwrap_legacy_view(view_func):
+    target = view_func
+    while hasattr(target, '__wrapped__'):
+        target = target.__wrapped__
+    return target
+
+
+def _call_legacy_view(view_func, request, *args, **kwargs):
+    raw_request = getattr(request, '_request', request)
+    raw_request.user = request.user
+    target = _unwrap_legacy_view(view_func)
+    return target(raw_request, *args, **kwargs)
+
+
+def _resolve_public_base_url(request=None) -> str:
+    configured = (os.environ.get('DJANGO_WEB_BASE_URL') or '').strip()
+    if configured:
+        return configured.rstrip('/')
+
+    if request is not None:
+        try:
+            return request.build_absolute_uri('/').rstrip('/')
+        except Exception:
+            pass
+
+    # Debug/offline mode defaults to local host to avoid leaking production URLs.
+    if settings.DEBUG:
+        return 'http://127.0.0.1:8000'
+    return 'https://beichenhome.top:9081'
+
+
+def _build_inspection_photo_url(photo_field, request=None) -> str:
     if not photo_field:
         return ''
 
-    base_url = os.environ.get('DJANGO_WEB_BASE_URL', 'https://beichenhome.top:9081').rstrip('/')
+    base_url = _resolve_public_base_url(request)
     photo_path = str(getattr(photo_field, 'url', photo_field) or '').strip()
     if not photo_path:
         return ''
@@ -50,6 +81,77 @@ class HealthAPIView(APIView):
 
     def get(self, request):
         return Response({'status': 'ok'})
+
+
+class HeritageClassificationStatsAPIView(APIView):
+    permission_classes = [IsManagementAdmin]
+
+    def get(self, request):
+        return _call_legacy_view(legacy_views.heritage_classification_stats_api, request)
+
+
+class ProjectListAPIView(APIView):
+    permission_classes = [IsManagementAdmin]
+
+    def get(self, request):
+        return _call_legacy_view(legacy_views.land_project_list_api, request)
+
+
+class ProjectDetailAPIView(APIView):
+    permission_classes = [IsManagementAdmin]
+
+    def get(self, request, project_id):
+        return _call_legacy_view(legacy_views.land_project_detail_api, request, project_id)
+
+
+class ProjectCreateAPIView(APIView):
+    permission_classes = [IsManagementAdmin]
+
+    def post(self, request):
+        return _call_legacy_view(legacy_views.land_project_create_api, request)
+
+
+class ProjectUploadAPIView(APIView):
+    permission_classes = [IsManagementAdmin]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request, project_id):
+        return _call_legacy_view(legacy_views.land_project_upload_api, request, project_id)
+
+
+class ProjectDownloadMiscZipAPIView(APIView):
+    permission_classes = [IsManagementAdmin]
+
+    def get(self, request, project_id):
+        return _call_legacy_view(legacy_views.land_project_download_misc_zip_api, request, project_id)
+
+
+class ProjectVerifySpatialSafetyAPIView(APIView):
+    permission_classes = [IsManagementAdmin]
+
+    def post(self, request, project_id):
+        return _call_legacy_view(legacy_views.verify_project_spatial_safety_api, request, project_id)
+
+
+class ProjectNextDocNumAPIView(APIView):
+    permission_classes = [IsManagementAdmin]
+
+    def get(self, request):
+        return _call_legacy_view(legacy_views.land_project_next_doc_num_api, request)
+
+
+class ProjectWorkflowActionAPIView(APIView):
+    permission_classes = [IsManagementAdmin]
+
+    def post(self, request, project_id):
+        return _call_legacy_view(legacy_views.land_project_workflow_action_api, request, project_id)
+
+
+class ProjectControlsAPIView(APIView):
+    permission_classes = [IsManagementAdmin]
+
+    def get(self, request, project_id):
+        return _call_legacy_view(legacy_views.land_project_controls_api, request, project_id)
 
 
 class SystemVersionAPIView(APIView):
@@ -176,7 +278,7 @@ class DashboardOverviewAPIView(APIView):
 
 
 class HeritageMapPointsAPIView(APIView):
-    permission_classes = [IsAdminUser]
+    permission_classes = [IsManagementAdmin]
 
     def get(self, request):
         rows = get_heritage_map_points()
@@ -1201,7 +1303,7 @@ class InspectionListAPIView(APIView):
             'issue_details': item.issue_details or '',
             'latitude': item.latitude,
             'longitude': item.longitude,
-            'photo_url': _build_inspection_photo_url(item.photo),
+            'photo_url': _build_inspection_photo_url(item.photo, request),
         }
 
     def _parse_bool(self, value, default=True):
@@ -1440,7 +1542,7 @@ class InspectionDetailAPIView(APIView):
                     'issue_details': item.issue_details or '',
                     'latitude': item.latitude,
                     'longitude': item.longitude,
-                    'photo_url': _build_inspection_photo_url(item.photo),
+                    'photo_url': _build_inspection_photo_url(item.photo, request),
                 },
             }
         )

@@ -237,7 +237,7 @@ CORS_ALLOWED_ORIGINS = [
 CORS_ALLOW_CREDENTIALS = True
 
 # 未登录访问受保护页面时统一跳转到 Vue 入口页（由前端路由接管登录）
-LOGIN_URL = '/static/frontend/?redirect=/system/admin'
+LOGIN_URL = '/?redirect=/system/admin'
 
 
 # DEM（SRTM 30m）按需下载缓存配置
