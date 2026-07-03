@@ -25,12 +25,20 @@ except Exception:
 BASE_DIR = Path(__file__).resolve().parent.parent
 SETTINGS_FILE = Path(__file__).resolve()
 PROJECT_TIME_ZONE = ZoneInfo('Asia/Shanghai')
+APP_DIR = Path(os.getenv('HERITAGE_APP_DIR', str(BASE_DIR))).resolve()
+DATA_DIR = Path(os.getenv('HERITAGE_DATA_DIR', str(BASE_DIR / 'data'))).resolve()
+CONFIG_DIR = Path(os.getenv('HERITAGE_CONFIG_DIR', str(BASE_DIR / 'config'))).resolve()
+
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
 if _django_environ and hasattr(_django_environ, 'Env'):
     env = _django_environ.Env()
-    env_file = BASE_DIR / '.env'
-    if env_file.exists():
-        _django_environ.Env.read_env(env_file)
+    env_candidates = [CONFIG_DIR / '.env', BASE_DIR / '.env']
+    for env_file in env_candidates:
+        if env_file.exists():
+            _django_environ.Env.read_env(env_file)
+            break
 else:
     class _SimpleEnv:
         """当 django-environ 不可用时，使用最小化 env 读取兜底。"""
@@ -143,7 +151,7 @@ ROOT_URLCONF = 'heritage_system.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [os.path.join(BASE_DIR, 'templates')], # 确保这里能找到自定义模板
+        'DIRS': [os.path.join(APP_DIR, 'templates')], # 确保这里能找到自定义模板
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -166,7 +174,7 @@ WSGI_APPLICATION = 'heritage_system.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'NAME': DATA_DIR / 'db.sqlite3',
     }
 }
 
@@ -205,18 +213,16 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
-import os
-
 STATIC_URL = '/static/'
 # 开发环境：指定静态文件查找目录
 STATICFILES_DIRS = [
-    os.path.join(BASE_DIR, 'static'),
+    os.path.join(APP_DIR, 'static'),
 ]
 # 生产环境：collectstatic命令收集静态文件的目标目录
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+STATIC_ROOT = os.path.join(APP_DIR, 'staticfiles')
 
 MEDIA_URL = '/media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+MEDIA_ROOT = os.path.join(DATA_DIR, 'media')
 
 # DRF and CORS settings
 REST_FRAMEWORK = {

@@ -25,20 +25,22 @@ Write-Host "[desktop-runtime] Building backend executable..."
     --onedir
 
 $outputDir = Join-Path $projectRoot $OutputRoot
-$backendDir = Join-Path $outputDir "backend"
+$appDir = Join-Path $outputDir "app"
+$dataDir = Join-Path $outputDir "data"
+$configDir = Join-Path $outputDir "config"
 
 if (Test-Path $outputDir) {
     Remove-Item -Path $outputDir -Recurse -Force
 }
 
-New-Item -ItemType Directory -Path $backendDir | Out-Null
+New-Item -ItemType Directory -Path $appDir | Out-Null
+New-Item -ItemType Directory -Path $dataDir | Out-Null
+New-Item -ItemType Directory -Path $configDir | Out-Null
 
-Copy-Item -Path "dist\heritage_backend\*" -Destination $backendDir -Recurse -Force
-Copy-Item -Path "db.sqlite3" -Destination $backendDir -Force
-if (Test-Path "media") { Copy-Item -Path "media" -Destination $backendDir -Recurse -Force }
-if (Test-Path "static") { Copy-Item -Path "static" -Destination $backendDir -Recurse -Force }
-if (Test-Path "templates") { Copy-Item -Path "templates" -Destination $backendDir -Recurse -Force }
-if (Test-Path ".env") { Copy-Item -Path ".env" -Destination $backendDir -Force }
+Copy-Item -Path "dist\heritage_backend\*" -Destination $appDir -Recurse -Force
+if (Test-Path "static") { Copy-Item -Path "static" -Destination $appDir -Recurse -Force }
+if (Test-Path "templates") { Copy-Item -Path "templates" -Destination $appDir -Recurse -Force }
+if (Test-Path ".env.example") { Copy-Item -Path ".env.example" -Destination $configDir -Force }
 
-Write-Host "[desktop-runtime] Backend runtime is ready: $backendDir"
+Write-Host "[desktop-runtime] Runtime is ready: $outputDir (app/data/config)"
 Write-Host "[desktop-runtime] Next: cd frontend ; npm run desktop:pack"

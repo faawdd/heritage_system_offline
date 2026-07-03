@@ -7,7 +7,6 @@ media/
 build/
 staticfiles/
 local_settings.py
-app/
 .venv/
 db.sqlite3
 db.sqlite3.bak_*
@@ -15,3 +14,13 @@ db.sqlite3.local_before_migrate_backup*
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
+
+# private runtime/user data
+data/
+config/
+desktop_runtime/
+*.sqlite3
+*.sqlite3.*
+.env
+*.log
+*.bak
