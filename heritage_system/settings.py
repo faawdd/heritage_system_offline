@@ -104,6 +104,7 @@ SECRET_KEY = env(
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = str(env('DJANGO_DEBUG', default='0')).lower() in ('1', 'true', 'yes', 'on')
+DESKTOP_MODE = str(env('HERITAGE_DESKTOP_MODE', default='0')).lower() in ('1', 'true', 'yes', 'on')
 ALLOWED_HOSTS = ['beichenhome.top', 'localhost', '127.0.0.1', '[::1]']
 
 # CSRF 信任域名 - 生产环境保持HTTPS配置
@@ -219,7 +220,10 @@ STATICFILES_DIRS = [
     os.path.join(APP_DIR, 'static'),
 ]
 # 生产环境：collectstatic命令收集静态文件的目标目录
-STATIC_ROOT = os.path.join(APP_DIR, 'staticfiles')
+if DESKTOP_MODE:
+    STATIC_ROOT = os.path.join(APP_DIR, 'static')
+else:
+    STATIC_ROOT = os.path.join(APP_DIR, 'staticfiles')
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = env('HERITAGE_UPLOAD_DIR', default=os.path.join(DATA_DIR, 'media'))

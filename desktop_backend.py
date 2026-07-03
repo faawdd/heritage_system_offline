@@ -191,8 +191,9 @@ def main() -> int:
     port = int(os.environ.get('BACKEND_PORT', '8000'))
 
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'heritage_system.settings')
-    os.environ.setdefault('DJANGO_DEBUG', '0')
+    os.environ['DJANGO_DEBUG'] = '1'
     os.environ.setdefault('DJANGO_FORCE_HTTPS', '0')
+    os.environ['HERITAGE_DESKTOP_MODE'] = '1'
     os.environ['HERITAGE_APP_DIR'] = str(app_dir)
     os.environ['HERITAGE_DATA_DIR'] = str(data_dir)
     os.environ['HERITAGE_CONFIG_DIR'] = str(config_dir)
