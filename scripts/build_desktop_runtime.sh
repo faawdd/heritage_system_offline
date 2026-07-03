@@ -25,17 +25,17 @@ echo "[desktop-runtime] Building backend executable..."
   --onedir
 
 OUTPUT_DIR="$PROJECT_ROOT/$OUTPUT_ROOT"
-BACKEND_DIR="$OUTPUT_DIR/backend"
+APP_DIR="$OUTPUT_DIR/app"
+DATA_DIR="$OUTPUT_DIR/data"
+CONFIG_DIR="$OUTPUT_DIR/config"
 
 rm -rf "$OUTPUT_DIR"
-mkdir -p "$BACKEND_DIR"
+mkdir -p "$APP_DIR" "$DATA_DIR" "$CONFIG_DIR"
 
-cp -R dist/heritage_backend/. "$BACKEND_DIR/"
-cp db.sqlite3 "$BACKEND_DIR/"
-[[ -d media ]] && cp -R media "$BACKEND_DIR/"
-[[ -d static ]] && cp -R static "$BACKEND_DIR/"
-[[ -d templates ]] && cp -R templates "$BACKEND_DIR/"
-[[ -f .env ]] && cp .env "$BACKEND_DIR/"
+cp -R dist/heritage_backend/. "$APP_DIR/"
+[[ -d static ]] && cp -R static "$APP_DIR/"
+[[ -d templates ]] && cp -R templates "$APP_DIR/"
+[[ -f .env.example ]] && cp .env.example "$CONFIG_DIR/"
 
-echo "[desktop-runtime] Backend runtime is ready: $BACKEND_DIR"
+echo "[desktop-runtime] Runtime is ready: $OUTPUT_DIR (app/data/config)"
 echo "[desktop-runtime] Next: cd frontend && npm run desktop:pack"

@@ -18,13 +18,17 @@
 
 Electron 打包前，需要先生成后端运行时目录：
 
-- `desktop_runtime/backend/heritage_backend(.exe)`
-- `desktop_runtime/backend/db.sqlite3`
-- `desktop_runtime/backend/static/`
-- `desktop_runtime/backend/templates/`
-- `desktop_runtime/backend/media/`（可选）
+- `desktop_runtime/app/`：程序代码与后端可执行文件
+- `desktop_runtime/data/`：用户私有数据（数据库、上传文件等）
+- `desktop_runtime/config/`：可自定义配置
 
-`frontend/package.json` 已配置 `extraResources` 自动把该目录打入安装包。
+其中典型文件包括：
+
+- `desktop_runtime/app/heritage_backend(.exe)`
+- `desktop_runtime/app/static/`
+- `desktop_runtime/app/templates/`
+
+`frontend/package.json` 已配置 `extraResources` 自动把 `desktop_runtime` 打入安装包中的 `runtime` 目录。
 
 ## 3. 本地联调（开发模式）
 
@@ -71,10 +75,11 @@ npm run desktop:pack
 ## 6. 启动逻辑
 
 - 开发模式：Electron 主进程启动本地 Python Django。
-- 打包模式：Electron 主进程启动 `resources/backend/heritage_backend(.exe)`。
+- 打包模式：Electron 主进程启动 `resources/runtime/app/heritage_backend(.exe)`。
 - 首次启动（非开发模式）会弹出初始化向导，完成检测与确认后再启动后端。
 - 健康检查地址：`/api/v1/health/`。
 - 后端日志默认写入初始化向导确认的日志目录，文件名 `backend.log`。
+- 首次启动若未检测到数据库，后端会自动执行迁移并创建数据库。
 
 ## 7. 注意事项
 

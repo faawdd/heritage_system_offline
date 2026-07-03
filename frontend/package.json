@@ -40,8 +40,8 @@
     ],
     "extraResources": [
       {
-        "from": "../desktop_runtime/backend",
-        "to": "backend",
+        "from": "../desktop_runtime",
+        "to": "runtime",
         "filter": [
           "**/*"
         ]

@@ -203,11 +203,21 @@ function closeLogStream() {
 function startBackend(config) {
   ensureLogStream(config.logDir)
 
+  const repoRoot = path.resolve(__dirname, '..', '..')
+  const appDir = app.isPackaged
+    ? path.join(process.resourcesPath, 'runtime', 'app')
+    : repoRoot
+  const configDir = app.isPackaged
+    ? path.join(process.resourcesPath, 'runtime', 'config')
+    : path.join(repoRoot, 'config')
+
   const backendEnv = {
     ...process.env,
     BACKEND_HOST: BACKEND_HOST,
     BACKEND_PORT: String(config.backendPort),
+    HERITAGE_APP_DIR: appDir,
     HERITAGE_DATA_DIR: config.dataDir,
+    HERITAGE_CONFIG_DIR: configDir,
     HERITAGE_LOG_DIR: config.logDir,
     DJANGO_DEBUG: '1',
     DJANGO_FORCE_HTTPS: '0',
@@ -216,7 +226,7 @@ function startBackend(config) {
 
   if (app.isPackaged) {
     const backendFileName = process.platform === 'win32' ? 'heritage_backend.exe' : 'heritage_backend'
-    const backendPath = path.join(process.resourcesPath, 'backend', backendFileName)
+    const backendPath = path.join(process.resourcesPath, 'runtime', 'app', backendFileName)
 
     if (!fs.existsSync(backendPath)) {
       throw new Error(`未找到后端可执行文件: ${backendPath}`)
@@ -238,7 +248,6 @@ function startBackend(config) {
     return
   }
 
-  const repoRoot = path.resolve(__dirname, '..', '..')
   const pythonCmd = resolveDevPython()
   const args = ['manage.py', 'runserver', `${BACKEND_HOST}:${config.backendPort}`]
 
