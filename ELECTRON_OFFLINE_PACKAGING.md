@@ -83,3 +83,36 @@ npm run desktop:pack
 - 若地图瓦片依赖外网服务，离线环境下底图可能不显示，但业务功能可用。
 - 如果需要多平台发行（macOS dmg / Linux AppImage），可在 `frontend/package.json` 的 electron-builder 目标中追加。
 - 运行中的桌面程序可在菜单“工具 -> 重置初始化向导”一键重置首启状态，程序会自动重启并重新执行初始化检测。
+
+## 8. GitHub Actions 自动发版（Tag触发）
+
+仓库已新增工作流：`.github/workflows/desktop-release.yml`
+
+触发规则：
+
+- 推送 tag（匹配 `v*`）时自动执行。
+- 也支持手动触发（`workflow_dispatch`）。
+
+自动构建平台与产物：
+
+- Windows x64：
+  - NSIS 安装包（`.exe`）
+  - Portable 便携版（`.exe`）
+- macOS Apple Silicon（arm64）：
+  - `.dmg`
+  - `mac-arm64.zip`
+- Linux：
+  - amd64 AppImage
+  - arm64 AppImage
+
+发布行为：
+
+- 所有平台构建完成后，工作流会自动创建/更新对应 GitHub Release。
+- 构建产物会自动上传到 Release Assets。
+
+Tag 发布示例：
+
+```bash
+git tag v2.2.0
+git push origin v2.2.0
+```

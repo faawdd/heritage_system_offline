@@ -12,7 +12,9 @@ if [[ -x ".venv/bin/python" ]]; then
 fi
 
 echo "[desktop-runtime] Installing build tools..."
-"$PYTHON_BIN" -m pip install --upgrade pip pyinstaller
+"$PYTHON_BIN" -m pip install --upgrade pip
+"$PYTHON_BIN" -m pip install -r requirements.txt
+"$PYTHON_BIN" -m pip install pyinstaller
 
 echo "[desktop-runtime] Building backend executable..."
 "$PYTHON_BIN" -m PyInstaller \
