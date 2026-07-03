@@ -2,7 +2,7 @@
   <section>
     <header class="page-header">
       <h1>巡查记录管理</h1>
-      <p>统一管理巡查上报数据，兼容 UniApp 与原平台上传记录</p>
+      <p>统一管理巡查上报数据，面向 PC 端离线系统记录</p>
     </header>
 
     <div class="stats-grid top-space">

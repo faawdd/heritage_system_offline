@@ -34,7 +34,6 @@
   "build": {
     "appId": "com.heritage.offline.desktop",
     "productName": "基层文物管理系统（离线版）",
-    "icon": "../uniapp/AppIcons/Assets.xcassets/AppIcon.appiconset/1024.png",
     "files": [
       "dist/**/*",
       "electron/**/*",
@@ -50,7 +49,6 @@
       }
     ],
     "win": {
-      "icon": "../uniapp/AppIcons/android/mipmap-xxxhdpi/ic_launcher.png",
       "target": [
         "nsis",
         "portable"
@@ -63,12 +61,8 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
     },
-    "mac": {
-      "icon": "../uniapp/AppIcons/Assets.xcassets/AppIcon.appiconset/1024.png"
-    },
-    "linux": {
-      "icon": "../uniapp/AppIcons/Assets.xcassets/AppIcon.appiconset/1024.png"
-    },
+    "mac": {},
+    "linux": {},
     "directories": {
       "output": "dist-electron"
     }
