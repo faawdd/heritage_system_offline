@@ -174,7 +174,7 @@ WSGI_APPLICATION = 'heritage_system.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': DATA_DIR / 'db.sqlite3',
+        'NAME': Path(env('HERITAGE_DB_FILE', default=str(DATA_DIR / 'db.sqlite3'))),
     }
 }
 
@@ -222,7 +222,7 @@ STATICFILES_DIRS = [
 STATIC_ROOT = os.path.join(APP_DIR, 'staticfiles')
 
 MEDIA_URL = '/media/'
-MEDIA_ROOT = os.path.join(DATA_DIR, 'media')
+MEDIA_ROOT = env('HERITAGE_UPLOAD_DIR', default=os.path.join(DATA_DIR, 'media'))
 
 # DRF and CORS settings
 REST_FRAMEWORK = {

@@ -34,4 +34,5 @@ Pillow>=10.2.0
 
 # 生产环境部署 (Fedora/Linux 服务器必备)
 gunicorn>=21.2.0
+waitress>=3.0.0
 whitenoise>=6.6.0
