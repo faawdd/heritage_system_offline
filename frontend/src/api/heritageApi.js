@@ -20,6 +20,11 @@ export async function fetchHeritageDetail(siteId) {
   return response.data
 }
 
+export async function fetchHeritagePreview(params = {}) {
+  const response = await client.get('/api/v1/heritage/preview/', { params })
+  return response.data
+}
+
 export async function fetchHeritageSiteManageList(params = {}) {
   const response = await client.get('/api/v1/heritage/sites/', { params })
   return response.data
@@ -81,6 +86,11 @@ export async function importImmovableHeritage(file) {
   const formData = new FormData()
   formData.append('file', file)
   const response = await client.post('/api/v1/heritage/immovable/import/', formData)
+  return response.data
+}
+
+export async function fetchAndImportSipuImmovable(payload = {}) {
+  const response = await client.post('/api/v1/heritage/immovable/sipu-fetch-import/', payload)
   return response.data
 }
 

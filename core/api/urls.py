@@ -11,6 +11,7 @@ from core.api.views import (
     HealthAPIView,
     HeritageDetailAPIView,
     HeritageMapPointsAPIView,
+    HeritagePreviewAPIView,
     HeritageSiteManageDetailAPIView,
     HeritageSiteManageExportAPIView,
     HeritageSiteManageImportAPIView,
@@ -36,6 +37,7 @@ from core.api.views import (
     ProjectUploadAPIView,
     ProjectVerifySpatialSafetyAPIView,
     ProjectWorkflowActionAPIView,
+    SipuFetchAndImportAPIView,
     SystemVersionAPIView,
 )
 from core import views as legacy_views
@@ -47,6 +49,7 @@ urlpatterns = [
     path('system/version/', SystemVersionAPIView.as_view(), name='system_version'),
     path('dashboard/overview/', DashboardOverviewAPIView.as_view(), name='dashboard_overview'),
     path('heritage/map-points/', HeritageMapPointsAPIView.as_view(), name='heritage_map_points'),
+    path('heritage/preview/', HeritagePreviewAPIView.as_view(), name='heritage_preview'),
     path('heritage/stats/meta/', HeritageStatsMetaAPIView.as_view(), name='heritage_stats_meta'),
     path('heritage/classification-stats/', HeritageClassificationStatsAPIView.as_view(), name='heritage_classification_stats'),
     path('heritage/<int:site_id>/detail/', HeritageDetailAPIView.as_view(), name='heritage_detail'),
@@ -58,6 +61,7 @@ urlpatterns = [
     path('heritage/immovable/collect/', ImmovableHeritageCollectAPIView.as_view(), name='heritage_immovable_collect'),
     path('heritage/immovable/', ImmovableHeritageListAPIView.as_view(), name='heritage_immovable_list'),
     path('heritage/immovable/import/', ImmovableHeritageImportAPIView.as_view(), name='heritage_immovable_import'),
+    path('heritage/immovable/sipu-fetch-import/', SipuFetchAndImportAPIView.as_view(), name='heritage_immovable_sipu_fetch_import'),
     path('heritage/immovable/export/', ImmovableHeritageExportAPIView.as_view(), name='heritage_immovable_export'),
     path('heritage/immovable/<int:site_id>/', ImmovableHeritageDetailAPIView.as_view(), name='heritage_immovable_detail'),
     path('projects/', ProjectListAPIView.as_view(), name='land_project_list'),

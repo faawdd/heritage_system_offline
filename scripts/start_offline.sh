@@ -9,6 +9,9 @@ BIND_HOST="127.0.0.1"
 PORT="8000"
 INIT_DEPS="0"
 OPEN_BROWSER="1"
+SUPER_ADMIN_USERNAME=""
+SUPER_ADMIN_PASSWORD=""
+SUPER_ADMIN_CREATE_IF_MISSING="0"
 
 choose_python() {
   if command -v python3.11 >/dev/null 2>&1; then
@@ -54,6 +57,18 @@ while [[ $# -gt 0 ]]; do
       OPEN_BROWSER="0"
       shift
       ;;
+    --super-admin-username)
+      SUPER_ADMIN_USERNAME="${2:-}"
+      shift 2
+      ;;
+    --super-admin-password)
+      SUPER_ADMIN_PASSWORD="${2:-}"
+      shift 2
+      ;;
+    --super-admin-create-if-missing)
+      SUPER_ADMIN_CREATE_IF_MISSING="1"
+      shift
+      ;;
     -h|--help)
       cat <<'EOF'
 Usage: ./scripts/start_offline.sh [options]
@@ -63,6 +78,12 @@ Options:
   --host <host>        Bind host (default: 127.0.0.1)
   --port <port>        Bind port (default: 8000)
   --no-browser         Do not open browser automatically
+  --super-admin-username <username>
+                       Reset/create the specified super admin account
+  --super-admin-password <password>
+                       New password for the super admin account
+  --super-admin-create-if-missing
+                       Create the account if it does not exist
   --help, -h           Show this help
 EOF
       exit 0
@@ -117,6 +138,18 @@ echo "[offline] Running database migrations..."
 
 echo "[offline] Ensuring debug super admin account (test/test)..."
 "$PYTHON_EXE" manage.py shell -c "from django.contrib.auth import get_user_model; from django.contrib.auth.models import Group, Permission; ROLE_SUPER_ADMIN='超级管理员'; ROLE_ADMIN='管理员'; User=get_user_model(); super_group,_=Group.objects.get_or_create(name=ROLE_SUPER_ADMIN); admin_group,_=Group.objects.get_or_create(name=ROLE_ADMIN); super_group.permissions.set(Permission.objects.all()); admin_group.permissions.set(Permission.objects.exclude(content_type__app_label__in=['auth','contenttypes','sessions','admin'])); user,created=User.objects.get_or_create(username='test', defaults={'is_staff':True,'is_superuser':True,'is_active':True,'first_name':'调试账号'}); user.is_staff=True; user.is_superuser=True; user.is_active=True; user.set_password('test'); user.save(); user.groups.add(super_group); print('debug user ensured: test')"
+
+if [[ -n "$SUPER_ADMIN_PASSWORD" ]]; then
+  if [[ -z "$SUPER_ADMIN_USERNAME" ]]; then
+    SUPER_ADMIN_USERNAME="admin"
+  fi
+  echo "[offline] Resetting super admin password for ${SUPER_ADMIN_USERNAME}..."
+  RESET_ARGS=(--username "$SUPER_ADMIN_USERNAME" --password "$SUPER_ADMIN_PASSWORD")
+  if [[ "$SUPER_ADMIN_CREATE_IF_MISSING" == "1" ]]; then
+    RESET_ARGS+=(--create-if-missing)
+  fi
+  "$PYTHON_EXE" manage.py reset_super_admin_password "${RESET_ARGS[@]}"
+fi
 
 URL="http://${BIND_HOST}:${PORT}/"
 if [[ "$OPEN_BROWSER" == "1" ]]; then

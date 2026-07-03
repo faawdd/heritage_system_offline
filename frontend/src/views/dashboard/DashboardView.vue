@@ -3,6 +3,7 @@
     <header class="page-header">
       <h1>综合看板</h1>
       <p>面向审批、巡查、文保风险和地图联动的统一首页</p>
+      <div class="version-badge">当前版本：{{ versionText }}</div>
     </header>
 
     <div class="stats-grid">
@@ -517,6 +518,19 @@ watch(
 
 .page-header p {
   margin-top: 4px;
+}
+
+.version-badge {
+  margin-top: 6px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #dbe5ef;
+  background: #f8fafc;
+  color: #334155;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .stats-grid {

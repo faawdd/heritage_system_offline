@@ -8,6 +8,7 @@ ROLE_SUPER_ADMIN = '超级管理员'
 ROLE_ADMIN = '管理员'
 DEFAULT_ADMIN_USERNAME = 'admin'
 DEFAULT_ADMIN_PASSWORD = 'Admin@123456'
+FORCE_RESET_SUPER_ADMIN_PASSWORD = str(os.environ.get('HERITAGE_FORCE_RESET_SUPER_ADMIN_PASSWORD') or '').lower() in {'1', 'true', 'yes', 'on'}
 
 
 def _resolve_base_dir() -> Path:
@@ -119,16 +120,17 @@ def _ensure_roles_and_super_admin(config_dir: Path, logger: logging.Logger) -> N
   admin_group.permissions.set(admin_permissions)
 
   User = get_user_model()
-  has_super_admin = User.objects.filter(is_superuser=True, is_active=True).exists() or User.objects.filter(
-    is_active=True,
-    groups__name=ROLE_SUPER_ADMIN,
-  ).exists()
-
-  if has_super_admin:
-    logger.info('Super admin already exists, skip bootstrap.')
-    return
-
   username, password = _load_admin_bootstrap(config_dir, logger)
+  if not FORCE_RESET_SUPER_ADMIN_PASSWORD:
+    has_super_admin = User.objects.filter(is_superuser=True, is_active=True).exists() or User.objects.filter(
+      is_active=True,
+      groups__name=ROLE_SUPER_ADMIN,
+    ).exists()
+
+    if has_super_admin:
+      logger.info('Super admin already exists, skip bootstrap.')
+      return
+
   user = User.objects.filter(username=username).first()
   if user is None:
     user = User.objects.create_user(
@@ -148,7 +150,10 @@ def _ensure_roles_and_super_admin(config_dir: Path, logger: logging.Logger) -> N
     if not user.first_name:
       user.first_name = '超级管理员'
     user.save()
-    logger.info('Existing admin user promoted to super admin: %s', username)
+    if FORCE_RESET_SUPER_ADMIN_PASSWORD:
+      logger.info('Existing super admin password force-reset: %s', username)
+    else:
+      logger.info('Existing admin user promoted to super admin: %s', username)
 
   user.groups.add(super_group)
 

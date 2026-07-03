@@ -108,6 +108,26 @@ git push heritage v1.0.0
 - 数据库、日志、用户上传文件等私有数据不应提交到仓库
 - 请保持 `.gitignore` 中的数据与配置忽略规则有效
 
+## 超级管理员密码恢复
+
+如果忘记超级管理员密码，可直接使用管理命令或离线启动脚本重置：
+
+```bash
+python manage.py reset_super_admin_password --username admin --password NewPassword123 --create-if-missing
+```
+
+离线启动脚本也支持同样的重置参数：
+
+```bash
+./scripts/start_offline.sh --super-admin-username admin --super-admin-password NewPassword123 --super-admin-create-if-missing
+```
+
+打包后的桌面后端还支持通过环境变量强制重置：
+
+```bash
+HERITAGE_FORCE_RESET_SUPER_ADMIN_PASSWORD=1 HERITAGE_BOOTSTRAP_ADMIN_PASSWORD=NewPassword123
+```
+
 ## 许可证
 
 如需商用或二次分发，请按项目实际授权策略执行。

@@ -27,6 +27,7 @@
       >
         <el-button type="success" :loading="importing">导入 CSV</el-button>
       </el-upload>
+      <el-button type="warning" :loading="sipu.running" @click="openSipuDialog">四普抓取并导入</el-button>
     </div>
 
     <div class="card top-space">
@@ -36,9 +37,8 @@
           <template #default="scope">
             <a
               class="heritage-view-link"
-              :href="buildViewModeHref(scope.row)"
-              target="_blank"
-              rel="noopener noreferrer"
+              href="#"
+              @click.prevent="openPreview(scope.row)"
             >
               {{ scope.row.name }}
             </a>
@@ -316,16 +316,133 @@
         <el-button type="primary" :loading="dialog.loading" @click="submitEdit">保存</el-button>
       </template>
     </el-dialog>
+
+    <HeritageA4PreviewDialog
+      v-model="preview.visible"
+      :record="preview.row"
+      :loading="preview.loading"
+      page-title="不可移动文物采集登记表预览"
+    />
+
+    <el-dialog v-model="sipu.visible" title="四普系统抓取并自动导入" width="760px">
+      <el-alert
+        title="将使用你填写的参数抓取四普数据，先生成 CSV，再自动导入当前系统"
+        type="info"
+        :closable="false"
+        style="margin-bottom: 12px"
+      />
+      <el-form label-width="150px" label-position="left">
+        <el-row :gutter="12">
+          <el-col :span="24">
+            <el-form-item label="四普系统地址">
+              <el-input v-model="sipu.form.base_url" placeholder="如 http://202.41.243.152:9046" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="12">
+          <el-col :span="24">
+            <el-form-item label="JSESSIONID">
+              <el-input v-model="sipu.form.jsessionid" placeholder="必填" show-password />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="12">
+          <el-col :span="12">
+            <el-form-item label="区县代码">
+              <el-input v-model="sipu.form.user_county" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="输出CSV路径">
+              <el-input v-model="sipu.form.output" placeholder="默认 data/sipu_base_data.csv" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="12">
+          <el-col :span="8">
+            <el-form-item label="每页条数">
+              <el-input-number v-model="sipu.form.page_size" :min="1" :max="500" style="width: 100%" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="并发线程">
+              <el-input-number v-model="sipu.form.workers" :min="1" :max="32" style="width: 100%" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="超时秒数">
+              <el-input-number v-model="sipu.form.timeout" :min="5" :max="120" style="width: 100%" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="12">
+          <el-col :span="8">
+            <el-form-item label="最多页数">
+              <el-input-number v-model="sipu.form.max_pages" :min="1" :max="5000" style="width: 100%" :controls="false" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="排序字段">
+              <el-input v-model="sipu.form.sort_field" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="排序方向">
+              <el-select v-model="sipu.form.sort_type" style="width: 100%">
+                <el-option label="倒序(desc)" value="desc" />
+                <el-option label="正序(asc)" value="asc" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="12">
+          <el-col :span="12">
+            <el-form-item label="列表接口路径">
+              <el-input v-model="sipu.form.endpoint" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="详情接口路径">
+              <el-input v-model="sipu.form.detail_endpoint" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="12">
+          <el-col :span="8">
+            <el-form-item label="backStatus">
+              <el-input v-model="sipu.form.back_status" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="抓详情页">
+              <el-switch v-model="sipu.form.enable_detail" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
+            <el-form-item label="严格模式">
+              <el-switch v-model="sipu.form.strict" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+      </el-form>
+      <template #footer>
+        <el-button @click="sipu.visible = false">取消</el-button>
+        <el-button type="warning" :loading="sipu.running" @click="submitSipuFetchImport">开始抓取并导入</el-button>
+      </template>
+    </el-dialog>
   </section>
 </template>
 
 <script setup>
 import { reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import HeritageA4PreviewDialog from '../../components/HeritageA4PreviewDialog.vue'
 
 import {
   deleteImmovableHeritage,
   exportImmovableHeritage,
+  fetchAndImportSipuImmovable,
+  fetchHeritagePreview,
   fetchImmovableHeritageList,
   importImmovableHeritage,
   patchImmovableHeritage
@@ -396,6 +513,34 @@ const dialog = reactive({
     remarks: '',
     coord_list: []
   }
+})
+
+const preview = reactive({
+  visible: false,
+  loading: false,
+  row: {},
+})
+
+const sipu = reactive({
+  visible: false,
+  running: false,
+  form: {
+    base_url: 'http://202.41.243.152:9046',
+    endpoint: '/immovableListController.do?queryRelicList',
+    detail_endpoint: '/tBBdataBasicController.do?goBasicView',
+    jsessionid: '',
+    user_county: '650421',
+    page_size: 100,
+    timeout: 25,
+    max_pages: null,
+    sort_field: 'update_date',
+    sort_type: 'desc',
+    back_status: '0',
+    workers: 8,
+    output: 'data/sipu_base_data.csv',
+    enable_detail: true,
+    strict: false,
+  },
 })
 
 function buildParams() {
@@ -544,17 +689,23 @@ function normalizeCoordList(rawList) {
   return result
 }
 
-function buildViewModeHref(row) {
-  const id = row?.id
-  if (!id) {
-    return '#'
+async function openPreview(row) {
+  preview.row = row || {}
+  preview.visible = true
+  preview.loading = true
+  try {
+    if (!row?.id) {
+      return
+    }
+    const result = await fetchHeritagePreview({ immovable_id: row.id })
+    if (result?.success && result?.data) {
+      preview.row = { ...row, ...result.data }
+    }
+  } catch (error) {
+    ElMessage.warning(error?.message || '预览详情加载失败，已展示当前行数据')
+  } finally {
+    preview.loading = false
   }
-
-  if (row?.preview_url) {
-    return row.preview_url
-  }
-
-  return `/mobile/collect/${id}/preview/?mode=view`
 }
 
 async function submitEdit() {
@@ -664,6 +815,44 @@ async function beforeImport(file) {
   }
 
   return false
+}
+
+function openSipuDialog() {
+  sipu.visible = true
+}
+
+async function submitSipuFetchImport() {
+  if (!sipu.form.jsessionid) {
+    ElMessage.warning('请先填写四普系统 JSESSIONID')
+    return
+  }
+
+  sipu.running = true
+  try {
+    const payload = {
+      ...sipu.form,
+      skip_detail: !sipu.form.enable_detail,
+      max_pages: sipu.form.max_pages || null,
+    }
+    delete payload.enable_detail
+
+    const result = await fetchAndImportSipuImmovable(payload)
+    if (!result?.success) {
+      throw new Error(result?.message || '执行失败')
+    }
+
+    const summary = result.data?.import_summary || {}
+    ElMessage.success(
+      `完成：抓取${result.data?.fetch_count || 0}条，转换${result.data?.csv_written_count || 0}条，导入新增${summary.created_count || 0}条、更新${summary.updated_count || 0}条`
+    )
+    sipu.visible = false
+    pagination.page = 1
+    await loadRows()
+  } catch (error) {
+    ElMessage.error(error?.message || '抓取并导入失败')
+  } finally {
+    sipu.running = false
+  }
 }
 
 loadRows()
