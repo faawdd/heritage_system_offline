@@ -23,6 +23,22 @@ def _resolve_runtime_dirs(base_dir: Path) -> tuple[Path, Path, Path]:
   return app_dir, data_dir, config_dir
 
 
+def _configure_gdal_data(app_dir: Path) -> None:
+  if os.environ.get('GDAL_DATA'):
+    return
+
+  candidates = [
+    app_dir / 'gdal-data',
+    app_dir / 'Library' / 'share' / 'gdal',
+    app_dir / 'share' / 'gdal',
+  ]
+
+  for candidate in candidates:
+    if candidate.exists():
+      os.environ['GDAL_DATA'] = str(candidate)
+      return
+
+
 def main() -> None:
   base_dir = _resolve_base_dir()
   app_dir, data_dir, config_dir = _resolve_runtime_dirs(base_dir)
@@ -39,6 +55,7 @@ def main() -> None:
   os.environ.setdefault('HERITAGE_APP_DIR', str(app_dir))
   os.environ.setdefault('HERITAGE_DATA_DIR', str(data_dir))
   os.environ.setdefault('HERITAGE_CONFIG_DIR', str(config_dir))
+  _configure_gdal_data(app_dir)
 
   host = os.environ.get('BACKEND_HOST', '127.0.0.1')
   port = os.environ.get('BACKEND_PORT', '18000')
@@ -47,7 +64,12 @@ def main() -> None:
   from django.core.management import execute_from_command_line
 
   execute_from_command_line(['desktop_backend.py', 'migrate', '--noinput'])
-  execute_from_command_line(['desktop_backend.py', 'runserver', f'{host}:{port}'])
+
+  runserver_args = ['desktop_backend.py', 'runserver', f'{host}:{port}', '--noreload']
+  if getattr(sys, 'frozen', False):
+    runserver_args.append('--nothreading')
+
+  execute_from_command_line(runserver_args)
 
 
 if __name__ == '__main__':
