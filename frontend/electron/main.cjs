@@ -67,12 +67,20 @@ function requiresInitialization(config = {}) {
   return !normalized.initialized || !normalized.systemNameConfigured
 }
 
+function ensureDirectoryExists(dirPath) {
+  try {
+    fs.mkdirSync(dirPath, { recursive: true })
+  } catch (_error) {
+    // Keep initialization resilient and let writable checks report concrete errors.
+  }
+}
+
 function getDefaultConfig() {
   const packagedInstallRoot = path.dirname(process.execPath)
   const useInstallRootDefaults = app.isPackaged && process.platform === 'win32'
   const defaultRoot = useInstallRootDefaults ? packagedInstallRoot : app.getPath('userData')
 
-  return {
+  const defaults = {
     initialized: false,
     dataDir: path.join(defaultRoot, 'data'),
     logDir: path.join(defaultRoot, 'logs'),
@@ -83,6 +91,10 @@ function getDefaultConfig() {
     systemName: DEFAULT_SYSTEM_NAME,
     systemNameConfigured: false,
   }
+
+  ensureDirectoryExists(defaults.dataDir)
+  ensureDirectoryExists(defaults.logDir)
+  return defaults
 }
 
 function loadDesktopConfig() {
