@@ -23,6 +23,7 @@ import UserListView from '../views/system/user/UserListView.vue'
 import RoleListView from '../views/system/role/RoleListView.vue'
 import MenuListView from '../views/system/menu/MenuListView.vue'
 import AboutView from '../views/system/about/AboutView.vue'
+import DataManagementView from '../views/system/data/DataManagementView.vue'
 import { useAuthStore } from '../stores/system/authStore'
 
 const routes = [
@@ -55,6 +56,7 @@ const routes = [
       { path: 'gis/ovkml-convert', component: OvkmlConvertView },
       { path: 'system/users', component: UserListView },
       { path: 'system/roles', component: RoleListView },
+      { path: 'system/data-management', component: DataManagementView },
       { path: 'system/about', component: AboutView },
       { path: 'system/admin', component: AdminEntryView },
       { path: 'system/menus', component: MenuListView, meta: { requiresSuperAdmin: true } }

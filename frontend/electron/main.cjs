@@ -15,6 +15,16 @@ let mainWindow = null
 let initWizardWindow = null
 let runtimeConfig = null
 
+function formatTimestamp(date = new Date()) {
+  const pad = (num) => String(num).padStart(2, '0')
+  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}_${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`
+}
+
+function copyDirSync(fromPath, toPath) {
+  fs.mkdirSync(toPath, { recursive: true })
+  fs.cpSync(fromPath, toPath, { recursive: true, force: true })
+}
+
 function getConfigPath() {
   return path.join(app.getPath('userData'), CONFIG_FILE_NAME)
 }
@@ -29,6 +39,7 @@ function getDefaultConfig() {
     dataDir: path.join(defaultRoot, 'data'),
     logDir: path.join(defaultRoot, 'logs'),
     backendPort: BACKEND_PORT,
+    openImportAfterInit: false,
   }
 }
 
@@ -326,6 +337,7 @@ function setupInitIpc() {
       ...current,
       dataDir: String(payload.dataDir || current.dataDir),
       logDir: String(payload.logDir || current.logDir),
+      openImportAfterInit: Boolean(payload.openImportAfterInit),
       initialized: true,
       backendPort: chosenPort,
     }
@@ -350,6 +362,118 @@ function setupInitIpc() {
     saveDesktopConfig(merged)
     runtimeConfig = merged
     return { ok: true }
+  })
+
+  ipcMain.handle('desktop-data:pick-backup-dir', async () => {
+    const parentWindow = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
+    const result = await dialog.showOpenDialog(parentWindow, {
+      title: '选择备份存放目录',
+      defaultPath: app.getPath('documents'),
+      properties: ['openDirectory', 'createDirectory'],
+    })
+
+    if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+      return { canceled: true }
+    }
+
+    return { canceled: false, path: result.filePaths[0] }
+  })
+
+  ipcMain.handle('desktop-data:create-backup', async (_event, payload = {}) => {
+    const destinationRoot = String(payload.destinationRoot || '').trim()
+    if (!destinationRoot) {
+      return { ok: false, message: '请选择备份目录' }
+    }
+
+    const config = runtimeConfig || loadDesktopConfig()
+    const backupName = `heritage_backup_${formatTimestamp()}`
+    const backupRoot = path.join(destinationRoot, backupName)
+
+    try {
+      fs.mkdirSync(backupRoot, { recursive: true })
+
+      if (fs.existsSync(config.dataDir)) {
+        copyDirSync(config.dataDir, path.join(backupRoot, 'data'))
+      }
+
+      if (fs.existsSync(config.logDir)) {
+        copyDirSync(config.logDir, path.join(backupRoot, 'logs'))
+      }
+
+      const desktopConfigPath = getConfigPath()
+      if (fs.existsSync(desktopConfigPath)) {
+        fs.copyFileSync(desktopConfigPath, path.join(backupRoot, 'desktop-config.json'))
+      }
+
+      const metadata = {
+        backup_at: new Date().toISOString(),
+        data_dir: config.dataDir,
+        log_dir: config.logDir,
+        backend_port: config.backendPort,
+      }
+      fs.writeFileSync(path.join(backupRoot, 'metadata.json'), JSON.stringify(metadata, null, 2), 'utf-8')
+
+      return {
+        ok: true,
+        message: '备份完成',
+        backupPath: backupRoot,
+      }
+    } catch (error) {
+      return { ok: false, message: `备份失败: ${String(error?.message || error)}` }
+    }
+  })
+
+  ipcMain.handle('desktop-data:pick-restore-dir', async () => {
+    const parentWindow = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
+    const result = await dialog.showOpenDialog(parentWindow, {
+      title: '选择要恢复的备份目录',
+      defaultPath: app.getPath('documents'),
+      properties: ['openDirectory'],
+    })
+
+    if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+      return { canceled: true }
+    }
+
+    return { canceled: false, path: result.filePaths[0] }
+  })
+
+  ipcMain.handle('desktop-data:restore-backup', async (_event, payload = {}) => {
+    const backupRoot = String(payload.backupRoot || '').trim()
+    if (!backupRoot) {
+      return { ok: false, message: '请选择备份目录' }
+    }
+
+    const dataBackupPath = path.join(backupRoot, 'data')
+    if (!fs.existsSync(dataBackupPath)) {
+      return { ok: false, message: '备份目录缺少 data 子目录，无法恢复' }
+    }
+
+    const config = runtimeConfig || loadDesktopConfig()
+
+    try {
+      stopBackend()
+      copyDirSync(dataBackupPath, config.dataDir)
+
+      const logsBackupPath = path.join(backupRoot, 'logs')
+      if (fs.existsSync(logsBackupPath)) {
+        copyDirSync(logsBackupPath, config.logDir)
+      }
+
+      dialog.showMessageBox({
+        type: 'info',
+        title: '恢复完成',
+        message: '用户数据恢复成功，应用将自动重启。',
+        buttons: ['确定'],
+      }).finally(() => {
+        app.relaunch()
+        app.exit(0)
+      })
+
+      return { ok: true, message: '恢复完成，正在重启应用' }
+    } catch (error) {
+      return { ok: false, message: `恢复失败: ${String(error?.message || error)}` }
+    }
   })
 }
 
@@ -471,7 +595,15 @@ function createWindow() {
   })
 
   const effectivePort = runtimeConfig?.backendPort || BACKEND_PORT
-  const startUrl = process.env.ELECTRON_START_URL || `http://${BACKEND_HOST}:${effectivePort}/`
+  let startUrl = process.env.ELECTRON_START_URL || `http://${BACKEND_HOST}:${effectivePort}/`
+  if (!process.env.ELECTRON_START_URL && runtimeConfig?.openImportAfterInit) {
+    startUrl = `http://${BACKEND_HOST}:${effectivePort}/system/data-management?fromSetup=1`
+    runtimeConfig = {
+      ...runtimeConfig,
+      openImportAfterInit: false,
+    }
+    saveDesktopConfig(runtimeConfig)
+  }
   mainWindow.loadURL(startUrl)
 }
 
