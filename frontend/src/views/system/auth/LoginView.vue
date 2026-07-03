@@ -7,10 +7,7 @@
           <div class="content-wthree">
             <h2>系统登录</h2>
             <form @submit.prevent="submitLogin">
-              <input v-model="form.username" type="text" class="text" name="username" placeholder="用户名" required autofocus list="saved-account-list">
-              <datalist id="saved-account-list">
-                <option v-for="account in savedAccounts" :key="account.username" :value="account.username"></option>
-              </datalist>
+              <input v-model="form.username" type="text" class="text" name="username" placeholder="用户名" required autofocus>
               <input
                 v-model="form.password"
                 type="password"
@@ -24,18 +21,6 @@
                   <input v-model="rememberPassword" type="checkbox">
                   <span>记住账号密码</span>
                 </label>
-                <button v-if="savedAccounts.length" class="clear-btn" type="button" @click="clearSavedAccounts">清除已保存账号</button>
-              </div>
-              <div v-if="savedAccounts.length" class="saved-account-row">
-                <button
-                  v-for="account in savedAccounts"
-                  :key="account.username"
-                  class="saved-account-chip"
-                  type="button"
-                  @click="applySavedAccount(account)"
-                >
-                  {{ account.username }}
-                </button>
               </div>
               <p v-if="errorMessage" class="login-error">{{ errorMessage }}</p>
               <button class="btn" type="submit" :disabled="loading">{{ loading ? '登录中...' : '登录' }}</button>
@@ -131,13 +116,12 @@ function saveCurrentAccount() {
       password: String(form.password || ''),
       lastUsedAt: new Date().toISOString(),
     })
+  } else if (nextAccounts.length === savedAccounts.value.length) {
+    localStorage.removeItem(SAVED_ACCOUNTS_KEY)
+    savedAccounts.value = []
+    return
   }
   persistSavedAccounts(nextAccounts)
-}
-
-function clearSavedAccounts() {
-  savedAccounts.value = []
-  localStorage.removeItem(SAVED_ACCOUNTS_KEY)
 }
 
 watch(
@@ -334,8 +318,7 @@ button:hover {
 .form-tools {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  justify-content: flex-start;
   margin-bottom: 14px;
 }
 
@@ -351,32 +334,6 @@ button:hover {
   width: auto;
   margin: 0;
   padding: 0;
-}
-
-.clear-btn {
-  width: auto !important;
-  padding: 0 !important;
-  color: #0568c1 !important;
-  background: transparent !important;
-  font-size: 14px !important;
-  font-weight: 500 !important;
-}
-
-.saved-account-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 16px;
-}
-
-.saved-account-chip {
-  width: auto !important;
-  padding: 8px 14px !important;
-  border: 1px solid #cbd5e1 !important;
-  background: #eff6ff !important;
-  color: #1d4ed8 !important;
-  font-size: 13px !important;
-  font-weight: 600 !important;
 }
 
 .login-error {

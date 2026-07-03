@@ -22,11 +22,6 @@ export async function logoutSystem() {
   return response.data
 }
 
-export async function enterDjangoAdmin() {
-  const response = await client.post('/api/v1/system/admin-entry/')
-  return response.data
-}
-
 export async function fetchSystemProfile() {
   const response = await client.get('/api/v1/system/profile/')
   return response.data
