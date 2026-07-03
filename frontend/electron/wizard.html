@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>离线桌面版初始化向导</title>
+    <style>
+      :root {
+        --bg: #f2f6fb;
+        --card: #ffffff;
+        --text: #1f2a37;
+        --muted: #6b7280;
+        --ok: #0a7f3f;
+        --warn: #b45309;
+        --bad: #b91c1c;
+        --accent: #0f766e;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+        background: linear-gradient(145deg, #e9f2ff, #f8fafc 35%, #eefcf5);
+        color: var(--text);
+      }
+
+      .wrap {
+        max-width: 740px;
+        margin: 0 auto;
+        padding: 24px;
+      }
+
+      .header {
+        margin-bottom: 18px;
+      }
+
+      .header h1 {
+        margin: 0 0 8px;
+        font-size: 24px;
+      }
+
+      .header p {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      .card {
+        background: var(--card);
+        border-radius: 14px;
+        padding: 18px;
+        margin-bottom: 12px;
+        box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+      }
+
+      .row {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: center;
+        margin-bottom: 10px;
+      }
+
+      .row:last-child {
+        margin-bottom: 0;
+      }
+
+      .label {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .value {
+        font-size: 14px;
+        text-align: right;
+        word-break: break-all;
+      }
+
+      .status {
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .ok {
+        color: var(--ok);
+      }
+
+      .warn {
+        color: var(--warn);
+      }
+
+      .bad {
+        color: var(--bad);
+      }
+
+      .action {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .path-action {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .path-action button {
+        height: 34px;
+        border: 0;
+        border-radius: 8px;
+        background: #0b7285;
+        color: #fff;
+        padding: 0 12px;
+        cursor: pointer;
+      }
+
+      .action input {
+        width: 160px;
+        height: 36px;
+        border-radius: 8px;
+        border: 1px solid #d1d5db;
+        padding: 0 10px;
+        font-size: 14px;
+      }
+
+      .action button {
+        height: 38px;
+        border: 0;
+        border-radius: 10px;
+        background: var(--accent);
+        color: #fff;
+        padding: 0 18px;
+        font-size: 14px;
+        cursor: pointer;
+      }
+
+      .action button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+
+      #message {
+        min-height: 22px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="header">
+        <h1>首次启动初始化向导</h1>
+        <p>请确认数据目录、日志路径和后端端口检测结果，完成后将保存到本机配置。</p>
+      </div>
+
+      <div class="card">
+        <div class="row">
+          <div class="label">数据目录</div>
+          <div class="path-action">
+            <button id="pickDataDirBtn" type="button">选择目录</button>
+            <div id="dataPath" class="value">-</div>
+          </div>
+        </div>
+        <div class="row">
+          <div class="label">检测结果</div>
+          <div id="dataStatus" class="status">-</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="row">
+          <div class="label">日志目录</div>
+          <div class="path-action">
+            <button id="pickLogDirBtn" type="button">选择目录</button>
+            <div id="logPath" class="value">-</div>
+          </div>
+        </div>
+        <div class="row">
+          <div class="label">检测结果</div>
+          <div id="logStatus" class="status">-</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="row">
+          <div class="label">后端端口</div>
+          <div id="portStatus" class="status">-</div>
+        </div>
+        <div class="row">
+          <div class="label">建议端口</div>
+          <div id="portSuggest" class="value">-</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="action">
+          <label for="portInput" class="label">启动端口</label>
+          <input id="portInput" type="number" min="1024" max="65535" />
+          <button id="confirmBtn" type="button">保存并继续启动</button>
+        </div>
+        <div id="message"></div>
+      </div>
+    </div>
+
+    <script>
+      const dataPathEl = document.getElementById('dataPath')
+      const dataStatusEl = document.getElementById('dataStatus')
+      const logPathEl = document.getElementById('logPath')
+      const logStatusEl = document.getElementById('logStatus')
+      const portStatusEl = document.getElementById('portStatus')
+      const portSuggestEl = document.getElementById('portSuggest')
+      const portInputEl = document.getElementById('portInput')
+      const confirmBtn = document.getElementById('confirmBtn')
+      const messageEl = document.getElementById('message')
+      const pickDataDirBtn = document.getElementById('pickDataDirBtn')
+      const pickLogDirBtn = document.getElementById('pickLogDirBtn')
+
+      let currentConfig = {
+        dataDir: '',
+        logDir: '',
+        backendPort: 18000,
+      }
+
+      function setStatus(el, ok, message) {
+        el.className = `status ${ok ? 'ok' : 'bad'}`
+        el.textContent = `${ok ? '通过' : '失败'}: ${message}`
+      }
+
+      function setMessage(text, type = 'normal') {
+        messageEl.textContent = text || ''
+        if (type === 'error') {
+          messageEl.className = 'bad'
+          return
+        }
+        if (type === 'warn') {
+          messageEl.className = 'warn'
+          return
+        }
+        messageEl.className = ''
+      }
+
+      async function loadState(options = {}) {
+        const preservePortInput = !!options.preservePortInput
+        const state = await window.desktopInit.getState(currentConfig)
+        const checks = state.checks || {}
+        const config = state.config || {}
+
+        currentConfig = {
+          dataDir: config.dataDir || checks.dataDir?.path || currentConfig.dataDir,
+          logDir: config.logDir || checks.logDir?.path || currentConfig.logDir,
+          backendPort: Number(config.backendPort || currentConfig.backendPort || 18000),
+        }
+
+        dataPathEl.textContent = currentConfig.dataDir || '-'
+        logPathEl.textContent = currentConfig.logDir || '-'
+
+        setStatus(dataStatusEl, !!checks.dataDir?.ok, checks.dataDir?.message || '-')
+        setStatus(logStatusEl, !!checks.logDir?.ok, checks.logDir?.message || '-')
+
+        const portOk = !!checks.backendPort?.ok
+        const requested = checks.backendPort?.requested
+        const suggested = checks.backendPort?.suggested
+
+        portStatusEl.className = `status ${portOk ? 'ok' : 'warn'}`
+        portStatusEl.textContent = portOk
+          ? `端口 ${requested} 可用`
+          : `端口 ${requested} 已占用`
+
+        portSuggestEl.textContent = suggested ? String(suggested) : '未找到可用端口'
+        if (!preservePortInput) {
+          portInputEl.value = String(suggested || requested || currentConfig.backendPort || 18000)
+        }
+
+        if (!portOk) {
+          setMessage('检测到端口被占用，建议使用推荐端口后继续。', 'warn')
+          return
+        }
+
+        setMessage('检测通过，可以继续启动。')
+      }
+
+      async function chooseDirectory(kind) {
+        const currentPath = kind === 'data' ? currentConfig.dataDir : currentConfig.logDir
+        const picked = await window.desktopInit.pickDirectory({ currentPath })
+        if (!picked || picked.canceled || !picked.path) {
+          return
+        }
+
+        if (kind === 'data') {
+          currentConfig.dataDir = picked.path
+        } else {
+          currentConfig.logDir = picked.path
+        }
+
+        await loadState({ preservePortInput: true })
+      }
+
+      pickDataDirBtn.addEventListener('click', async () => {
+        try {
+          await chooseDirectory('data')
+        } catch (error) {
+          setMessage(String(error?.message || error), 'error')
+        }
+      })
+
+      pickLogDirBtn.addEventListener('click', async () => {
+        try {
+          await chooseDirectory('log')
+        } catch (error) {
+          setMessage(String(error?.message || error), 'error')
+        }
+      })
+
+      confirmBtn.addEventListener('click', async () => {
+        const backendPort = Number(portInputEl.value || 0)
+        if (!backendPort || backendPort < 1024 || backendPort > 65535) {
+          setMessage('端口范围需在 1024-65535 之间。', 'error')
+          return
+        }
+
+        confirmBtn.disabled = true
+        setMessage('正在保存配置并二次校验...')
+
+        try {
+          currentConfig.backendPort = backendPort
+          const result = await window.desktopInit.complete({
+            backendPort,
+            dataDir: currentConfig.dataDir,
+            logDir: currentConfig.logDir,
+          })
+          if (!result?.ok) {
+            setMessage(result?.message || '保存失败，请检查配置。', 'error')
+            confirmBtn.disabled = false
+            return
+          }
+
+          setMessage('初始化完成，正在启动系统...')
+          window.desktopInit.notifyFinished()
+        } catch (error) {
+          setMessage(String(error?.message || error), 'error')
+          confirmBtn.disabled = false
+        }
+      })
+
+      loadState().catch((error) => {
+        setMessage(`读取初始化状态失败: ${String(error?.message || error)}`, 'error')
+      })
+    </script>
+  </body>
+</html>
