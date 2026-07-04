@@ -72,7 +72,7 @@ LAND_PROJECT_ACTION_LABELS = {
     'verify_spatial_safety': '执行空间核验',
     'complete_field_check': '提交现场勘查完成',
     'submit_city_request': '录入县局请示并提交市局',
-    'record_city_reply': '录入市局复函',
+    'record_city_reply': '录入复函结果',
     'submit_archaeology_request': '发起考古流转',
     'record_archaeology_reply': '录入考古批复结果',
     'archive_case': '办结归档',
@@ -1507,6 +1507,7 @@ def land_project_list_api(request):
 
     q = (request.GET.get('q') or '').strip()
     status = (request.GET.get('status') or '').strip()
+    workflow_path = (request.GET.get('workflow_path') or '').strip()
     queryset = LandUseProjectApproval.objects.all()
 
     if q:
@@ -1525,8 +1526,32 @@ def land_project_list_api(request):
     if status:
         queryset = queryset.filter(status=status)
 
+    if workflow_path in {'ARCHAEOLOGY_FLOW', 'DIRECT_REPLY'}:
+        filtered_ids = []
+        for item in queryset.only('id', 'is_overlap_artifact', 'overlapped_relics_info'):
+            overlap_rows = item.overlapped_relics_info if isinstance(item.overlapped_relics_info, list) else []
+            has_high_level_overlap = any((row or {}).get('site_level') in {'GB', 'SB'} for row in overlap_rows)
+            is_feasible_by_level = not has_high_level_overlap
+            current_path = 'ARCHAEOLOGY_FLOW' if (item.is_overlap_artifact and is_feasible_by_level) else 'DIRECT_REPLY'
+            if current_path == workflow_path:
+                filtered_ids.append(item.id)
+        queryset = queryset.filter(id__in=filtered_ids)
+
     rows = []
     for item in queryset.order_by('-receive_date', '-updated_at')[:300]:
+        overlap_rows = item.overlapped_relics_info if isinstance(item.overlapped_relics_info, list) else []
+        has_high_level_overlap = any((row or {}).get('site_level') in {'GB', 'SB'} for row in overlap_rows)
+        is_feasible_by_level = not has_high_level_overlap
+        if not item.is_overlap_artifact:
+            workflow_path = 'DIRECT_REPLY'
+            workflow_advice = '未涉及文物，走标准复函流程。'
+        elif is_feasible_by_level:
+            workflow_path = 'ARCHAEOLOGY_FLOW'
+            workflow_advice = '涉及文物且可行，走市局上报与考古调查流程。'
+        else:
+            workflow_path = 'DIRECT_REPLY'
+            workflow_advice = '涉及高等级文物，不可行，走不予同意复函流程。'
+
         rows.append({
             'id': str(item.id),
             'project_name': item.project_name,
@@ -1536,6 +1561,10 @@ def land_project_list_api(request):
             'status': item.status,
             'status_label': item.get_status_display(),
             'is_overlap_artifact': item.is_overlap_artifact,
+            'has_high_level_overlap': has_high_level_overlap,
+            'is_feasible_by_level': is_feasible_by_level,
+            'workflow_path': workflow_path,
+            'workflow_advice': workflow_advice,
             'updated_at': item.updated_at.strftime('%Y-%m-%d %H:%M') if item.updated_at else '',
         })
 
