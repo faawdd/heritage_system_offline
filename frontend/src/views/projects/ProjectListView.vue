@@ -22,6 +22,10 @@
         <el-option label="50_批复已收到" value="50_批复已收到" />
         <el-option label="60_已结案归档" value="60_已结案归档" />
       </el-select>
+      <el-select v-model="store.filters.workflowPath" placeholder="流程分支" clearable style="width: 180px">
+        <el-option label="考古流程" value="ARCHAEOLOGY_FLOW" />
+        <el-option label="直接复函流程" value="DIRECT_REPLY" />
+      </el-select>
       <el-button type="primary" @click="store.loadProjects">查询</el-button>
       <el-button type="success" @click="goCreate">新建项目</el-button>
     </div>
@@ -76,7 +80,10 @@
 
         <div class="project-card-footer">
           <el-tag :type="row.is_overlap_artifact ? 'danger' : 'success'" effect="plain">
-            {{ row.is_overlap_artifact ? '涉及文物' : '未判定/不涉及' }}
+            {{ row.is_overlap_artifact ? '涉及文物' : '不涉及文物' }}
+          </el-tag>
+          <el-tag :type="row.workflow_path === 'ARCHAEOLOGY_FLOW' ? 'warning' : 'info'" effect="plain">
+            {{ row.workflow_path === 'ARCHAEOLOGY_FLOW' ? '考古流程' : '直接复函流程' }}
           </el-tag>
           <el-button link type="primary" @click="goDetail(row.id)">进入详情</el-button>
         </div>
@@ -103,6 +110,13 @@
           <template #default="scope">
             <el-tag :type="scope.row.is_overlap_artifact ? 'danger' : 'success'">
               {{ scope.row.is_overlap_artifact ? '是' : '否' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="流程分支" min-width="150">
+          <template #default="scope">
+            <el-tag :type="scope.row.workflow_path === 'ARCHAEOLOGY_FLOW' ? 'warning' : 'info'" effect="plain">
+              {{ scope.row.workflow_path === 'ARCHAEOLOGY_FLOW' ? '考古流程' : '直接复函流程' }}
             </el-tag>
           </template>
         </el-table-column>
@@ -137,7 +151,7 @@ function statusRaw(row) {
 function progressByStatus(row) {
   const status = statusRaw(row)
   if (status.includes('60_') || status.includes('已结案归档')) return 100
-  if (status.includes('50_') || status.includes('批复已收到')) return 85
+  if (status.includes('50_') || status.includes('批复已收到')) return 88
   if (status.includes('45_') || status.includes('考古流转中')) return 70
   if (status.includes('40_') || status.includes('审批中')) return 60
   if (status.includes('30_') || status.includes('现场勘查完成')) return 45
@@ -150,11 +164,11 @@ function currentFlowLabel(row) {
   const status = statusRaw(row)
   if (!status) return '接收请示'
   if (status.includes('60_')) return '办结归档'
-  if (status.includes('50_')) return '上级批复'
+  if (status.includes('50_')) return '复函待归档'
   if (status.includes('45_')) return '后续流程'
-  if (status.includes('40_')) return '上报审批'
+  if (status.includes('40_')) return '市局审批/上报'
   if (status.includes('30_')) return '现场勘查'
-  if (status.includes('20_') || status.includes('21_')) return '是否涉及文物'
+  if (status.includes('20_') || status.includes('21_')) return '涉及性与可行性判定'
   return '接收请示'
 }
 
@@ -183,10 +197,16 @@ const stats = computed(() => {
     total: rows.length,
     pendingSurvey: rows.filter((row) => {
       const status = statusRaw(row)
-      return status.includes('10_') || status.includes('20_')
+      return status.includes('10_') || status.includes('30_')
     }).length,
-    pendingApproval: rows.filter((row) => statusRaw(row).includes('40_')).length,
-    pendingReply: rows.filter((row) => statusRaw(row).includes('50_')).length,
+    pendingApproval: rows.filter((row) => {
+      const status = statusRaw(row)
+      return status.includes('40_') || (status.includes('21_') && row.workflow_path === 'ARCHAEOLOGY_FLOW')
+    }).length,
+    pendingReply: rows.filter((row) => {
+      const status = statusRaw(row)
+      return status.includes('50_') || status.includes('20_') || (status.includes('21_') && row.workflow_path !== 'ARCHAEOLOGY_FLOW')
+    }).length,
     archived: rows.filter((row) => statusRaw(row).includes('60_')).length,
     overdue: rows.filter((row) => isOverdue(row)).length,
   }
