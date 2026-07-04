@@ -8,7 +8,8 @@ export const useProjectStore = defineStore('project', {
     rows: [],
     filters: {
       keyword: '',
-      status: ''
+      status: '',
+      workflowPath: ''
     }
   }),
   actions: {
@@ -17,7 +18,8 @@ export const useProjectStore = defineStore('project', {
       try {
         const data = await fetchProjectList({
           keyword: this.filters.keyword,
-          status: this.filters.status
+          status: this.filters.status,
+          workflowPath: this.filters.workflowPath
         })
         this.rows = data.rows || []
       } finally {
