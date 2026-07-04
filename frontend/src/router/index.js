@@ -18,7 +18,6 @@ import KmlManagementView from '../views/gis/KmlManagementView.vue'
 import KmlProcessConvertView from '../views/gis/KmlProcessConvertView.vue'
 import OvkmlConvertView from '../views/gis/OvkmlConvertView.vue'
 import LoginView from '../views/system/auth/LoginView.vue'
-import AdminEntryView from '../views/system/admin/AdminEntryView.vue'
 import DeepSeekConfigView from '../views/system/admin/DeepSeekConfigView.vue'
 import UserListView from '../views/system/user/UserListView.vue'
 import RoleListView from '../views/system/role/RoleListView.vue'
@@ -59,7 +58,6 @@ const routes = [
       { path: 'system/roles', component: RoleListView },
       { path: 'system/data-management', component: DataManagementView },
       { path: 'system/about', component: AboutView },
-      { path: 'system/admin', component: AdminEntryView },
       { path: 'system/ai-config', component: DeepSeekConfigView },
       { path: 'system/menus', component: MenuListView, meta: { requiresSuperAdmin: true } }
     ]

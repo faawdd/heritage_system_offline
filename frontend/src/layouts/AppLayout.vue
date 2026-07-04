@@ -41,18 +41,7 @@
         </button>
         <div class="sidebar-submenu" v-show="isGroupOpen(group.key)">
           <template v-for="item in group.items" :key="item.to">
-            <a
-              v-if="isDjangoAdminPath(item.to)"
-              class="nav-link nav-sublink"
-              :href="item.to"
-            >
-              {{ item.label }}
-            </a>
-            <router-link
-              v-else
-              class="nav-link nav-sublink"
-              :to="item.to"
-            >
+            <router-link class="nav-link nav-sublink" :to="item.to">
               {{ item.label }}
             </router-link>
           </template>
@@ -176,7 +165,6 @@ const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
 const authStore = useAuthStore()
-const DJANGO_ADMIN_URL = 'https://beichenhome.top:9081/admin'
 const THEME_MODE_KEY = 'heritage_theme_mode'
 const SIDEBAR_COLLAPSE_KEY = 'heritage_sidebar_collapsed'
 const themeMode = ref('system')
@@ -254,7 +242,6 @@ const staticMenuGroups = [
       { label: '数据管理', to: '/system/data-management' },
       { label: '关于系统', to: '/system/about' },
       { label: 'DeepSeek配置', to: '/system/ai-config' },
-      { label: '后台管理', to: DJANGO_ADMIN_URL },
       { label: '菜单管理', to: '/system/menus' }
     ]
   }
@@ -266,6 +253,10 @@ function buildMenuGroupsFromTree(treeRows = []) {
     .map((group, index) => {
       const children = (group.children || [])
         .filter((child) => child.visible !== false && child.path)
+        .filter((child) => {
+          const path = String(child.path || '').trim()
+          return !path.startsWith('/admin/') && !path.startsWith('https://beichenhome.top:9081/admin')
+        })
         .map((child) => ({
           label: child.name,
           to: child.path.startsWith('/') ? child.path : `/${child.path}`
@@ -295,7 +286,6 @@ function ensureHeritageEntries(groups = []) {
   const requiredSystemItems = [
     { label: '数据管理', to: '/system/data-management' },
     { label: '关于系统', to: '/system/about' },
-    { label: '后台管理', to: DJANGO_ADMIN_URL },
     { label: 'DeepSeek配置', to: '/system/ai-config' }
   ]
   if (isSuperAdminUser()) {
@@ -328,9 +318,8 @@ function ensureHeritageEntries(groups = []) {
     let existingItems = [...groupItems]
     if (systemGroup) {
       existingItems = existingItems.filter((item) => {
-        const label = String(item?.label || '').trim()
         const to = String(item?.to || '').trim()
-        return label !== '后台管理' && !to.startsWith('/admin/')
+        return !to.startsWith('/admin/') && !to.startsWith('https://beichenhome.top:9081/admin')
       })
     }
 
@@ -396,13 +385,6 @@ function isSuperAdminUser() {
   const user = authStore.user || {}
   const roles = Array.isArray(user.roles) ? user.roles : []
   return Boolean(user.is_superuser) || roles.includes('超级管理员')
-}
-
-function isDjangoAdminPath(path) {
-  if (typeof path !== 'string') {
-    return false
-  }
-  return path.startsWith('/admin/') || path.startsWith('https://beichenhome.top:9081/admin')
 }
 
 const collapsedShortcutGroups = computed(() => {
