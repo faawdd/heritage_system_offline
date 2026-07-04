@@ -50,3 +50,9 @@ export async function fetchNextDocNum(year) {
   })
   return response.data
 }
+
+export async function generateProjectOfficialDocument(projectId, payload) {
+  return client.post(`/api/v1/projects/${projectId}/documents/generate/`, payload, {
+    responseType: 'blob'
+  })
+}
