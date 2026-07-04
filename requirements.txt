@@ -28,6 +28,7 @@ django-import-export>=4.1.0
 # Word 公文生成 (实现项目管理中的快速发文)
 python-docx>=1.1.0
 docxtpl>=0.16.7
+openai>=1.35.0
 
 # 图像处理 (用于处理现场照片、水印及公文插图)
 Pillow>=10.2.0

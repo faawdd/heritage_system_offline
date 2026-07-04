@@ -59,6 +59,7 @@ urlpatterns = [
     path('projects/next-shanshan-doc/', legacy_views.land_project_next_doc_num_api, name='land_project_next_doc_num'),
     path('projects/<uuid:project_id>/workflow-action/', legacy_views.land_project_workflow_action_api, name='land_project_workflow_action'),
     path('projects/<uuid:project_id>/controls/', legacy_views.land_project_controls_api, name='land_project_controls'),
+    path('projects/<uuid:project_id>/documents/generate/', legacy_views.land_project_generate_document_api, name='land_project_generate_document'),
     path('inspections/', InspectionListAPIView.as_view(), name='inspection_list'),
     path('inspections/meta/', InspectionMetaAPIView.as_view(), name='inspection_meta'),
     path('inspections/stats/', InspectionStatsAPIView.as_view(), name='inspection_stats'),

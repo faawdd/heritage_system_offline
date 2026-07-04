@@ -10,7 +10,7 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer, Toke
 
 from core.models import UserProfile
 from core.permissions.api_permissions import IsManagementAdmin
-from system.models import LoginLog, Menu, OperationLog
+from system.models import LoginLog, Menu, OperationLog, SystemConfig
 from system.serializers import (
     LoginLogSerializer,
     MenuSerializer,
@@ -239,6 +239,102 @@ class ChangePasswordAPIView(APIView):
         profile.save(update_fields=['has_changed_password'])
 
         return Response({'success': True, 'message': '密码修改成功，请重新登录'})
+
+
+def _mask_secret(value):
+    text = str(value or '')
+    if len(text) <= 8:
+        return '*' * len(text)
+    return f"{text[:4]}{'*' * (len(text) - 8)}{text[-4:]}"
+
+
+class DeepSeekConfigAPIView(APIView):
+    permission_classes = [IsManagementAdmin]
+
+    def get(self, request):
+        api_key = SystemConfig.objects.filter(key='deepseek.api_key').values_list('value', flat=True).first() or ''
+        base_url = SystemConfig.objects.filter(key='deepseek.base_url').values_list('value', flat=True).first() or 'https://api.deepseek.com/v1'
+        model = SystemConfig.objects.filter(key='deepseek.model').values_list('value', flat=True).first() or 'deepseek-chat'
+        temperature = SystemConfig.objects.filter(key='deepseek.temperature').values_list('value', flat=True).first() or '0.3'
+        system_prompt = SystemConfig.objects.filter(key='deepseek.system_prompt').values_list('value', flat=True).first() or ''
+
+        return Response(
+            {
+                'success': True,
+                'data': {
+                    'has_api_key': bool(str(api_key).strip()),
+                    'api_key_masked': _mask_secret(api_key),
+                    'base_url': str(base_url),
+                    'model': str(model),
+                    'temperature': str(temperature),
+                    'system_prompt': str(system_prompt),
+                },
+            }
+        )
+
+    def put(self, request):
+        denied = _forbid_if_no_write_permission(request, 'system_ai_config', 'update_deepseek_config')
+        if denied:
+            return denied
+
+        raw_base_url = (request.data.get('base_url') or '').strip()
+        raw_model = (request.data.get('model') or '').strip()
+        raw_temperature = (request.data.get('temperature') or '').strip()
+        raw_system_prompt = (request.data.get('system_prompt') or '').strip()
+        raw_api_key = request.data.get('api_key')
+
+        base_url = raw_base_url or 'https://api.deepseek.com/v1'
+        model = raw_model or 'deepseek-chat'
+        temperature = raw_temperature or '0.3'
+
+        try:
+            temp_value = float(temperature)
+            if temp_value < 0 or temp_value > 1:
+                raise ValueError()
+        except ValueError:
+            return Response({'success': False, 'message': 'temperature 必须是 0~1 之间的数字'}, status=status.HTTP_400_BAD_REQUEST)
+
+        items = [
+            ('deepseek.base_url', base_url, 'string', 'DeepSeek OpenAI 兼容接口地址'),
+            ('deepseek.model', model, 'string', 'DeepSeek 模型名称'),
+            ('deepseek.temperature', str(temp_value), 'string', 'DeepSeek 温度参数'),
+        ]
+
+        if raw_system_prompt:
+            items.append(('deepseek.system_prompt', raw_system_prompt, 'text', 'DeepSeek 公文生成系统提示词'))
+
+        for key, value, value_type, remark in items:
+            obj, _ = SystemConfig.objects.get_or_create(
+                key=key,
+                defaults={
+                    'value': value,
+                    'value_type': value_type,
+                    'remark': remark,
+                    'is_public': False,
+                },
+            )
+            if obj.value != value:
+                obj.value = value
+                obj.save(update_fields=['value', 'updated_at'])
+
+        if raw_api_key is not None:
+            api_key = str(raw_api_key).strip()
+            if api_key:
+                obj, _ = SystemConfig.objects.get_or_create(
+                    key='deepseek.api_key',
+                    defaults={
+                        'value': api_key,
+                        'value_type': 'string',
+                        'remark': 'DeepSeek API Key',
+                        'is_public': False,
+                    },
+                )
+                if obj.value != api_key:
+                    obj.value = api_key
+                    obj.save(update_fields=['value', 'updated_at'])
+
+        _record_operation(request, 'system_ai_config', 'update_deepseek_config', success=True)
+        return Response({'success': True, 'message': 'DeepSeek 配置已保存'})
 
 
 class UserListCreateAPIView(APIView):

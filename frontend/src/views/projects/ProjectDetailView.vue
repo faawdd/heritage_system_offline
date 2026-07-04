@@ -69,17 +69,17 @@
           <h3>③ 上报审批</h3>
           <div class="workflow-grid compact">
             <el-input v-model="workflow.shanshan_request_num" placeholder="县局请示文号" />
-            <el-input v-model="workflow.city_reply_num" placeholder="市局复函号" />
-            <el-button type="primary" :loading="processing" @click="executeAction('submit_city_request')">提交上报</el-button>
+            <el-input v-model="workflow.archaeology_request_num" placeholder="考古请示文号（后续可用）" />
+            <el-button type="primary" :loading="processing" @click="executeAction('submit_city_request')">提交市局上报</el-button>
           </div>
         </div>
 
         <div class="card pane-card" v-show="activeStep === 'reply'">
           <h3>④ 上级批复</h3>
           <div class="workflow-grid compact">
-            <el-input v-model="workflow.city_final_reply_num" placeholder="市局最终复函号" />
+            <el-input v-model="workflow.city_reply_num" placeholder="市局复函号（有则填写）" />
             <el-input v-model="workflow.final_reply_to_company" placeholder="给企业最终复函号" />
-            <el-button type="primary" :loading="processing" @click="executeAction('record_city_reply')">录入批复</el-button>
+            <el-button type="primary" :loading="processing" @click="executeAction('record_city_reply')">录入复函结果</el-button>
           </div>
         </div>
 
@@ -97,6 +97,7 @@
             <el-button type="primary" @click="applyDecisionBranch">应用后续流程建议</el-button>
             <span class="hint">当前建议动作：{{ workflow.action || '未选择' }}</span>
           </div>
+          <div class="hint top-space">{{ detail.workflow_advice || '请先执行空间核验，再依据文物级别判断后续流程。' }}</div>
         </div>
 
         <div class="card pane-card" v-show="activeStep === 'followup'">
@@ -130,13 +131,7 @@
             <el-button v-if="detail.misc_zip_url" type="success" @click="downloadMiscZip">下载杂项ZIP</el-button>
           </div>
 
-          <div class="action-row doc-actions">
-            <el-button plain>生成勘查意见</el-button>
-            <el-button plain>生成复函</el-button>
-            <el-button plain>生成上报请示</el-button>
-            <el-button plain>生成审批意见</el-button>
-            <el-button plain>生成归档目录</el-button>
-          </div>
+          <OfficialDocumentGenerator :project-id="projectId" :project-detail="detail" />
         </div>
 
         <div class="card pane-card">
@@ -145,9 +140,9 @@
             <el-select v-model="workflow.action" placeholder="选择流程动作" style="width: 280px">
               <el-option label="提交现场勘查完成" value="complete_field_check" />
               <el-option label="录入县局请示并提交市局" value="submit_city_request" />
-              <el-option label="录入市局复函" value="record_city_reply" />
               <el-option label="发起考古流转" value="submit_archaeology_request" />
               <el-option label="录入考古与批复结果" value="record_archaeology_reply" />
+              <el-option label="录入复函结果（含直接复函）" value="record_city_reply" />
               <el-option label="办结归档" value="archive_case" />
             </el-select>
             <el-button type="primary" :loading="processing" @click="runWorkflowAction">执行流程动作</el-button>
@@ -188,6 +183,7 @@ import {
   uploadProjectFile,
   verifyProjectSpatialSafety
 } from '../../api/projectApi'
+import OfficialDocumentGenerator from '../../components/projects/OfficialDocumentGenerator.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -303,15 +299,17 @@ async function loadDetail() {
 }
 
 function applyDecisionBranch() {
-  const mapping = {
-    NO_HERITAGE: 'record_city_reply',
-    IMMOVABLE_HERITAGE: 'complete_field_check',
-    PROTECTION_ZONE: 'submit_archaeology_request',
-    CONTROL_ZONE: 'submit_archaeology_request',
-    UNDERGROUND_HERITAGE: 'submit_archaeology_request',
-    NEED_MORE_INVESTIGATION: 'complete_field_check',
+  const overlap = Boolean(detail.is_overlap_artifact)
+  const feasible = Boolean(detail.is_feasible_by_level)
+
+  if (!overlap || decisionType.value === 'NO_HERITAGE') {
+    workflow.action = 'record_city_reply'
+  } else if (feasible) {
+    workflow.action = 'submit_city_request'
+  } else {
+    workflow.action = 'record_city_reply'
   }
-  workflow.action = mapping[decisionType.value] || ''
+
   ElMessage.success(`已应用分支建议：${workflow.action || '未匹配动作'}`)
 }
 

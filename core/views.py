@@ -36,7 +36,10 @@ from django.conf import settings
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 from django.core.files.storage import default_storage
+from docxtpl import DocxTemplate
 from docx import Document
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 from docx.shared import Mm, Pt
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 from PIL import Image as PILImage
@@ -53,6 +56,7 @@ from django.shortcuts import get_object_or_404
 from django.contrib import messages
 from heritage_system.version import VERSION, VERSION_HISTORY
 from .permission_decorators import is_management_admin, is_limited_admin
+from system.models import SystemConfig
 from utils.dem_handler import describe_tile, get_dem_elevation
 
 User = get_user_model()
@@ -72,6 +76,7 @@ LAND_PROJECT_ACTION_LABELS = {
     'submit_archaeology_request': '发起考古流转',
     'record_archaeology_reply': '录入考古批复结果',
     'archive_case': '办结归档',
+    'generate_official_document': '生成公文',
 }
 
 
@@ -1572,6 +1577,16 @@ def land_project_detail_api(request, project_id):
         for item in project.operation_logs.select_related('operator').all()[:200]
     ]
 
+    overlap_rows = project.overlapped_relics_info if isinstance(project.overlapped_relics_info, list) else []
+    has_high_level_overlap = any((row or {}).get('site_level') in {'GB', 'SB'} for row in overlap_rows)
+    is_feasible_by_level = not has_high_level_overlap
+    if not project.is_overlap_artifact:
+        workflow_advice = '未涉及文物，可直接向项目方出具不涉及文物标准复函。'
+    elif is_feasible_by_level:
+        workflow_advice = '涉及文物但未触及自治区及以上级别，可按流程上报市局并进入考古调查。'
+    else:
+        workflow_advice = '涉及自治区及以上级别文物，项目不可行，应直接向项目方出具不予同意复函。'
+
     return JsonResponse({
         'success': True,
         'data': {
@@ -1585,6 +1600,9 @@ def land_project_detail_api(request, project_id):
             'misc_zip_url': f"/api/land-projects/{project.id}/download-misc-zip/" if project.misc_zip_path else '',
             'is_overlap_artifact': project.is_overlap_artifact,
             'overlapped_relics_info': project.overlapped_relics_info,
+            'is_feasible_by_level': is_feasible_by_level,
+            'has_high_level_overlap': has_high_level_overlap,
+            'workflow_advice': workflow_advice,
             'status': project.status,
             'status_label': project.get_status_display(),
             'field_check_date': project.field_check_date.isoformat() if project.field_check_date else '',
@@ -1595,7 +1613,7 @@ def land_project_detail_api(request, project_id):
             'region_approval_num': project.region_approval_num,
             'city_final_reply_num': project.city_final_reply_num,
             'final_reply_to_company': project.final_reply_to_company,
-            'controls': get_status_controls(project.status),
+            'controls': get_status_controls(project.status, project),
             'field_photos': photo_rows,
             'operation_logs': operation_logs,
             'created_at': project.created_at.strftime('%Y-%m-%d %H:%M'),
@@ -1931,8 +1949,661 @@ def land_project_controls_api(request, project_id):
         'project_id': str(project.id),
         'status': project.status,
         'status_label': project.get_status_display(),
-        'controls': get_status_controls(project.status),
+        'controls': get_status_controls(project.status, project),
     })
+
+
+def _resolve_official_doc_template_path(document_type):
+    template_map = {
+        'requestInstruction': [
+            'qing_shi.docx',
+            '上行文-2026-11号  关于国网吐鲁番供电公司东进坎变至底湖变35千伏线路新建工程选址征求文物保护工作意见的请示.docx',
+        ],
+        'replyLetter': [
+            'fu_han.docx',
+            '给企业回函-关于国网吐鲁番供电公司东进坎变至底湖变35千伏线路新建工程选址涉及文物保护.docx',
+        ],
+    }
+
+    candidates = template_map.get(document_type, [])
+    if not candidates:
+        return None
+
+    search_dirs = [
+        os.path.join(settings.BASE_DIR, '模板'),
+        os.path.join(settings.BASE_DIR, 'templates', 'documents'),
+    ]
+
+    for directory in search_dirs:
+        for filename in candidates:
+            path = os.path.join(directory, filename)
+            if os.path.exists(path):
+                return path
+    return None
+
+
+def _is_blank(value):
+    return value is None or (isinstance(value, str) and not value.strip())
+
+
+def _get_nested(data, path):
+    current = data
+    for key in path.split('.'):
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return current
+
+
+def _validate_official_doc_payload(payload):
+    if not isinstance(payload, dict):
+        raise ValueError('请求体必须是 JSON 对象')
+
+    document_type = (payload.get('documentType') or '').strip()
+    if document_type not in {'requestInstruction', 'replyLetter'}:
+        raise ValueError('documentType 必须为 requestInstruction 或 replyLetter')
+
+    common_required = [
+        ('mainRecipient', 'mainRecipient（主送机关）'),
+        ('issueDate', 'issueDate（发文日期）'),
+    ]
+    request_required = [
+        ('requestData.issueReason', 'requestData.issueReason（请示事由）'),
+        ('requestData.bodyHighlights', 'requestData.bodyHighlights（请示正文要点）'),
+        ('requestData.requestInstruction', 'requestData.requestInstruction（请示事项）'),
+    ]
+    reply_required = [
+        ('replyData.incomingOpinionSummary', 'replyData.incomingOpinionSummary（来文要点）'),
+        ('replyData.bodyHighlights', 'replyData.bodyHighlights（复函要点）'),
+    ]
+
+    required_rules = list(common_required)
+    if document_type == 'requestInstruction':
+        required_rules.extend(request_required)
+    else:
+        required_rules.extend(reply_required)
+
+    missing_fields = []
+    for field_path, label in required_rules:
+        value = _get_nested(payload, field_path)
+        if _is_blank(value):
+            missing_fields.append(label)
+
+    if missing_fields:
+        joined = '、'.join(missing_fields)
+        raise ValueError(f'以下字段为必填：{joined}')
+
+
+def _extract_project_coordinates_from_kml(project):
+    """从项目KML中提取坐标点列表，供 docxtpl 模板循环渲染。"""
+    if not project.kml_file_path:
+        return []
+    if not default_storage.exists(project.kml_file_path):
+        return []
+
+    try:
+        with default_storage.open(project.kml_file_path, 'rb') as fp:
+            kml_bytes = fp.read()
+    except Exception:
+        logger.exception('读取项目KML失败，已跳过坐标注入: project_id=%s', project.id)
+        return []
+
+    try:
+        root = ET.fromstring(kml_bytes)
+    except Exception:
+        logger.exception('解析项目KML失败，已跳过坐标注入: project_id=%s', project.id)
+        return []
+
+    def local_tag(tag):
+        return tag.split('}', 1)[-1] if '}' in tag else tag
+
+    raw_points = []
+    for node in root.iter():
+        if local_tag(node.tag) != 'coordinates' or not node.text:
+            continue
+        coord_text = node.text
+        for token in str(coord_text).replace('\n', ' ').replace('\t', ' ').split():
+            parts = token.split(',')
+            if len(parts) < 2:
+                continue
+            try:
+                lon = float(parts[0])
+                lat = float(parts[1])
+            except (TypeError, ValueError):
+                continue
+            raw_points.append((lon, lat))
+
+    if not raw_points:
+        return []
+
+    # 去重：去除连续重复点及末尾闭合重复点。
+    deduped = []
+    for lon, lat in raw_points:
+        if deduped and abs(deduped[-1][0] - lon) < 1e-10 and abs(deduped[-1][1] - lat) < 1e-10:
+            continue
+        deduped.append((lon, lat))
+    if len(deduped) >= 2:
+        first = deduped[0]
+        last = deduped[-1]
+        if abs(first[0] - last[0]) < 1e-10 and abs(first[1] - last[1]) < 1e-10:
+            deduped = deduped[:-1]
+
+    coords = []
+    for idx, (lon, lat) in enumerate(deduped, start=1):
+        coords.append({
+            'index': idx,
+            'pointNo': f'P{idx:02d}',
+            'longitude': lon,
+            'latitude': lat,
+            'longitudeFixed6': f'{lon:.6f}',
+            'latitudeFixed6': f'{lat:.6f}',
+        })
+    return coords
+
+
+def _collect_missing_template_variables(template, context):
+    """检查模板占位符缺失，返回缺失变量列表。"""
+    try:
+        # docxtpl>=0.16 支持传 context 返回未声明变量。
+        missing = template.get_undeclared_template_variables(context)
+    except TypeError:
+        missing = template.get_undeclared_template_variables()
+    except Exception:
+        logger.exception('模板变量检查失败，将继续尝试渲染')
+        return []
+
+    missing_list = sorted([str(item) for item in (missing or set()) if str(item).strip()])
+    return missing_list
+
+
+DEFAULT_DEEPSEEK_SYSTEM_PROMPT = """
+<system_role>
+你是一位精通中国《党政机关公文格式》(GB/T 9704-2012)及公文写作规范的资深办公室秘书。你的任务是将用户提供的粗糙、口语化的文物管理业务要点，转化为措辞严谨、政治站位高、符合公文格式要求的规范文本。
+</system_role>
+
+<constraints>
+1. 语气必须克制、庄重、严谨，多用公文惯用语（如“提请审议”、“批复为盼”、“特此函复”）。
+2. 绝不泄露机密，所有指代不明的单位和地名使用占位符（如“某单位”、“某地”）或通用历史代称。
+3. 必须输出纯 JSON 字符串，不得包含任何 Markdown 的 ```json 块标记，不得包含任何首尾的解释性文字。
+</constraints>
+
+<response_format>
+你必须根据用户的公文类型，输出以下 JSON 结构之一：
+
+【如果类型是请示(qing_shi)】：
+{
+  "mainRecipient": "主送机关(如：某市文化和旅游局：)",
+  "title": "公文标题(二号字标准，格式通常为：关于XXXX的请示)",
+  "heading1": "一、 请示背景与缘由(三号黑体标准)",
+  "bodyText1": "正文第一段(三号仿宋，阐述因由，比如结合四普工作或建设工程需要)",
+  "heading2": "二、 拟办意见与请示事项",
+  "bodyText2": "正文第二段(明确提出请求市局协调、查询的具体文物范围事项)",
+  "footerOrg": "发文单位(如：某县文化和旅游局)",
+  "footerDate": "CURRENT_YEAR年X月X日"
+}
+
+【如果类型是复函(fu_han)】：
+{
+  "mainRecipient": "主送机关(如：某建设工程有限公司：)",
+  "title": "公文标题(关于XXXX的复函)",
+  "heading1": "一、 核查基本情况",
+  "bodyText1": "回应企业，说明收到市局批复意见后，经核查该文物保护范围的情况...",
+  "heading2": "二、 具体处理意见与要求",
+  "bodyText2": "对企业提出的施工或查询要求，给出明确的文保合规性答复与后续遵照执行的要求...",
+  "footerOrg": "发文单位",
+  "footerDate": "CURRENT_YEAR年X月X日"
+}
+</response_format>
+""".strip()
+
+
+def _get_system_config_value(key, default=''):
+    value = SystemConfig.objects.filter(key=key).values_list('value', flat=True).first()
+    if value is None or str(value).strip() == '':
+        return default
+    return str(value)
+
+
+def _parse_ai_json_content(content):
+    text = (content or '').strip()
+    if not text:
+        raise ValueError('AI 返回为空')
+
+    if text.startswith('```'):
+        lines = text.splitlines()
+        if len(lines) >= 3 and lines[0].startswith('```') and lines[-1].startswith('```'):
+            text = '\n'.join(lines[1:-1]).strip()
+
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f'AI 返回内容不是合法 JSON：{exc.msg}')
+
+    if not isinstance(parsed, dict):
+        raise ValueError('AI 返回 JSON 必须是对象')
+    return parsed
+
+
+def _validate_ai_result_fields(doc_type, ai_result):
+    required = [
+        'mainRecipient',
+        'title',
+        'heading1',
+        'bodyText1',
+        'heading2',
+        'bodyText2',
+        'footerOrg',
+        'footerDate',
+    ]
+
+    missing = []
+    for key in required:
+        value = ai_result.get(key)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            missing.append(key)
+
+    if missing:
+        joined = '、'.join(missing)
+        raise ValueError(f'AI 返回 JSON 缺少必要字段：{joined}')
+
+
+def _build_project_feasibility_context(project):
+    """根据重叠文物级别生成可行性结论与不可行原因文本。"""
+    overlap_rows = project.overlapped_relics_info if isinstance(project.overlapped_relics_info, list) else []
+    high_level_rows = [
+        row for row in overlap_rows
+        if isinstance(row, dict) and (row.get('site_level') in {'GB', 'SB'} or row.get('is_high_level_protected'))
+    ]
+
+    level_map = {
+        'GB': '全国重点文物保护单位',
+        'SB': '自治区级文物保护单位',
+        'XB': '县级文物保护单位',
+        'DS': '尚未定级的不可移动文物',
+    }
+    high_level_table_rows = []
+    for idx, row in enumerate(high_level_rows, start=1):
+        site_level = (row.get('site_level') or '').strip()
+        site_level_label = (row.get('site_level_label') or '').strip() or level_map.get(site_level, site_level)
+        high_level_table_rows.append({
+            'index': idx,
+            'heritageName': (row.get('heritage_name') or '').strip(),
+            'heritageLevel': site_level,
+            'heritageLevelLabel': site_level_label,
+            'conflictType': (row.get('zone_type') or '').strip(),
+        })
+
+    has_overlap = bool(project.is_overlap_artifact)
+    has_high_level_overlap = bool(high_level_rows)
+    is_feasible_by_level = not has_high_level_overlap
+
+    if not has_overlap:
+        infeasible_reason = ''
+        workflow_advice = '未涉及文物，可直接向项目方出具不涉及文物标准复函。'
+        conclusion = '经核查，该项目不涉及文物保护范围，可按程序推进。'
+    elif is_feasible_by_level:
+        infeasible_reason = ''
+        workflow_advice = '涉及文物但未触及自治区及以上级别，可按流程上报市局并进入考古调查。'
+        conclusion = '经核查，该项目涉及文物，但未触及自治区及以上级别文物，可按程序上报并开展后续考古调查。'
+    else:
+        names = [
+            (row.get('heritage_name') or '').strip()
+            for row in high_level_rows
+            if isinstance(row, dict)
+        ]
+        unique_names = [name for idx, name in enumerate(names) if name and name not in names[:idx]]
+        level_scope = '自治区及以上级别文物'
+        if unique_names:
+            heritage_text = '、'.join(unique_names[:5])
+            infeasible_reason = f'项目范围涉及{level_scope}（{heritage_text}）'
+        else:
+            infeasible_reason = f'项目范围涉及{level_scope}'
+        workflow_advice = '涉及自治区及以上级别文物，项目不可行，应直接向项目方出具不予同意复函。'
+        conclusion = f'经核查，{infeasible_reason}，依据文物保护相关要求，不予同意该项目选址。'
+
+    return {
+        'hasOverlapArtifact': has_overlap,
+        'hasHighLevelOverlap': has_high_level_overlap,
+        'isFeasibleByLevel': is_feasible_by_level,
+        'infeasibleReason': infeasible_reason,
+        'workflowAdvice': workflow_advice,
+        'replyConclusion': conclusion,
+        'highLevelOverlapItems': high_level_rows,
+        'highLevelOverlapTableRows': high_level_table_rows,
+    }
+
+
+def _generate_official_doc_json_with_deepseek(payload, project):
+    try:
+        from openai import OpenAI
+    except Exception as exc:
+        raise ValueError(f'缺少 openai SDK 依赖，请先安装：{exc}')
+
+    doc_type = (payload.get('docType') or '').strip()
+    user_input = (payload.get('userInput') or '').strip()
+    if doc_type not in {'qing_shi', 'fu_han'}:
+        raise ValueError('docType 必须为 qing_shi 或 fu_han')
+    if not user_input:
+        raise ValueError('userInput 不能为空')
+
+    api_key = _get_system_config_value('deepseek.api_key', '')
+    if not api_key:
+        raise ValueError('未配置 DeepSeek API Key，请前往系统管理-DeepSeek配置填写')
+
+    base_url = _get_system_config_value('deepseek.base_url', 'https://api.deepseek.com/v1').strip()
+    model_name = _get_system_config_value('deepseek.model', 'deepseek-chat').strip() or 'deepseek-chat'
+    system_prompt = _get_system_config_value('deepseek.system_prompt', DEFAULT_DEEPSEEK_SYSTEM_PROMPT)
+    temperature_text = _get_system_config_value('deepseek.temperature', '0.3').strip()
+    try:
+        temperature = float(temperature_text)
+    except (TypeError, ValueError):
+        temperature = 0.3
+
+    year_text = str(timezone.localdate().year)
+    system_prompt = system_prompt.replace('CURRENT_YEAR', year_text)
+
+    doc_label = '请示' if doc_type == 'qing_shi' else '复函'
+    feasibility = _build_project_feasibility_context(project)
+    feasibility_hint = ''
+    if doc_type == 'fu_han':
+        if feasibility.get('hasHighLevelOverlap'):
+            feasibility_hint = (
+                f"\n【核验结论约束】：{feasibility.get('infeasibleReason')}，"
+                "本项目选址不予同意。请在正文处理意见中明确写出“不予同意选址”结论。"
+            )
+        elif feasibility.get('hasOverlapArtifact'):
+            feasibility_hint = (
+                "\n【核验结论约束】：项目涉及文物但未触及自治区及以上级别，"
+                "可进入上报与考古流程，复函中应写明后续遵循程序要求。"
+            )
+        else:
+            feasibility_hint = (
+                "\n【核验结论约束】：项目不涉及文物，复函应写明“不涉及文物保护范围”。"
+            )
+
+    user_prompt = (
+        f"请根据以下用户输入，撰写一份《{doc_label}》并严格返回 JSON。\n\n"
+        f"【项目名称】：{project.project_name or '某项目'}\n"
+        f"【企业单位】：{project.company_name or '某单位'}\n"
+        f"【用户输入】：{user_input}"
+        f"{feasibility_hint}"
+    )
+
+    client = OpenAI(api_key=api_key, base_url=base_url)
+    try:
+        response = client.chat.completions.create(
+            model=model_name,
+            messages=[
+                {'role': 'system', 'content': system_prompt},
+                {'role': 'user', 'content': user_prompt},
+            ],
+            temperature=temperature,
+        )
+    except Exception as exc:
+        raise ValueError(f'DeepSeek API 调用失败：{exc}')
+
+    content = ''
+    try:
+        content = response.choices[0].message.content or ''
+    except Exception:
+        pass
+
+    ai_result = _parse_ai_json_content(content)
+    _validate_ai_result_fields(doc_type, ai_result)
+
+    if doc_type == 'fu_han' and feasibility.get('hasHighLevelOverlap'):
+        enforce_sentence = feasibility.get('replyConclusion') or '经核查，该项目选址不予同意。'
+        original = str(ai_result.get('bodyText2') or '').strip()
+        if enforce_sentence not in original:
+            merged = f"{original} {enforce_sentence}".strip() if original else enforce_sentence
+            ai_result['bodyText2'] = merged
+
+    return ai_result
+
+
+def _build_official_doc_context(project, payload):
+    request_data = payload.get('requestData') if isinstance(payload.get('requestData'), dict) else {}
+    reply_data = payload.get('replyData') if isinstance(payload.get('replyData'), dict) else {}
+
+    feasibility = _build_project_feasibility_context(project)
+
+    context = {
+        'projectId': str(project.id),
+        'projectName': project.project_name or '',
+        'companyName': project.company_name or '',
+        'incomingDocDate': project.incoming_doc_date.isoformat() if project.incoming_doc_date else '',
+        'receiveDate': project.receive_date.isoformat() if project.receive_date else '',
+        'documentType': payload.get('documentType') or '',
+        'mainRecipient': payload.get('mainRecipient') or '',
+        'issueDate': payload.get('issueDate') or '',
+        'projectCoordinates': _extract_project_coordinates_from_kml(project),
+        'hasOverlapArtifact': feasibility.get('hasOverlapArtifact', False),
+        'hasHighLevelOverlap': feasibility.get('hasHighLevelOverlap', False),
+        'isFeasibleByLevel': feasibility.get('isFeasibleByLevel', True),
+        'infeasibleReason': feasibility.get('infeasibleReason', ''),
+        'workflowAdvice': feasibility.get('workflowAdvice', ''),
+        'replyConclusion': feasibility.get('replyConclusion', ''),
+        'highLevelOverlapItems': feasibility.get('highLevelOverlapItems', []),
+        'highLevelOverlapTableRows': feasibility.get('highLevelOverlapTableRows', []),
+        'highLevelOverlapTableLoopSnippet': (
+            '{% for item in highLevelOverlapTableRows %}\n'
+            '{{ item.index }}  {{ item.heritageName }}  {{ item.heritageLevelLabel }}  {{ item.conflictType }}\n'
+            '{% endfor %}'
+        ),
+        'requestData': request_data,
+        'replyData': reply_data,
+    }
+
+    # 平铺常用字段，便于模板中直接使用 {{ issueReason }} 这类变量。
+    context.update(request_data)
+    context.update(reply_data)
+    return context
+
+
+def _remove_paragraph(paragraph):
+    element = paragraph._element
+    parent = element.getparent()
+    if parent is not None:
+        parent.remove(element)
+
+
+def _copy_section_layout(template_section, target_section):
+    target_section.top_margin = template_section.top_margin
+    target_section.bottom_margin = template_section.bottom_margin
+    target_section.left_margin = template_section.left_margin
+    target_section.right_margin = template_section.right_margin
+    target_section.header_distance = template_section.header_distance
+    target_section.footer_distance = template_section.footer_distance
+    target_section.page_height = template_section.page_height
+    target_section.page_width = template_section.page_width
+    target_section.orientation = template_section.orientation
+    target_section.gutter = template_section.gutter
+
+
+def _move_request_signature_to_page_bottom(doc, context):
+    """将上行文落款放入页脚，并通过条件域仅在最后一页显示。"""
+    footer_org = str(context.get('footerOrg') or context.get('issuerUnit') or '').strip()
+    footer_date = str(context.get('footerDate') or context.get('issueDate') or '').strip()
+    if not footer_org and not footer_date:
+        return
+
+    def _clear_footer(footer_obj):
+        for paragraph in list(footer_obj.paragraphs):
+            _remove_paragraph(paragraph)
+
+    def _append_field_char(run, fld_type):
+        node = OxmlElement('w:fldChar')
+        node.set(qn('w:fldCharType'), fld_type)
+        if fld_type == 'begin':
+            node.set(qn('w:dirty'), 'true')
+        run._r.append(node)
+
+    def _append_instr_text(run, text):
+        instr = OxmlElement('w:instrText')
+        instr.set(qn('xml:space'), 'preserve')
+        instr.text = text
+        run._r.append(instr)
+
+    def _append_nested_field(run, field_name):
+        _append_field_char(run, 'begin')
+        _append_instr_text(run, f' {field_name} ')
+        _append_field_char(run, 'separate')
+        _append_field_char(run, 'end')
+
+    def _append_last_page_only_field(paragraph, text):
+        run = paragraph.add_run()
+        _append_field_char(run, 'begin')
+        _append_instr_text(run, ' IF ')
+        _append_nested_field(run, 'PAGE')
+        _append_instr_text(run, ' = ')
+        _append_nested_field(run, 'NUMPAGES')
+        escaped = str(text).replace('"', '\\"')
+        _append_instr_text(run, f' "{escaped}" "" ')
+        _append_field_char(run, 'separate')
+        run_text = paragraph.add_run(text)
+        run_text.font.name = '仿宋'
+        _append_field_char(paragraph.add_run(), 'end')
+
+    # 所有节页脚都放置“仅最后一页显示”的条件域，确保多节文档也只在最后页出落款。
+    for section in doc.sections:
+        section.footer.is_linked_to_previous = False
+        footer = section.footer
+        _clear_footer(footer)
+        if footer_org:
+            p_org = footer.add_paragraph()
+            p_org.alignment = WD_PARAGRAPH_ALIGNMENT.RIGHT
+            _append_last_page_only_field(p_org, footer_org)
+        if footer_date:
+            p_date = footer.add_paragraph()
+            p_date.alignment = WD_PARAGRAPH_ALIGNMENT.RIGHT
+            _append_last_page_only_field(p_date, footer_date)
+
+    # 清理正文末尾同名落款，避免正文和页脚重复。
+    target_texts = {text for text in [footer_org, footer_date] if text}
+    if not target_texts:
+        return
+
+    tail_paragraphs = doc.paragraphs[-12:] if len(doc.paragraphs) > 12 else doc.paragraphs
+    for paragraph in list(reversed(tail_paragraphs)):
+        text = (paragraph.text or '').strip()
+        if text in target_texts:
+            _remove_paragraph(paragraph)
+
+
+def _postprocess_generated_docx(template_path, rendered_buffer, context, document_type):
+    """渲染后统一版式：锁定页边距/页面参数，并处理上行文落款底部固定。"""
+    rendered_buffer.seek(0)
+    generated_doc = Document(rendered_buffer)
+    template_doc = Document(template_path)
+
+    if template_doc.sections and generated_doc.sections:
+        base_template_section = template_doc.sections[0]
+        for section in generated_doc.sections:
+            _copy_section_layout(base_template_section, section)
+
+    if document_type == 'requestInstruction':
+        _move_request_signature_to_page_bottom(generated_doc, context)
+
+    final_buffer = io.BytesIO()
+    generated_doc.save(final_buffer)
+    final_buffer.seek(0)
+    return final_buffer
+
+
+@csrf_exempt
+@require_POST
+@staff_member_required
+def land_project_generate_document_api(request, project_id):
+    """根据前端 JSON 数据渲染公文模板并以内存流返回 DOCX。"""
+    if not is_management_admin(request.user):
+        return JsonResponse({'success': False, 'message': '无权限'}, status=403)
+
+    project = LandUseProjectApproval.objects.filter(id=project_id).first()
+    if not project:
+        return JsonResponse({'success': False, 'message': '项目不存在'}, status=404)
+
+    try:
+        payload = _load_json_payload(request)
+    except ValueError as exc:
+        return JsonResponse({'success': False, 'message': str(exc)}, status=400)
+
+    # 兼容两种模式：
+    # 1) 旧版手工字段渲染：documentType + requestData/replyData
+    # 2) AI模式：docType + userInput，由 DeepSeek 生成规范 JSON 后渲染
+    ai_mode = 'docType' in payload or 'userInput' in payload
+    if ai_mode:
+        doc_type = (payload.get('docType') or '').strip()
+        if doc_type not in {'qing_shi', 'fu_han'}:
+            return JsonResponse({'success': False, 'message': 'docType 必须为 qing_shi 或 fu_han'}, status=400)
+        document_type = 'requestInstruction' if doc_type == 'qing_shi' else 'replyLetter'
+    else:
+        try:
+            _validate_official_doc_payload(payload)
+        except ValueError as exc:
+            return JsonResponse({'success': False, 'message': str(exc)}, status=400)
+        document_type = (payload.get('documentType') or '').strip()
+
+    template_path = _resolve_official_doc_template_path(document_type)
+    if not template_path:
+        expected = 'qing_shi.docx' if document_type == 'requestInstruction' else 'fu_han.docx'
+        return JsonResponse({'success': False, 'message': f'模板文件不存在，请在服务器模板目录放置 {expected}'}, status=500)
+
+    try:
+        template = DocxTemplate(template_path)
+        context = _build_official_doc_context(project, payload)
+        if ai_mode:
+            try:
+                ai_result = _generate_official_doc_json_with_deepseek(payload, project)
+            except ValueError as exc:
+                return JsonResponse({'success': False, 'message': str(exc)}, status=400)
+            context.update(ai_result)
+            context['aiGenerated'] = ai_result
+
+        missing_vars = _collect_missing_template_variables(template, context)
+        if missing_vars:
+            joined = '、'.join(missing_vars)
+            return JsonResponse(
+                {
+                    'success': False,
+                    'message': f'模板存在未提供的变量：{joined}',
+                    'missing_variables': missing_vars,
+                },
+                status=400,
+            )
+
+        template.render(context)
+
+        rendered_output = io.BytesIO()
+        template.save(rendered_output)
+        output = _postprocess_generated_docx(template_path, rendered_output, context, document_type)
+
+        issue_date = str(payload.get('issueDate') or timezone.localdate().isoformat())
+        base_name = '上报请示' if document_type == 'requestInstruction' else '企业复函'
+        download_name = f'{base_name}-{issue_date}.docx'
+
+        _record_land_project_operation(
+            project=project,
+            user=request.user,
+            action='generate_official_document',
+            payload={
+                'documentType': document_type,
+                'aiMode': ai_mode,
+                'templatePath': os.path.basename(template_path),
+                'downloadName': download_name,
+            },
+            status_before=project.status,
+            status_after=project.status,
+        )
+
+        return FileResponse(
+            output,
+            as_attachment=True,
+            filename=download_name,
+            content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        )
+    except Exception:
+        logger.exception('生成公文失败: project_id=%s, document_type=%s', project_id, document_type)
+        return JsonResponse({'success': False, 'message': '公文生成失败，请检查模板占位符与上下文字段'}, status=500)
 
 
 @staff_member_required
