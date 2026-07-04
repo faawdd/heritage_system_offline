@@ -1,6 +1,7 @@
 from django.urls import path
 
 from system.views import (
+    DeepSeekConfigAPIView,
     ChangePasswordAPIView,
     LoginLogListAPIView,
     MenuListAPIView,
@@ -38,4 +39,5 @@ urlpatterns = [
     path('menus/<int:menu_id>/', MenuDetailAPIView.as_view(), name='menu_detail'),
     path('login-log/', LoginLogListAPIView.as_view(), name='login_log'),
     path('operation-log/', OperationLogListAPIView.as_view(), name='operation_log'),
+    path('ai-config/deepseek/', DeepSeekConfigAPIView.as_view(), name='deepseek_config'),
 ]
