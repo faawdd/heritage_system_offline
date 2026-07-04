@@ -200,8 +200,8 @@ def _parse_zone_rings(zone_text: str) -> List[List[Tuple[float, float]]]:
 def verify_project_spatial_safety(project_id):
     """
     核心空间核验函数：
-    - 读取项目KML
-    - 与不可移动文物保护范围/建控地带做相交测试
+    - 读取项目已上传KML文件
+    - 直接调用 KML 叠加检查后端（特征解析 + 冲突分析）
     - 自动回写状态、重叠标记与重叠清单
     """
     project = LandUseProjectApproval.objects.filter(id=project_id).first()
@@ -212,45 +212,39 @@ def verify_project_spatial_safety(project_id):
     if not default_storage.exists(project.kml_file_path):
         raise ValueError('KML文件不存在或已被移除')
 
+    from . import views as legacy_views
+
     with default_storage.open(project.kml_file_path, 'rb') as fp:
-        project_rings = _extract_polygon_rings_from_kml_bytes(fp.read())
+        content = fp.read()
 
-    if not project_rings:
-        raise ValueError('KML未识别到有效面数据，请检查文件是否为面要素')
+    features = legacy_views._extract_features_from_upload(project.kml_file_path, content)
+    if not features:
+        raise ValueError('KML未识别到有效要素，请检查文件格式与坐标内容')
 
+    # 与 KML 管理页保持一致：默认 50 米阈值叠加核验。
+    threshold_m = 50
+    conflicts = legacy_views._analyze_conflicts(features, threshold_m)
+
+    level_label_map = {code: label for code, label in HeritageSite.LEVEL_CHOICES}
     overlaps = []
-    for site in HeritageSite.objects.only('id', 'name', 'level', 'protection_zone', 'control_zone'):
-        for zone_name, zone_text in (
-            ('保护范围', site.protection_zone),
-            ('建控地带', site.control_zone),
-        ):
-            site_rings = _parse_zone_rings(zone_text)
-            if not site_rings:
-                continue
-
-            hit = False
-            for project_ring in project_rings:
-                if hit:
-                    break
-                for site_ring in site_rings:
-                    if _polygon_intersects(project_ring, site_ring):
-                        hit = True
-                        break
-
-            if hit:
-                overlaps.append({
-                    'heritage_id': site.id,
-                    'heritage_name': site.name,
-                    'site_level': site.level,
-                    'site_level_label': site.get_level_display(),
-                    'is_high_level_protected': site.level in HIGH_PROTECTION_LEVEL_CODES,
-                    'zone_type': zone_name,
-                })
+    for row in conflicts:
+        site_level = (row.get('site_level') or '').strip()
+        overlaps.append({
+            'heritage_id': row.get('site_id'),
+            'heritage_name': row.get('site_name') or '',
+            'site_level': site_level,
+            'site_level_label': level_label_map.get(site_level, site_level),
+            'is_high_level_protected': site_level in HIGH_PROTECTION_LEVEL_CODES,
+            'zone_type': row.get('relation') or '叠加冲突',
+            'distance_m': row.get('distance_m'),
+            'feature_name': row.get('feature_name') or '',
+            'feature_type': row.get('feature_type') or '',
+        })
 
     unique = []
     seen = set()
     for item in overlaps:
-        key = (item['heritage_id'], item['zone_type'])
+        key = (item.get('heritage_id'), item.get('zone_type'), item.get('feature_name'))
         if key in seen:
             continue
         seen.add(key)
