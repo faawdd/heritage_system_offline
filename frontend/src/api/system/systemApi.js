@@ -86,3 +86,13 @@ export async function deleteSystemMenu(menuId) {
   const response = await client.delete(`/api/v1/system/menus/${menuId}/`)
   return response.data
 }
+
+export async function fetchDeepSeekConfig() {
+  const response = await client.get('/api/v1/system/ai-config/deepseek/')
+  return response.data
+}
+
+export async function updateDeepSeekConfig(payload) {
+  const response = await client.put('/api/v1/system/ai-config/deepseek/', payload)
+  return response.data
+}

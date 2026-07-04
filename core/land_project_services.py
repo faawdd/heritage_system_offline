@@ -11,6 +11,9 @@ from django.utils import timezone
 from .models import HeritageSite, LandUseProjectApproval
 
 
+HIGH_PROTECTION_LEVEL_CODES = {'GB', 'SB'}
+
+
 def _local_tag(tag: str) -> str:
     return tag.split('}', 1)[-1] if '}' in tag else tag
 
@@ -216,7 +219,7 @@ def verify_project_spatial_safety(project_id):
         raise ValueError('KML未识别到有效面数据，请检查文件是否为面要素')
 
     overlaps = []
-    for site in HeritageSite.objects.only('id', 'name', 'protection_zone', 'control_zone'):
+    for site in HeritageSite.objects.only('id', 'name', 'level', 'protection_zone', 'control_zone'):
         for zone_name, zone_text in (
             ('保护范围', site.protection_zone),
             ('建控地带', site.control_zone),
@@ -238,6 +241,9 @@ def verify_project_spatial_safety(project_id):
                 overlaps.append({
                     'heritage_id': site.id,
                     'heritage_name': site.name,
+                    'site_level': site.level,
+                    'site_level_label': site.get_level_display(),
+                    'is_high_level_protected': site.level in HIGH_PROTECTION_LEVEL_CODES,
                     'zone_type': zone_name,
                 })
 
@@ -249,6 +255,9 @@ def verify_project_spatial_safety(project_id):
             continue
         seen.add(key)
         unique.append(item)
+
+    has_high_level_overlap = any(item.get('is_high_level_protected') for item in unique)
+    is_feasible_by_level = not has_high_level_overlap
 
     with transaction.atomic():
         project.is_overlap_artifact = bool(unique)
@@ -263,6 +272,7 @@ def verify_project_spatial_safety(project_id):
     return {
         'project_id': str(project.id),
         'is_overlap_artifact': bool(unique),
+        'is_feasible_by_level': is_feasible_by_level,
         'status': project.status,
         'overlapped_relics_info': unique,
     }
@@ -277,8 +287,19 @@ def build_project_media_path(project: LandUseProjectApproval, section: str, file
     return os.path.join(base, filename)
 
 
-def get_status_controls(status: str) -> Dict[str, bool]:
+def _is_feasible_for_overlap(project: LandUseProjectApproval) -> bool:
+    rows = project.overlapped_relics_info if isinstance(project.overlapped_relics_info, list) else []
+    has_high_level = any((row or {}).get('site_level') in HIGH_PROTECTION_LEVEL_CODES for row in rows)
+    return not has_high_level
+
+
+def get_status_controls(status: str, project: LandUseProjectApproval = None) -> Dict[str, bool]:
     """前端按钮控制：基于状态机输出可用操作。"""
+    feasible_overlap = _is_feasible_for_overlap(project) if project else False
+    can_direct_reply = status == LandUseProjectApproval.STATUS_PRELIM_SAFE or (
+        status == LandUseProjectApproval.STATUS_CHECK_OVERLAP and not feasible_overlap
+    )
+
     return {
         'upload_kml': status == LandUseProjectApproval.STATUS_RECEIVED,
         'upload_misc_zip': True,
@@ -287,8 +308,10 @@ def get_status_controls(status: str) -> Dict[str, bool]:
             LandUseProjectApproval.STATUS_PRELIM_SAFE,
             LandUseProjectApproval.STATUS_FIELD_DONE,
         },
-        'input_city_reply': status == LandUseProjectApproval.STATUS_CITY_REVIEWING,
-        'submit_archaeology': status == LandUseProjectApproval.STATUS_CHECK_OVERLAP,
+        'input_city_reply': status == LandUseProjectApproval.STATUS_CITY_REVIEWING or can_direct_reply,
+        'submit_archaeology': (
+            status == LandUseProjectApproval.STATUS_CHECK_OVERLAP and feasible_overlap
+        ) or status == LandUseProjectApproval.STATUS_CITY_REVIEWING,
         'upload_archaeology_report': status == LandUseProjectApproval.STATUS_ARCHAEOLOGY,
         'close_archive': status == LandUseProjectApproval.STATUS_REPLY_RECEIVED,
     }
@@ -307,8 +330,13 @@ def apply_workflow_action(project: LandUseProjectApproval, action: str, payload:
         project.status = LandUseProjectApproval.STATUS_FIELD_DONE
 
     elif action == 'submit_city_request':
-        if project.status != LandUseProjectApproval.STATUS_FIELD_DONE:
+        if project.status not in {
+            LandUseProjectApproval.STATUS_FIELD_DONE,
+            LandUseProjectApproval.STATUS_CHECK_OVERLAP,
+        }:
             raise ValueError('当前状态不允许录入县局请示')
+        if project.status == LandUseProjectApproval.STATUS_CHECK_OVERLAP and not _is_feasible_for_overlap(project):
+            raise ValueError('当前项目涉及自治区及以上级别文物，判定为不可行，不得进入考古上报流程')
         req_num = (payload.get('shanshan_request_num') or '').strip()
         if not re.match(r'^鄯文旅字-\d{4}-\d+号$', req_num):
             raise ValueError('县局请示文号格式错误，应为：鄯文旅字-2026-xx号')
@@ -316,17 +344,33 @@ def apply_workflow_action(project: LandUseProjectApproval, action: str, payload:
         project.status = LandUseProjectApproval.STATUS_CITY_REVIEWING
 
     elif action == 'record_city_reply':
-        if project.status != LandUseProjectApproval.STATUS_CITY_REVIEWING:
-            raise ValueError('当前状态不允许录入市局复函')
-        city_reply_num = (payload.get('city_reply_num') or '').strip()
-        if not city_reply_num:
-            raise ValueError('市局复函号不能为空')
-        project.city_reply_num = city_reply_num
+        if project.status == LandUseProjectApproval.STATUS_CITY_REVIEWING:
+            city_reply_num = (payload.get('city_reply_num') or '').strip()
+            if not city_reply_num:
+                raise ValueError('市局复函号不能为空')
+            project.city_reply_num = city_reply_num
+        elif project.status == LandUseProjectApproval.STATUS_PRELIM_SAFE:
+            final_reply = (payload.get('final_reply_to_company') or '').strip()
+            if not final_reply:
+                raise ValueError('不涉及文物时，需填写给企业最终复函号')
+            project.final_reply_to_company = final_reply
+        elif project.status == LandUseProjectApproval.STATUS_CHECK_OVERLAP and not _is_feasible_for_overlap(project):
+            final_reply = (payload.get('final_reply_to_company') or '').strip()
+            if not final_reply:
+                raise ValueError('项目不可行时，需填写给企业最终复函号')
+            project.final_reply_to_company = final_reply
+        else:
+            raise ValueError('当前状态不允许录入复函结果')
         project.status = LandUseProjectApproval.STATUS_REPLY_RECEIVED
 
     elif action == 'submit_archaeology_request':
-        if project.status != LandUseProjectApproval.STATUS_CHECK_OVERLAP:
+        if project.status not in {
+            LandUseProjectApproval.STATUS_CHECK_OVERLAP,
+            LandUseProjectApproval.STATUS_CITY_REVIEWING,
+        }:
             raise ValueError('当前状态不允许发起考古流转')
+        if project.is_overlap_artifact and not _is_feasible_for_overlap(project):
+            raise ValueError('当前项目涉及自治区及以上级别文物，判定为不可行，不得进入考古流转')
         archaeology_request_num = (payload.get('archaeology_request_num') or '').strip()
         if not archaeology_request_num:
             raise ValueError('考古请示文号不能为空')
