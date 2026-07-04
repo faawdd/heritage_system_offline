@@ -31,6 +31,7 @@ if ($InitDeps) {
 }
 
 $env:DJANGO_DEBUG = "1"
+$env:HERITAGE_OFFLINE_DEBUG = "1"
 $env:DJANGO_FORCE_HTTPS = "0"
 $env:DJANGO_WEB_BASE_URL = "http://${BindHost}:${Port}"
 
@@ -38,7 +39,27 @@ Write-Host "[offline] Running database migrations..."
 & $pythonExe manage.py migrate --noinput
 
 Write-Host "[offline] Ensuring debug super admin account (test/test)..."
-& $pythonExe manage.py shell -c "from django.contrib.auth import get_user_model; from django.contrib.auth.models import Group, Permission; ROLE_SUPER_ADMIN='超级管理员'; ROLE_ADMIN='管理员'; User=get_user_model(); super_group,_=Group.objects.get_or_create(name=ROLE_SUPER_ADMIN); admin_group,_=Group.objects.get_or_create(name=ROLE_ADMIN); super_group.permissions.set(Permission.objects.all()); admin_group.permissions.set(Permission.objects.exclude(content_type__app_label__in=['auth','contenttypes','sessions','admin'])); user,created=User.objects.get_or_create(username='test', defaults={'is_staff':True,'is_superuser':True,'is_active':True,'first_name':'调试账号'}); user.is_staff=True; user.is_superuser=True; user.is_active=True; user.set_password('test'); user.save(); user.groups.add(super_group); print('debug user ensured: test')"
+$debugUserBootstrap = @'
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group, Permission
+
+ROLE_SUPER_ADMIN='\u8d85\u7ea7\u7ba1\u7406\u5458'
+ROLE_ADMIN='\u7ba1\u7406\u5458'
+User = get_user_model()
+super_group, _ = Group.objects.get_or_create(name=ROLE_SUPER_ADMIN)
+admin_group, _ = Group.objects.get_or_create(name=ROLE_ADMIN)
+super_group.permissions.set(Permission.objects.all())
+admin_group.permissions.set(Permission.objects.exclude(content_type__app_label__in=['auth', 'contenttypes', 'sessions', 'admin']))
+user, _ = User.objects.get_or_create(username='test', defaults={'is_staff': True, 'is_superuser': True, 'is_active': True, 'first_name': '\u8c03\u8bd5\u8d26\u53f7'})
+user.is_staff = True
+user.is_superuser = True
+user.is_active = True
+user.set_password('test')
+user.save()
+user.groups.add(super_group)
+print('debug user ensured: test')
+'@
+& $pythonExe manage.py shell -c $debugUserBootstrap
 
 if ($SuperAdminPassword) {
     if (-not $SuperAdminUsername) {

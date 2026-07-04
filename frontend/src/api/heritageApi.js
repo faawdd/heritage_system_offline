@@ -90,7 +90,9 @@ export async function importImmovableHeritage(file) {
 }
 
 export async function fetchAndImportSipuImmovable(payload = {}) {
-  const response = await client.post('/api/v1/heritage/immovable/sipu-fetch-import/', payload)
+  const response = await client.post('/api/v1/heritage/immovable/sipu-fetch-import/', payload, {
+    timeout: 180000
+  })
   return response.data
 }
 

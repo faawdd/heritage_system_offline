@@ -9,6 +9,9 @@ ROLE_ADMIN = '管理员'
 DEFAULT_ADMIN_USERNAME = 'admin'
 DEFAULT_ADMIN_PASSWORD = 'Admin@123456'
 FORCE_RESET_SUPER_ADMIN_PASSWORD = str(os.environ.get('HERITAGE_FORCE_RESET_SUPER_ADMIN_PASSWORD') or '').lower() in {'1', 'true', 'yes', 'on'}
+OFFLINE_DEBUG_MODE = str(os.environ.get('HERITAGE_OFFLINE_DEBUG') or '').lower() in {'1', 'true', 'yes', 'on'}
+OFFLINE_DEBUG_USERNAME = 'test'
+OFFLINE_DEBUG_PASSWORD = 'test'
 
 
 def _resolve_base_dir() -> Path:
@@ -88,6 +91,9 @@ def _configure_gdal_data(app_dir: Path, logger: logging.Logger) -> None:
 
 
 def _load_admin_bootstrap(config_dir: Path, logger: logging.Logger) -> tuple[str, str]:
+  if OFFLINE_DEBUG_MODE:
+    return OFFLINE_DEBUG_USERNAME, OFFLINE_DEBUG_PASSWORD
+
   username = DEFAULT_ADMIN_USERNAME
   password = (os.environ.get('HERITAGE_BOOTSTRAP_ADMIN_PASSWORD') or '').strip()
 
@@ -121,7 +127,7 @@ def _ensure_roles_and_super_admin(config_dir: Path, logger: logging.Logger) -> N
 
   User = get_user_model()
   username, password = _load_admin_bootstrap(config_dir, logger)
-  if not FORCE_RESET_SUPER_ADMIN_PASSWORD:
+  if not OFFLINE_DEBUG_MODE and not FORCE_RESET_SUPER_ADMIN_PASSWORD:
     has_super_admin = User.objects.filter(is_superuser=True, is_active=True).exists() or User.objects.filter(
       is_active=True,
       groups__name=ROLE_SUPER_ADMIN,
