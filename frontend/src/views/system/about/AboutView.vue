@@ -67,10 +67,13 @@
 
       <article class="about-item about-item--wide">
         <h2>版权与说明</h2>
-        <p>
-          本系统用于基层文物保护业务数字化管理，支持离线部署和本地数据留存。
-          如需技术支持，请联系系统维护人员。
-        </p>
+        <p>本系统用于基层文物保护业务数字化管理，支持离线部署和本地数据留存。</p>
+        <ul class="copyright-list">
+          <li><span>版权所有</span><strong>北辰</strong></li>
+          <li><span>作者</span><strong>北辰</strong></li>
+          <li><span>联系邮箱</span><strong>1443469207@qq.com</strong></li>
+          <li><span>联系电话</span><strong>13899665458</strong></li>
+        </ul>
       </article>
     </div>
   </section>
@@ -176,6 +179,10 @@ onMounted(async () => {
 .tech-flow {
   display: grid;
   gap: 12px;
+}
+
+.copyright-list {
+  margin-top: 12px;
 }
 
 @media (max-width: 900px) {
