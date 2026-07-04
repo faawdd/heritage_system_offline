@@ -382,6 +382,7 @@ body {
   height: calc(100vh - 56px - var(--content-padding) - 16px);
   overflow-y: auto;
   padding-right: 2px;
+  min-width: 0;
 }
 
 .content-body--fullscreen {
@@ -476,6 +477,29 @@ body {
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 16px;
+  min-width: 0;
+}
+
+section,
+.page-header,
+.toolbar,
+.action-row,
+.workflow-grid,
+.stats-grid,
+.dashboard-grid,
+.heritage-map-layout {
+  min-width: 0;
+}
+
+.card .el-table,
+.card .el-table__inner-wrapper,
+.card .el-table__body-wrapper,
+.card .el-table__header-wrapper {
+  width: 100%;
+}
+
+.card .el-table__body-wrapper {
+  overflow-x: auto;
 }
 
 .el-button {
@@ -666,5 +690,60 @@ body {
   .heritage-map-canvas,
   .heritage-zone-map {
     height: 420px;
+  }
+}
+
+@media (max-width: 768px) {
+  :root {
+    --content-padding: 12px;
+  }
+
+  .page-header h1 {
+    font-size: 22px;
+    line-height: 1.3;
+  }
+
+  .toolbar,
+  .action-row {
+    align-items: stretch;
+  }
+
+  /* 覆盖各页面大量内联 style="width/max-width"，确保移动端控件可自适应宽度 */
+  .toolbar .el-input,
+  .toolbar .el-select,
+  .toolbar .el-date-editor,
+  .toolbar .el-cascader,
+  .action-row .el-input,
+  .action-row .el-select,
+  .action-row .el-date-editor,
+  .action-row .el-cascader,
+  .toolbar > .el-input,
+  .toolbar > .el-select,
+  .toolbar > .el-date-editor,
+  .toolbar > .el-cascader,
+  .action-row > .el-input,
+  .action-row > .el-select,
+  .action-row > .el-date-editor,
+  .action-row > .el-cascader {
+    width: 100% !important;
+    max-width: none !important;
+  }
+
+  .toolbar .el-button,
+  .action-row .el-button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .workflow-grid,
+  .stats-grid,
+  .dashboard-grid,
+  .heritage-map-layout {
+    grid-template-columns: 1fr !important;
+  }
+
+  .card,
+  .stat-card {
+    padding: 12px;
   }
 }
