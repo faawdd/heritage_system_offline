@@ -4,7 +4,8 @@ export async function fetchProjectList(params = {}) {
   const response = await client.get('/api/v1/projects/', {
     params: {
       q: params.keyword || '',
-      status: params.status || ''
+      status: params.status || '',
+      workflow_path: params.workflowPath || ''
     }
   })
   return response.data

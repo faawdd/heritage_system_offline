@@ -29,7 +29,7 @@
         <h3>流程导航</h3>
         <ul class="step-nav">
           <li
-            v-for="(step, index) in stepList"
+            v-for="(step, index) in navSteps"
             :key="step.key"
             class="step-item"
             :class="stepClass(index)"
@@ -43,7 +43,7 @@
 
       <main class="pane-middle">
         <div class="card pane-card" v-show="activeStep === 'receive'">
-          <h3>① 接收请示 / 收文登记</h3>
+          <h3>接收请示 / 收文登记</h3>
           <el-descriptions :column="2" border>
             <el-descriptions-item label="项目名称">{{ detail.project_name || '-' }}</el-descriptions-item>
             <el-descriptions-item label="企业单位">{{ detail.company_name || '-' }}</el-descriptions-item>
@@ -53,7 +53,7 @@
         </div>
 
         <div class="card pane-card" v-show="activeStep === 'survey'">
-          <h3>② 现场勘查</h3>
+          <h3>空间核验 / 现场勘查</h3>
           <div class="action-row">
             <el-input v-model="workflow.field_check_date" placeholder="勘查日期 YYYY-MM-DD" style="max-width: 220px" />
             <el-button
@@ -66,7 +66,7 @@
         </div>
 
         <div class="card pane-card" v-show="activeStep === 'approval'">
-          <h3>③ 上报审批</h3>
+          <h3>上报市局</h3>
           <div class="workflow-grid compact">
             <el-input v-model="workflow.shanshan_request_num" placeholder="县局请示文号" />
             <el-input v-model="workflow.archaeology_request_num" placeholder="考古请示文号（后续可用）" />
@@ -75,7 +75,7 @@
         </div>
 
         <div class="card pane-card" v-show="activeStep === 'reply'">
-          <h3>④ 上级批复</h3>
+          <h3>复函项目方</h3>
           <div class="workflow-grid compact">
             <el-input v-model="workflow.city_reply_num" placeholder="市局复函号（有则填写）" />
             <el-input v-model="workflow.final_reply_to_company" placeholder="给企业最终复函号" />
@@ -84,7 +84,7 @@
         </div>
 
         <div class="card pane-card" v-show="activeStep === 'decision'">
-          <h3>⑤ 是否涉及文物</h3>
+          <h3>涉及性与可行性判定</h3>
           <el-radio-group v-model="decisionType" class="decision-group">
             <el-radio label="NO_HERITAGE">不涉及文物</el-radio>
             <el-radio label="IMMOVABLE_HERITAGE">涉及不可移动文物</el-radio>
@@ -101,7 +101,7 @@
         </div>
 
         <div class="card pane-card" v-show="activeStep === 'followup'">
-          <h3>⑥ 后续流程</h3>
+          <h3>考古调查与批复</h3>
           <div class="workflow-grid compact">
             <el-input v-model="workflow.archaeology_request_num" placeholder="考古请示文号" />
             <el-input v-model="workflow.region_approval_num" placeholder="自治区批复文号" />
@@ -110,7 +110,7 @@
         </div>
 
         <div class="card pane-card" v-show="activeStep === 'archive'">
-          <h3>⑦ 办结归档</h3>
+          <h3>办结归档</h3>
           <div class="action-row">
             <el-button type="primary" :loading="processing" @click="executeAction('archive_case')">办结归档</el-button>
           </div>
@@ -162,6 +162,7 @@
             <div class="timeline-title">{{ event.action_label || event.event_title || '流程操作' }}</div>
             <div class="timeline-detail">
               <span>操作人：{{ event.operator || '-' }}</span>
+              <span>所属环节：{{ event.stageLabel || '流程处理' }}</span>
               <span v-if="event.status_before || event.status_after">状态：{{ event.status_before || '-' }} → {{ event.status_after || '-' }}</span>
             </div>
           </el-timeline-item>
@@ -231,15 +232,54 @@ function fillReactive(target, source) {
   })
 }
 
-const stepList = [
-  { key: 'receive', label: '① 接收请示' },
-  { key: 'survey', label: '② 现场勘查' },
-  { key: 'approval', label: '③ 上报审批' },
-  { key: 'reply', label: '④ 上级批复' },
-  { key: 'decision', label: '⑤ 是否涉及文物' },
-  { key: 'followup', label: '⑥ 后续流程' },
-  { key: 'archive', label: '⑦ 办结归档' },
+const baseStepMeta = [
+  { key: 'receive', label: '接收请示 / 收文登记' },
+  { key: 'survey', label: '空间核验 / 现场勘查' },
+  { key: 'decision', label: '涉及性与可行性判定' },
+  { key: 'approval', label: '上报市局' },
+  { key: 'followup', label: '考古调查与批复' },
+  { key: 'reply', label: '复函项目方' },
+  { key: 'archive', label: '办结归档' }
 ]
+
+const actionStepMap = {
+  create: 'receive',
+  upload_kml: 'survey',
+  verify_spatial_safety: 'decision',
+  complete_field_check: 'survey',
+  submit_city_request: 'approval',
+  submit_archaeology_request: 'followup',
+  record_archaeology_reply: 'followup',
+  record_city_reply: 'reply',
+  archive_case: 'archive',
+  generate_official_document: 'reply'
+}
+
+const stepLabelMap = {
+  receive: '接收请示 / 收文登记',
+  survey: '空间核验 / 现场勘查',
+  decision: '涉及性与可行性判定',
+  approval: '上报市局',
+  followup: '考古调查与批复',
+  reply: '复函项目方',
+  archive: '办结归档'
+}
+
+const navSteps = computed(() => {
+  const overlap = Boolean(detail.is_overlap_artifact)
+  const feasible = Boolean(detail.is_feasible_by_level)
+  const keys = ['receive', 'survey', 'decision']
+
+  if (overlap && feasible) {
+    keys.push('approval', 'followup')
+  }
+  keys.push('reply', 'archive')
+
+  return keys.map((key, index) => ({
+    key,
+    label: `${index + 1}. ${stepLabelMap[key]}`
+  }))
+})
 
 function statusRaw() {
   return String(detail.status || detail.status_label || '').trim()
@@ -258,7 +298,18 @@ function detectStepKeyFromStatus() {
 
 const currentStepIndex = computed(() => {
   const key = detectStepKeyFromStatus()
-  return Math.max(0, stepList.findIndex((step) => step.key === key))
+  const index = navSteps.value.findIndex((step) => step.key === key)
+  if (index >= 0) {
+    return index
+  }
+
+  if (key === 'followup' && !navSteps.value.some((step) => step.key === 'followup')) {
+    return Math.max(0, navSteps.value.findIndex((step) => step.key === 'reply'))
+  }
+  if (key === 'approval' && !navSteps.value.some((step) => step.key === 'approval')) {
+    return Math.max(0, navSteps.value.findIndex((step) => step.key === 'reply'))
+  }
+  return 0
 })
 
 function stepClass(index) {
@@ -272,6 +323,13 @@ const timelineEvents = computed(() => {
     const t1 = new Date(a?.created_at || 0).getTime()
     const t2 = new Date(b?.created_at || 0).getTime()
     return t2 - t1
+  }).map((event) => {
+    const stageKey = actionStepMap[event?.action] || detectStepKeyFromStatus()
+    return {
+      ...event,
+      stageKey,
+      stageLabel: stepLabelMap[stageKey] || '流程处理'
+    }
   })
 })
 
@@ -290,7 +348,14 @@ async function loadDetail() {
     }
     fillReactive(detail, detailRes.data || {})
     fillReactive(controls, controlsRes.controls || {})
-    activeStep.value = detectStepKeyFromStatus()
+    const detected = detectStepKeyFromStatus()
+    activeStep.value = navSteps.value.some((step) => step.key === detected)
+      ? detected
+      : (navSteps.value[0]?.key || 'receive')
+
+    if (!workflow.action) {
+      applyDecisionBranch(false)
+    }
   } catch (error) {
     ElMessage.error(error?.message || '加载失败')
   } finally {
@@ -298,7 +363,7 @@ async function loadDetail() {
   }
 }
 
-function applyDecisionBranch() {
+function applyDecisionBranch(showMessage = true) {
   const overlap = Boolean(detail.is_overlap_artifact)
   const feasible = Boolean(detail.is_feasible_by_level)
 
@@ -310,7 +375,9 @@ function applyDecisionBranch() {
     workflow.action = 'record_city_reply'
   }
 
-  ElMessage.success(`已应用分支建议：${workflow.action || '未匹配动作'}`)
+  if (showMessage) {
+    ElMessage.success(`已应用分支建议：${workflow.action || '未匹配动作'}`)
+  }
 }
 
 async function executeAction(action) {
