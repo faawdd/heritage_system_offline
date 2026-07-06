@@ -1,6 +1,7 @@
 const { app, BrowserWindow, dialog, ipcMain, Menu } = require('electron')
 const path = require('path')
 const fs = require('fs')
+const crypto = require('crypto')
 const { spawn } = require('child_process')
 const http = require('http')
 const net = require('net')
@@ -15,9 +16,17 @@ const DEFAULT_SYSTEM_NAME = '文物管理系统（离线版）'
 let backendProcess = null
 let backendLogStream = null
 let mainWindow = null
+let loginWindow = null
 let initWizardWindow = null
 let runtimeConfig = null
 let bootstrapAdminPassword = ''
+let desktopLoginPassed = false
+
+const LOCAL_ADMIN_USERNAME = 'test'
+const LOCAL_ADMIN_SALT = 'b2f3a1d94c6e7f80'
+const LOCAL_ADMIN_HASH = 'ff966bdaab84e50ef7b3350ed4c1b5b7ad65bd8ff8f360151e0facec47ee6621acaa478b692e9af09c36673a8b4a3b1a8949eb69cb7cd8220610946cb4e63207'
+const LEGACY_LOCAL_ADMIN_USERNAME = 'admin'
+const LEGACY_LOCAL_ADMIN_HASH = '3e7faae0c71b4dc6ef521af75f9db14c07edd1163db5542b81b81201e3a2eda47c0b4a36ca7be01adb5b4c70e747229b4f7ae3bef0387275f710eb9b4a884ed5'
 
 function formatTimestamp(date = new Date()) {
   const pad = (num) => String(num).padStart(2, '0')
@@ -359,6 +368,231 @@ function stopBackend() {
   }
 }
 
+function sanitizeRoutePath(routePath = '/') {
+  const value = String(routePath || '').trim()
+  if (!value) {
+    return '/'
+  }
+  return value.startsWith('/') ? value : `/${value}`
+}
+
+function buildRendererUrl(routePath = '/') {
+  const effectivePort = runtimeConfig?.backendPort || BACKEND_PORT
+  const base = process.env.ELECTRON_START_URL || `http://${BACKEND_HOST}:${effectivePort}`
+  const normalizedBase = base.endsWith('/') ? base.slice(0, -1) : base
+  return `${normalizedBase}${sanitizeRoutePath(routePath)}`
+}
+
+function derivePasswordHash(password, salt) {
+  return crypto.scryptSync(String(password), String(salt), 64).toString('hex')
+}
+
+function safeCompareHash(left, right) {
+  const leftBuffer = Buffer.from(String(left), 'utf-8')
+  const rightBuffer = Buffer.from(String(right), 'utf-8')
+  if (leftBuffer.length !== rightBuffer.length) {
+    return false
+  }
+  return crypto.timingSafeEqual(leftBuffer, rightBuffer)
+}
+
+function verifyLocalAdmin(username, password) {
+  const normalizedUsername = String(username || '').trim()
+  const computedHash = derivePasswordHash(String(password || ''), LOCAL_ADMIN_SALT)
+
+  if (normalizedUsername === LOCAL_ADMIN_USERNAME) {
+    return safeCompareHash(computedHash, LOCAL_ADMIN_HASH)
+  }
+
+  // Backward compatibility for users who still have remembered admin/admin123.
+  if (normalizedUsername === LEGACY_LOCAL_ADMIN_USERNAME) {
+    return safeCompareHash(computedHash, LEGACY_LOCAL_ADMIN_HASH)
+  }
+
+  return false
+}
+
+function resolveMainEntryPath() {
+  if (!runtimeConfig?.openImportAfterInit || process.env.ELECTRON_START_URL) {
+    return '/dashboard?desktop_auth=1'
+  }
+
+  runtimeConfig = {
+    ...runtimeConfig,
+    openImportAfterInit: false,
+  }
+  saveDesktopConfig(runtimeConfig)
+  return '/system/data-management?fromSetup=1&desktop_auth=1'
+}
+
+function createMainWindow(routePath = '/dashboard?desktop_auth=1') {
+  mainWindow = new BrowserWindow({
+    width: 1200,
+    height: 800,
+    minWidth: 1100,
+    minHeight: 700,
+    title: String(runtimeConfig?.systemName || DEFAULT_SYSTEM_NAME),
+    autoHideMenuBar: true,
+    show: false,
+    webPreferences: {
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.cjs'),
+    },
+  })
+
+  mainWindow.once('ready-to-show', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.show()
+      mainWindow.focus()
+    }
+  })
+
+  mainWindow.on('closed', () => {
+    mainWindow = null
+  })
+
+  mainWindow.loadURL(buildRendererUrl(routePath)).catch((error) => {
+    dialog.showErrorBox('主窗口加载失败', String(error?.message || error))
+  })
+}
+
+function createLoginWindow() {
+  loginWindow = new BrowserWindow({
+    width: 420,
+    height: 500,
+    minWidth: 420,
+    maxWidth: 420,
+    minHeight: 500,
+    maxHeight: 500,
+    useContentSize: true,
+    resizable: false,
+    minimizable: true,
+    maximizable: false,
+    fullscreenable: false,
+    frame: false,
+    autoHideMenuBar: true,
+    show: false,
+    title: '登录',
+    webPreferences: {
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.cjs'),
+    },
+  })
+
+  loginWindow.once('ready-to-show', () => {
+    if (loginWindow && !loginWindow.isDestroyed()) {
+      loginWindow.show()
+      loginWindow.focus()
+    }
+  })
+
+  loginWindow.on('closed', () => {
+    loginWindow = null
+    if (!desktopLoginPassed && !mainWindow && process.platform !== 'darwin') {
+      app.quit()
+    }
+  })
+
+  loginWindow.loadURL(buildRendererUrl('/login')).catch((error) => {
+    dialog.showErrorBox('登录窗口加载失败', String(error?.message || error))
+  })
+}
+
+function setupAuthIpc() {
+  ipcMain.handle('auth:login', async (_event, payload = {}) => {
+    try {
+      const username = String(payload?.username || '').trim()
+      const password = String(payload?.password || '')
+
+      if (!username || !password) {
+        return {
+          success: false,
+          message: '请输入用户名和密码',
+        }
+      }
+
+      const verified = verifyLocalAdmin(username, password)
+      if (!verified) {
+        return {
+          success: false,
+          message: '账号或密码错误',
+        }
+      }
+
+      desktopLoginPassed = true
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        createMainWindow(resolveMainEntryPath())
+      } else {
+        mainWindow.show()
+        mainWindow.focus()
+      }
+
+      if (loginWindow && !loginWindow.isDestroyed()) {
+        loginWindow.close()
+      }
+
+      return {
+        success: true,
+        message: '登录成功',
+      }
+    } catch (error) {
+      return {
+        success: false,
+        message: `登录校验失败: ${String(error?.message || error)}`,
+      }
+    }
+  })
+
+  ipcMain.handle('auth:close-login-window', async () => {
+    try {
+      if (loginWindow && !loginWindow.isDestroyed()) {
+        loginWindow.close()
+        return {
+          success: true,
+          message: '窗口已关闭',
+        }
+      }
+
+      return {
+        success: false,
+        message: '登录窗口不存在',
+      }
+    } catch (error) {
+      return {
+        success: false,
+        message: `关闭窗口失败: ${String(error?.message || error)}`,
+      }
+    }
+  })
+
+  ipcMain.handle('auth:logout-to-login', async () => {
+    try {
+      desktopLoginPassed = false
+
+      if (!loginWindow || loginWindow.isDestroyed()) {
+        createLoginWindow()
+      } else {
+        loginWindow.show()
+        loginWindow.focus()
+      }
+
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.close()
+      }
+
+      return {
+        success: true,
+        message: '已退出并返回登录窗口',
+      }
+    } catch (error) {
+      return {
+        success: false,
+        message: `退出失败: ${String(error?.message || error)}`,
+      }
+    }
+  })
+}
+
 function setupInitIpc() {
   ipcMain.handle('desktop-init:get-state', async (_event, payload = {}) => {
     const current = loadDesktopConfig()
@@ -672,37 +906,11 @@ function openInitWizard() {
   })
 }
 
-function createWindow() {
-  mainWindow = new BrowserWindow({
-    width: 1440,
-    height: 900,
-    minWidth: 1100,
-    minHeight: 700,
-    title: String(runtimeConfig?.systemName || DEFAULT_SYSTEM_NAME),
-    autoHideMenuBar: true,
-    webPreferences: {
-      contextIsolation: true,
-      preload: path.join(__dirname, 'preload.cjs'),
-    },
-  })
-
-  const effectivePort = runtimeConfig?.backendPort || BACKEND_PORT
-  let startUrl = process.env.ELECTRON_START_URL || `http://${BACKEND_HOST}:${effectivePort}/`
-  if (!process.env.ELECTRON_START_URL && runtimeConfig?.openImportAfterInit) {
-    startUrl = `http://${BACKEND_HOST}:${effectivePort}/system/data-management?fromSetup=1`
-    runtimeConfig = {
-      ...runtimeConfig,
-      openImportAfterInit: false,
-    }
-    saveDesktopConfig(runtimeConfig)
-  }
-  mainWindow.loadURL(startUrl)
-}
-
 app.whenReady().then(async () => {
   try {
     setupApplicationMenu()
     setupInitIpc()
+    setupAuthIpc()
 
     if (!process.env.ELECTRON_START_URL) {
       const loaded = loadDesktopConfig()
@@ -737,7 +945,7 @@ app.whenReady().then(async () => {
       bootstrapAdminPassword = ''
     }
 
-    createWindow()
+    createLoginWindow()
   } catch (error) {
     dialog.showErrorBox('离线桌面版启动失败', String(error?.message || error))
     app.quit()

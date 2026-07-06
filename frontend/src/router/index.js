@@ -17,7 +17,7 @@ import ImmovableCollectView from '../views/collect/ImmovableCollectView.vue'
 import KmlManagementView from '../views/gis/KmlManagementView.vue'
 import KmlProcessConvertView from '../views/gis/KmlProcessConvertView.vue'
 import OvkmlConvertView from '../views/gis/OvkmlConvertView.vue'
-import LoginView from '../views/system/auth/LoginView.vue'
+import LoginView from '../views/Login.vue'
 import DeepSeekConfigView from '../views/system/admin/DeepSeekConfigView.vue'
 import UserListView from '../views/system/user/UserListView.vue'
 import RoleListView from '../views/system/role/RoleListView.vue'
@@ -25,6 +25,24 @@ import MenuListView from '../views/system/menu/MenuListView.vue'
 import AboutView from '../views/system/about/AboutView.vue'
 import DataManagementView from '../views/system/data/DataManagementView.vue'
 import { useAuthStore } from '../stores/system/authStore'
+
+const DESKTOP_AUTH_KEY = 'desktop_local_auth'
+
+function hasElectronBridge() {
+  return typeof window !== 'undefined' && Boolean(window.electronAPI)
+}
+
+function getDesktopAuthStorage() {
+  if (typeof window === 'undefined' || !window.sessionStorage) {
+    return null
+  }
+  return window.sessionStorage
+}
+
+function isDesktopAuthorized() {
+  const storage = getDesktopAuthStorage()
+  return hasElectronBridge() && Boolean(storage) && storage.getItem(DESKTOP_AUTH_KEY) === '1'
+}
 
 const routes = [
   {
@@ -70,6 +88,26 @@ const router = createRouter({
 })
 
 router.beforeEach(async (to) => {
+  if (to.path === '/') {
+    return '/login'
+  }
+
+  if (to.query.desktop_auth === '1' && hasElectronBridge()) {
+    const storage = getDesktopAuthStorage()
+    if (storage) {
+      storage.setItem(DESKTOP_AUTH_KEY, '1')
+    }
+    // Clean up legacy persistent flag to avoid login bypass after app restart.
+    localStorage.removeItem(DESKTOP_AUTH_KEY)
+  }
+
+  if (isDesktopAuthorized()) {
+    if (to.path === '/login') {
+      return '/dashboard'
+    }
+    return true
+  }
+
   const authStore = useAuthStore()
   await authStore.restoreSession()
 

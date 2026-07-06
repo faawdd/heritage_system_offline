@@ -1,4 +1,4 @@
-const { spawn } = require('child_process')
+const { spawn, spawnSync } = require('child_process')
 const http = require('http')
 const path = require('path')
 const fs = require('fs')
@@ -9,6 +9,83 @@ const frontendRoot = path.resolve(__dirname, '..')
 let viteProcess = null
 let backendProcess = null
 let electronProcess = null
+
+function parseIntOr(defaultValue, raw) {
+  const parsed = Number(raw)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : defaultValue
+}
+
+function normalizeBasePath(rawPath) {
+  const value = String(rawPath || '/static/frontend').trim()
+  if (!value) {
+    return '/static/frontend'
+  }
+  if (value === '/') {
+    return '/'
+  }
+  const withLeadingSlash = value.startsWith('/') ? value : `/${value}`
+  return withLeadingSlash.endsWith('/') ? withLeadingSlash.slice(0, -1) : withLeadingSlash
+}
+
+const viteHost = process.env.HERITAGE_DESKTOP_VITE_HOST || '127.0.0.1'
+const vitePort = parseIntOr(5173, process.env.HERITAGE_DESKTOP_VITE_PORT)
+const backendHost = process.env.HERITAGE_DESKTOP_BACKEND_HOST || '127.0.0.1'
+const backendPort = parseIntOr(18000, process.env.HERITAGE_DESKTOP_BACKEND_PORT)
+const devBasePath = normalizeBasePath(process.env.HERITAGE_DESKTOP_DEV_BASE_PATH || '/static/frontend')
+
+const viteOrigin = `http://${viteHost}:${vitePort}`
+const backendOrigin = `http://${backendHost}:${backendPort}`
+const viteStartUrl = process.env.HERITAGE_DESKTOP_ELECTRON_START_URL || `${viteOrigin}${devBasePath}`
+
+function resolveElectronBinaryPath() {
+  try {
+    const resolved = require('electron')
+    if (!resolved) {
+      return null
+    }
+    return fs.existsSync(resolved) ? resolved : null
+  } catch (_error) {
+    return null
+  }
+}
+
+function runSyncCommand(cmd, args, cwd) {
+  return spawnSync(cmd, args, {
+    cwd,
+    env: {
+      ...process.env,
+    },
+    stdio: 'inherit',
+    shell: process.platform === 'win32',
+  })
+}
+
+function ensureElectronRuntimeReady() {
+  const directPath = resolveElectronBinaryPath()
+  if (directPath) {
+    return directPath
+  }
+
+  console.warn('[desktop:dev] Electron runtime appears missing/corrupted, trying npm rebuild electron...')
+  const rebuildResult = runSyncCommand('npm', ['rebuild', 'electron'], frontendRoot)
+  if (rebuildResult.status === 0) {
+    const rebuiltPath = resolveElectronBinaryPath()
+    if (rebuiltPath) {
+      return rebuiltPath
+    }
+  }
+
+  console.warn('[desktop:dev] npm rebuild did not recover Electron, trying npm install electron --no-save...')
+  const installResult = runSyncCommand('npm', ['install', 'electron@^32.2.1', '--no-save'], frontendRoot)
+  if (installResult.status === 0) {
+    const installedPath = resolveElectronBinaryPath()
+    if (installedPath) {
+      return installedPath
+    }
+  }
+
+  return null
+}
 
 function canConnect(url) {
   return new Promise((resolve) => {
@@ -48,7 +125,7 @@ function resolveDevPython() {
   return process.platform === 'win32' ? 'python' : 'python3'
 }
 
-function spawnWithInheritedLogs(cmd, args, cwd, env = {}) {
+function spawnWithInheritedLogs(cmd, args, cwd, env = {}, options = {}) {
   return spawn(cmd, args, {
     cwd,
     env: {
@@ -56,7 +133,7 @@ function spawnWithInheritedLogs(cmd, args, cwd, env = {}) {
       ...env,
     },
     stdio: 'inherit',
-    shell: process.platform === 'win32',
+    shell: options.shell ?? (process.platform === 'win32'),
   })
 }
 
@@ -79,23 +156,23 @@ function cleanup() {
 }
 
 async function run() {
-  viteProcess = spawnWithInheritedLogs('npm', ['run', 'dev', '--', '--host', '127.0.0.1', '--port', '5173'], frontendRoot)
+  viteProcess = spawnWithInheritedLogs('npm', ['run', 'dev', '--', '--host', viteHost, '--port', String(vitePort)], frontendRoot)
 
   const pythonCmd = resolveDevPython()
   backendProcess = spawnWithInheritedLogs(
     pythonCmd,
-    ['manage.py', 'runserver', '127.0.0.1:18000'],
+    ['manage.py', 'runserver', `${backendHost}:${backendPort}`],
     repoRoot,
     {
       DJANGO_DEBUG: '1',
       DJANGO_FORCE_HTTPS: '0',
-      DJANGO_WEB_BASE_URL: 'http://127.0.0.1:18000',
+      DJANGO_WEB_BASE_URL: backendOrigin,
     }
   )
 
   const [viteReady, backendReady] = await Promise.all([
-    waitUntil('http://127.0.0.1:5173', 30000),
-    waitUntil('http://127.0.0.1:18000/api/v1/health/', 30000),
+    waitUntil(`${viteOrigin}${devBasePath}/`, 30000),
+    waitUntil(`${backendOrigin}/api/v1/health/`, 30000),
   ])
 
   if (!viteReady || !backendReady) {
@@ -104,14 +181,25 @@ async function run() {
     process.exit(1)
   }
 
+  const electronBinaryPath = ensureElectronRuntimeReady()
+  if (!electronBinaryPath) {
+    console.error('[desktop:dev] Electron runtime is still unavailable after recovery attempts.')
+    console.error('[desktop:dev] Try: rm -rf frontend/node_modules/electron && cd frontend && npm install')
+    cleanup()
+    process.exit(1)
+  }
+
   electronProcess = spawnWithInheritedLogs(
-    'npx',
-    ['electron', '.'],
+    electronBinaryPath,
+    ['.'],
     frontendRoot,
     {
-      ELECTRON_START_URL: 'http://127.0.0.1:5173',
-      BACKEND_HOST: '127.0.0.1',
-      BACKEND_PORT: '18000',
+      ELECTRON_START_URL: viteStartUrl,
+      BACKEND_HOST: backendHost,
+      BACKEND_PORT: String(backendPort),
+    },
+    {
+      shell: false,
     }
   )
 

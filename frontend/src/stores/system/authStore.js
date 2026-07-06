@@ -12,6 +12,7 @@ const ACCESS_TOKEN_KEY = 'heritage_access_token'
 const REFRESH_TOKEN_KEY = 'heritage_refresh_token'
 const USER_KEY = 'heritage_user'
 const MENU_TREE_KEY = 'heritage_menu_tree'
+const DESKTOP_AUTH_KEY = 'desktop_local_auth'
 
 function safeParse(json, fallback = null) {
   if (!json) {
@@ -65,6 +66,16 @@ export const useAuthStore = defineStore('system_auth', {
       this.user = null
       this.menuTree = []
       this.persistAuth()
+
+      // Ensure desktop session authorization is revoked on logout.
+      if (typeof window !== 'undefined') {
+        if (window.sessionStorage) {
+          window.sessionStorage.removeItem(DESKTOP_AUTH_KEY)
+        }
+        if (window.localStorage) {
+          window.localStorage.removeItem(DESKTOP_AUTH_KEY)
+        }
+      }
     },
     async login(username, password) {
       const result = await loginSystem({ username, password })

@@ -9,6 +9,12 @@ BIND_HOST="127.0.0.1"
 PORT="8000"
 INIT_DEPS="0"
 OPEN_BROWSER="1"
+MODE="desktop"
+DESKTOP_VITE_HOST="127.0.0.1"
+DESKTOP_VITE_PORT="5173"
+DESKTOP_BACKEND_HOST="127.0.0.1"
+DESKTOP_BACKEND_PORT="18000"
+DESKTOP_DEV_BASE_PATH="/static/frontend"
 SUPER_ADMIN_USERNAME=""
 SUPER_ADMIN_PASSWORD=""
 SUPER_ADMIN_CREATE_IF_MISSING="0"
@@ -57,6 +63,38 @@ while [[ $# -gt 0 ]]; do
       OPEN_BROWSER="0"
       shift
       ;;
+    --mode)
+      MODE="${2:-}"
+      shift 2
+      ;;
+    --web)
+      MODE="web"
+      shift
+      ;;
+    --desktop)
+      MODE="desktop"
+      shift
+      ;;
+    --desktop-vite-host)
+      DESKTOP_VITE_HOST="${2:-}"
+      shift 2
+      ;;
+    --desktop-vite-port)
+      DESKTOP_VITE_PORT="${2:-}"
+      shift 2
+      ;;
+    --desktop-backend-host)
+      DESKTOP_BACKEND_HOST="${2:-}"
+      shift 2
+      ;;
+    --desktop-backend-port)
+      DESKTOP_BACKEND_PORT="${2:-}"
+      shift 2
+      ;;
+    --desktop-dev-base-path)
+      DESKTOP_DEV_BASE_PATH="${2:-}"
+      shift 2
+      ;;
     --super-admin-username)
       SUPER_ADMIN_USERNAME="${2:-}"
       shift 2
@@ -74,6 +112,20 @@ while [[ $# -gt 0 ]]; do
 Usage: ./scripts/start_offline.sh [options]
 
 Options:
+  --mode <desktop|web>
+                      Launch mode (default: desktop)
+  --desktop           Shortcut for --mode desktop
+  --web               Shortcut for --mode web
+  --desktop-vite-host <host>
+                      Vite host in desktop mode (default: 127.0.0.1)
+  --desktop-vite-port <port>
+                      Vite port in desktop mode (default: 5173)
+  --desktop-backend-host <host>
+                      Django host in desktop mode (default: 127.0.0.1)
+  --desktop-backend-port <port>
+                      Django port in desktop mode (default: 18000)
+  --desktop-dev-base-path <path>
+                      Frontend base path in desktop mode (default: /static/frontend)
   --init-deps, -i      Install dependencies from requirements.txt
   --host <host>        Bind host (default: 127.0.0.1)
   --port <port>        Bind port (default: 8000)
@@ -107,6 +159,11 @@ if ! python_is_supported "$PYTHON_CMD"; then
   exit 1
 fi
 
+if [[ "$MODE" != "desktop" && "$MODE" != "web" ]]; then
+  echo "[offline] Invalid --mode: ${MODE} (expected desktop or web)" >&2
+  exit 1
+fi
+
 echo "[offline] Using ${PYTHON_CMD} ($(python_version_text "$PYTHON_CMD"))"
 
 if [[ -x ".venv/bin/python" ]] && ! python_is_supported ".venv/bin/python"; then
@@ -130,6 +187,7 @@ if [[ "$INIT_DEPS" == "1" ]]; then
 fi
 
 export DJANGO_DEBUG="1"
+export HERITAGE_OFFLINE_DEBUG="1"
 export DJANGO_FORCE_HTTPS="0"
 export DJANGO_WEB_BASE_URL="http://${BIND_HOST}:${PORT}"
 
@@ -152,14 +210,44 @@ if [[ -n "$SUPER_ADMIN_PASSWORD" ]]; then
 fi
 
 URL="http://${BIND_HOST}:${PORT}/"
-if [[ "$OPEN_BROWSER" == "1" ]]; then
-  echo "[offline] Opening browser: ${URL}"
-  if command -v open >/dev/null 2>&1; then
-    open "$URL" >/dev/null 2>&1 || true
-  elif command -v xdg-open >/dev/null 2>&1; then
-    xdg-open "$URL" >/dev/null 2>&1 || true
+if [[ "$MODE" == "desktop" ]]; then
+  FRONTEND_DIR="$PROJECT_ROOT/frontend"
+  if [[ ! -d "$FRONTEND_DIR" ]]; then
+    echo "[offline] Missing frontend directory: ${FRONTEND_DIR}" >&2
+    exit 1
   fi
-fi
 
-echo "[offline] Starting Django server at ${BIND_HOST}:${PORT}"
-exec "$PYTHON_EXE" manage.py runserver "${BIND_HOST}:${PORT}"
+  if ! command -v npm >/dev/null 2>&1; then
+    echo "[offline] npm is required for desktop debug mode." >&2
+    exit 1
+  fi
+
+  if [[ ! -d "$FRONTEND_DIR/node_modules" ]]; then
+    echo "[offline] Installing frontend dependencies..."
+    (cd "$FRONTEND_DIR" && npm install)
+  fi
+
+  echo "[offline] Starting desktop debug pipeline (Electron native login)..."
+  echo "[offline] Desktop Vite: ${DESKTOP_VITE_HOST}:${DESKTOP_VITE_PORT}"
+  echo "[offline] Desktop Backend: ${DESKTOP_BACKEND_HOST}:${DESKTOP_BACKEND_PORT}"
+  echo "[offline] Desktop Base Path: ${DESKTOP_DEV_BASE_PATH}"
+  cd "$FRONTEND_DIR"
+  HERITAGE_DESKTOP_VITE_HOST="$DESKTOP_VITE_HOST" \
+  HERITAGE_DESKTOP_VITE_PORT="$DESKTOP_VITE_PORT" \
+  HERITAGE_DESKTOP_BACKEND_HOST="$DESKTOP_BACKEND_HOST" \
+  HERITAGE_DESKTOP_BACKEND_PORT="$DESKTOP_BACKEND_PORT" \
+  HERITAGE_DESKTOP_DEV_BASE_PATH="$DESKTOP_DEV_BASE_PATH" \
+  exec npm run desktop:dev
+else
+  if [[ "$OPEN_BROWSER" == "1" ]]; then
+    echo "[offline] Opening browser: ${URL}"
+    if command -v open >/dev/null 2>&1; then
+      open "$URL" >/dev/null 2>&1 || true
+    elif command -v xdg-open >/dev/null 2>&1; then
+      xdg-open "$URL" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  echo "[offline] Starting Django server at ${BIND_HOST}:${PORT}"
+  exec "$PYTHON_EXE" manage.py runserver "${BIND_HOST}:${PORT}"
+fi

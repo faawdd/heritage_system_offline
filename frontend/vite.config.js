@@ -1,6 +1,10 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
+const backendHost = process.env.HERITAGE_DESKTOP_BACKEND_HOST || '127.0.0.1'
+const backendPort = process.env.HERITAGE_DESKTOP_BACKEND_PORT || '8000'
+const backendTarget = `http://${backendHost}:${backendPort}`
+
 export default defineConfig({
   plugins: [vue()],
   base: '/static/frontend/',
@@ -32,11 +36,11 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8000',
+        target: backendTarget,
         changeOrigin: true
       },
       '/media': {
-        target: 'http://127.0.0.1:8000',
+        target: backendTarget,
         changeOrigin: true
       }
     }
