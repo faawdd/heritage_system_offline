@@ -1,7 +1,16 @@
 param(
     [string]$BindHost = "127.0.0.1",
     [int]$Port = 8000,
+    [ValidateSet("desktop", "web")]
+    [string]$Mode = "desktop",
+    [string]$DesktopViteHost = "127.0.0.1",
+    [int]$DesktopVitePort = 5173,
+    [string]$DesktopBackendHost = "127.0.0.1",
+    [int]$DesktopBackendPort = 18000,
+    [string]$DesktopDevBasePath = "/static/frontend",
     [switch]$InitDeps,
+    [switch]$Desktop,
+    [switch]$Web,
     [string]$SuperAdminUsername = "",
     [string]$SuperAdminPassword = "",
     [switch]$SuperAdminCreateIfMissing
@@ -10,6 +19,16 @@ param(
 $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Set-Location $projectRoot
+
+if ($Desktop -and $Web) {
+    Write-Error "--Desktop and --Web cannot be used together."
+}
+if ($Desktop) {
+    $Mode = "desktop"
+}
+if ($Web) {
+    $Mode = "web"
+}
 
 if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
     Write-Error "Python is not installed or not in PATH."
@@ -73,9 +92,51 @@ if ($SuperAdminPassword) {
     & $pythonExe @resetArgs
 }
 
-$url = "http://${BindHost}:${Port}/"
-Write-Host "[offline] Opening browser: $url"
-Start-Process $url | Out-Null
+if ($Mode -eq "desktop") {
+    $frontendRoot = Join-Path $projectRoot "frontend"
+    if (-not (Test-Path $frontendRoot)) {
+        Write-Error "Missing frontend directory: $frontendRoot"
+    }
 
-Write-Host "[offline] Starting Django server at ${BindHost}:${Port}"
-& $pythonExe manage.py runserver "${BindHost}:${Port}"
+    if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
+        Write-Error "npm is required for desktop debug mode."
+    }
+
+    if (-not (Test-Path (Join-Path $frontendRoot "node_modules"))) {
+        Write-Host "[offline] Installing frontend dependencies..."
+        Push-Location $frontendRoot
+        try {
+            & npm install
+        }
+        finally {
+            Pop-Location
+        }
+    }
+
+    Write-Host "[offline] Starting desktop debug pipeline (Electron native login)..."
+    Write-Host "[offline] Desktop Vite: ${DesktopViteHost}:${DesktopVitePort}"
+    Write-Host "[offline] Desktop Backend: ${DesktopBackendHost}:${DesktopBackendPort}"
+    Write-Host "[offline] Desktop Base Path: $DesktopDevBasePath"
+
+    $env:HERITAGE_DESKTOP_VITE_HOST = $DesktopViteHost
+    $env:HERITAGE_DESKTOP_VITE_PORT = [string]$DesktopVitePort
+    $env:HERITAGE_DESKTOP_BACKEND_HOST = $DesktopBackendHost
+    $env:HERITAGE_DESKTOP_BACKEND_PORT = [string]$DesktopBackendPort
+    $env:HERITAGE_DESKTOP_DEV_BASE_PATH = $DesktopDevBasePath
+
+    Push-Location $frontendRoot
+    try {
+        & npm run desktop:dev
+    }
+    finally {
+        Pop-Location
+    }
+}
+else {
+    $url = "http://${BindHost}:${Port}/"
+    Write-Host "[offline] Opening browser: $url"
+    Start-Process $url | Out-Null
+
+    Write-Host "[offline] Starting Django server at ${BindHost}:${Port}"
+    & $pythonExe manage.py runserver "${BindHost}:${Port}"
+}

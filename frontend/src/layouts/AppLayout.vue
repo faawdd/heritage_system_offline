@@ -673,6 +673,16 @@ onUnmounted(() => {
 
 async function logout() {
   await authStore.logout()
+
+  if (window.electronAPI && typeof window.electronAPI.logoutToLogin === 'function') {
+    const result = await window.electronAPI.logoutToLogin()
+    if (!result?.success) {
+      ElMessage.error(result?.message || '退出失败，请重试')
+      return
+    }
+    return
+  }
+
   await router.replace('/login')
 }
 </script>

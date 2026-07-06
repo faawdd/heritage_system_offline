@@ -1,54 +1,127 @@
 <template>
-  <section class="w3l-hotair-form">
-    <h1>{{ systemName }}</h1>
-    <div class="container">
-      <div class="workinghny-form-grid">
-        <div class="main-hotair">
-          <div class="content-wthree">
-            <h2>系统登录</h2>
-            <form @submit.prevent="submitLogin">
-              <input v-model="form.username" type="text" class="text" name="username" placeholder="用户名" required autofocus>
-              <input
-                v-model="form.password"
-                type="password"
-                class="password"
-                name="password"
-                placeholder="密码"
-                required
-              >
-              <div class="form-tools">
-                <label class="remember-row">
-                  <input v-model="rememberPassword" type="checkbox" class="remember-checkbox">
-                  <span class="remember-indicator" aria-hidden="true"></span>
-                  <span class="remember-text">记住账号密码</span>
-                </label>
-              </div>
-              <p v-if="errorMessage" class="login-error">{{ errorMessage }}</p>
-              <button class="btn" type="submit" :disabled="loading">{{ loading ? '登录中...' : '登录' }}</button>
-            </form>
+  <section class="login-shell">
+    <div class="ambient ambient-left"></div>
+    <div class="ambient ambient-right"></div>
 
-            <p class="account">如无账号请联系 <a href="javascript:void(0)">系统管理员</a></p>
-          </div>
-          <div class="w3l_form align-self">
-            <div class="left_grid_info">
-              <img :src="loginIllustration" alt="登录插图" class="img-fluid">
-            </div>
-          </div>
+    <article class="qq-login-card">
+      <header class="window-titlebar">
+        <div class="window-brand">
+          <span class="brand-dot" aria-hidden="true"></span>
+          <span class="brand-text">{{ systemName }}</span>
         </div>
+        <span class="offline-badge">离线模式</span>
+      </header>
+
+      <div class="login-body">
+        <div class="avatar-wrap" aria-hidden="true">
+          <div class="avatar-ring"></div>
+          <div class="avatar-face">{{ avatarText }}</div>
+        </div>
+
+        <h1 class="title">欢迎登录</h1>
+        <p class="subtitle">基层文物管理系统 · 桌面版</p>
+
+        <form class="login-form" @submit.prevent="submitLogin">
+          <div class="field-group" ref="accountPanelRef">
+            <div class="input-wrap">
+              <span class="field-icon" aria-hidden="true">👤</span>
+              <input
+                v-model.trim="form.username"
+                type="text"
+                class="field-input"
+                name="username"
+                placeholder="请输入账号"
+                autocomplete="username"
+                required
+                autofocus
+                @focus="showAccountPanel = true"
+              >
+              <button
+                v-if="savedAccounts.length > 0"
+                class="picker-trigger"
+                type="button"
+                @click="toggleAccountPanel"
+                aria-label="显示已保存账号"
+              >
+                ▼
+              </button>
+            </div>
+
+            <transition name="fade-slide">
+              <ul v-if="showAccountPanel && filteredAccounts.length > 0" class="account-panel">
+                <li
+                  v-for="account in filteredAccounts"
+                  :key="account.username"
+                  class="account-item"
+                  @click="selectSavedAccount(account)"
+                >
+                  <span class="account-name">{{ account.username }}</span>
+                  <button
+                    class="account-remove"
+                    type="button"
+                    @click.stop="removeAccount(account.username)"
+                    aria-label="删除账号"
+                  >
+                    删除
+                  </button>
+                </li>
+              </ul>
+            </transition>
+          </div>
+
+          <div class="input-wrap">
+            <span class="field-icon" aria-hidden="true">🔒</span>
+            <input
+              v-model="form.password"
+              :type="showPassword ? 'text' : 'password'"
+              class="field-input"
+              name="password"
+              placeholder="请输入密码"
+              autocomplete="current-password"
+              required
+            >
+            <button
+              class="picker-trigger"
+              type="button"
+              @click="showPassword = !showPassword"
+              :aria-label="showPassword ? '隐藏密码' : '显示密码'"
+            >
+              {{ showPassword ? '隐藏' : '显示' }}
+            </button>
+          </div>
+
+          <div class="form-tools">
+            <label class="remember-row">
+              <input v-model="rememberPassword" type="checkbox" class="remember-checkbox">
+              <span class="remember-indicator" aria-hidden="true"></span>
+              <span class="remember-text">记住密码</span>
+            </label>
+            <span class="status-dot">
+              本地引擎运行中
+            </span>
+          </div>
+
+          <p v-if="errorMessage" class="login-error">{{ errorMessage }}</p>
+
+          <button class="login-btn" type="submit" :disabled="loading">
+            {{ loading ? '正在登录...' : '登 录' }}
+          </button>
+        </form>
+
+        <footer class="card-footer">
+          <span>联系管理员获取账户权限</span>
+          <span>© {{ currentYear }}</span>
+        </footer>
       </div>
-    </div>
-    <div class="copyright text-center">
-      <p class="copy-footer-29">© {{ new Date().getFullYear() }} {{ systemName }}。保留所有权利</p>
-    </div>
+    </article>
   </section>
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 
-import loginIllustration from '../../../assets/login-illustration.png'
 import { useAppStore } from '../../../stores/system/appStore'
 import { useAuthStore } from '../../../stores/system/authStore'
 
@@ -62,13 +135,32 @@ const authStore = useAuthStore()
 const loading = ref(false)
 const rememberPassword = ref(true)
 const errorMessage = ref('')
+const showPassword = ref(false)
+const showAccountPanel = ref(false)
+const accountPanelRef = ref(null)
 const savedAccounts = ref(loadSavedAccounts())
 const form = reactive({
   username: '',
   password: ''
 })
 
-const systemName = computed(() => appStore.systemName)
+const systemName = computed(() => appStore.systemName || '基层文物管理系统')
+const currentYear = computed(() => new Date().getFullYear())
+const avatarText = computed(() => {
+  const username = String(form.username || '').trim()
+  if (!username) {
+    return '文'
+  }
+  return username.slice(0, 1).toUpperCase()
+})
+
+const filteredAccounts = computed(() => {
+  const keyword = String(form.username || '').trim().toLowerCase()
+  if (!keyword) {
+    return savedAccounts.value
+  }
+  return savedAccounts.value.filter((item) => item.username.toLowerCase().includes(keyword))
+})
 
 function loadSavedAccounts() {
   try {
@@ -80,7 +172,7 @@ function loadSavedAccounts() {
       .map((item) => ({
         username: String(item?.username || '').trim(),
         password: String(item?.password || ''),
-        lastUsedAt: String(item?.lastUsedAt || ''),
+        lastUsedAt: String(item?.lastUsedAt || '')
       }))
       .filter((item) => item.username)
       .sort((left, right) => String(right.lastUsedAt || '').localeCompare(String(left.lastUsedAt || '')))
@@ -97,13 +189,6 @@ function persistSavedAccounts(accounts) {
   localStorage.setItem(SAVED_ACCOUNTS_KEY, JSON.stringify(normalized))
 }
 
-function applySavedAccount(account) {
-  form.username = account.username
-  form.password = account.password || ''
-  rememberPassword.value = Boolean(account.password)
-  errorMessage.value = ''
-}
-
 function saveCurrentAccount() {
   const username = String(form.username || '').trim()
   if (!username) {
@@ -115,26 +200,46 @@ function saveCurrentAccount() {
     nextAccounts.unshift({
       username,
       password: String(form.password || ''),
-      lastUsedAt: new Date().toISOString(),
+      lastUsedAt: new Date().toISOString()
     })
-  } else if (nextAccounts.length === savedAccounts.value.length) {
-    localStorage.removeItem(SAVED_ACCOUNTS_KEY)
-    savedAccounts.value = []
-    return
   }
   persistSavedAccounts(nextAccounts)
 }
 
+function selectSavedAccount(account) {
+  form.username = account.username
+  form.password = account.password || ''
+  rememberPassword.value = Boolean(account.password)
+  errorMessage.value = ''
+  showAccountPanel.value = false
+}
+
+function removeAccount(username) {
+  const nextAccounts = savedAccounts.value.filter((item) => item.username !== username)
+  persistSavedAccounts(nextAccounts)
+  if (form.username === username) {
+    form.password = ''
+    rememberPassword.value = false
+  }
+}
+
+function toggleAccountPanel() {
+  showAccountPanel.value = !showAccountPanel.value
+}
+
+function handleDocumentClick(event) {
+  if (!accountPanelRef.value) {
+    return
+  }
+  if (!accountPanelRef.value.contains(event.target)) {
+    showAccountPanel.value = false
+  }
+}
+
 watch(
   () => form.username,
-  (username) => {
+  () => {
     errorMessage.value = ''
-    const matched = savedAccounts.value.find((item) => item.username === String(username || '').trim())
-    if (!matched) {
-      return
-    }
-    form.password = matched.password || ''
-    rememberPassword.value = Boolean(matched.password)
   }
 )
 
@@ -147,9 +252,15 @@ watch(
 
 onMounted(() => {
   appStore.initialize()
+  document.addEventListener('click', handleDocumentClick)
+
   if (savedAccounts.value.length > 0) {
-    applySavedAccount(savedAccounts.value[0])
+    selectSavedAccount(savedAccounts.value[0])
   }
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', handleDocumentClick)
 })
 
 async function submitLogin() {
@@ -175,380 +286,439 @@ async function submitLogin() {
 </script>
 
 <style scoped>
-@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;900&display=swap');
-
-html {
-  scroll-behavior: smooth;
-}
-
-body,
-html {
-  margin: 0;
-  padding: 0;
-  font-family: 'Noto Sans SC', sans-serif;
+:root {
+  color-scheme: light;
 }
 
 * {
   box-sizing: border-box;
 }
 
-.text-center {
-  text-align: center;
-}
-
-button,
-input,
-select {
-  -webkit-appearance: none;
-  outline: none;
-  font-family: 'Noto Sans SC', sans-serif;
-}
-
-button,
-.btn,
-select {
-  cursor: pointer;
-}
-
-a {
-  text-decoration: none;
-}
-
-img {
-  max-width: 100%;
-}
-
-h1,
-h2,
-h3,
-h4,
-h5,
-h6,
-p {
-  margin: 0;
-  padding: 0;
-}
-
-p {
-  color: #666;
-  font-size: 16px;
-  line-height: 25px;
-  opacity: .6;
-  text-align: center;
-}
-
-.btn,
-button,
-.actionbg,
-input {
-  border-radius: 36px;
-  -webkit-border-radius: 36px;
-  -moz-border-radius: 36px;
-  -o-border-radius: 36px;
-  -ms-border-radius: 36px;
-}
-
-.btn:hover,
-button:hover {
-  transition: 0.5s ease;
-  -webkit-transition: 0.5s ease;
-  -o-transition: 0.5s ease;
-  -ms-transition: 0.5s ease;
-  -moz-transition: 0.5s ease;
-}
-
-.w3l-hotair-form {
-  position: relative;
+.login-shell {
   min-height: 100vh;
-  z-index: 0;
-  background: #0568c1;
-  padding: 40px 40px;
-  justify-content: center;
   display: grid;
-  grid-template-rows: 1fr auto 1fr;
-  align-items: center;
-}
-
-.container {
-  max-width: 890px;
-  margin: 0 auto;
-}
-
-.w3l_form {
-  flex-basis: 50%;
-  -webkit-flex-basis: 50%;
-  background: #f4f9fd;
-  background-size: cover;
-  -webkit-background-size: cover;
-  -moz-background-size: cover;
-  -o-background-size: cover;
-  -ms-background-size: cover;
-  padding: 40px;
-  border-top-right-radius: 8px;
-  border-bottom-right-radius: 8px;
-  align-items: center;
-  display: grid;
-}
-
-.content-wthree {
-  flex-basis: 50%;
-  -webkit-flex-basis: 50%;
-  box-sizing: border-box;
-  padding: 3em 3em;
-  background: #fff;
-  box-shadow: 2px 9px 49px -17px rgba(0, 0, 0, 0.1);
-  border-top-left-radius: 8px;
-  border-bottom-left-radius: 8px;
-}
-
-.w3l-hotair-form .main-hotair {
+  place-items: center;
+  background:
+    radial-gradient(circle at 16% 18%, rgba(255, 255, 255, 0.42), transparent 34%),
+    radial-gradient(circle at 84% 12%, rgba(196, 227, 255, 0.78), transparent 36%),
+    linear-gradient(160deg, #8fd1ff 0%, #4ba8f8 42%, #2f8deb 100%);
+  padding: 28px;
   position: relative;
-  display: -webkit-box;
-  display: -moz-box;
-  display: -ms-flexbox;
-  display: -webkit-flex;
-  display: flex;
-  margin: 40px 0;
+  overflow: hidden;
+  font-family: 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
 }
 
-.w3l-hotair-form form {
-  margin-top: 30px;
-  margin-bottom: 30px;
+.ambient {
+  position: absolute;
+  pointer-events: none;
+  border-radius: 50%;
+  filter: blur(8px);
+}
+
+.ambient-left {
+  width: 220px;
+  height: 220px;
+  left: -68px;
+  bottom: 40px;
+  background: rgba(255, 255, 255, 0.26);
+  animation: float-up 7s ease-in-out infinite;
+}
+
+.ambient-right {
+  width: 280px;
+  height: 280px;
+  right: -84px;
+  top: 52px;
+  background: rgba(178, 222, 255, 0.46);
+  animation: float-up 8.6s ease-in-out infinite reverse;
+}
+
+.qq-login-card {
+  width: min(100%, 428px);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow:
+    0 28px 58px rgba(15, 76, 136, 0.28),
+    0 6px 16px rgba(13, 61, 106, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  overflow: hidden;
+  backdrop-filter: blur(9px);
+  transform: translateY(8px);
+  animation: card-enter 0.5s ease forwards;
+}
+
+.window-titlebar {
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px;
+  background: linear-gradient(180deg, rgba(223, 242, 255, 0.95), rgba(204, 232, 253, 0.9));
+  border-bottom: 1px solid rgba(126, 180, 228, 0.42);
+}
+
+.window-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.brand-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #44a6ff, #1f7ee0);
+  box-shadow: 0 0 0 3px rgba(69, 163, 255, 0.2);
+}
+
+.brand-text {
+  font-size: 13px;
+  color: #1e4f84;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.offline-badge {
+  font-size: 12px;
+  color: #205f96;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(107, 166, 219, 0.55);
+  border-radius: 999px;
+  padding: 2px 9px;
+}
+
+.login-body {
+  padding: 28px 30px 24px;
+}
+
+.avatar-wrap {
+  width: 90px;
+  height: 90px;
+  margin: 0 auto;
+  position: relative;
+}
+
+.avatar-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(from 110deg, #6ec8ff, #3c9af2, #5ec5ff, #6ec8ff);
+  opacity: 0.85;
+  animation: spin 5.2s linear infinite;
+}
+
+.avatar-face {
+  position: absolute;
+  inset: 8px;
+  border-radius: 50%;
+  background: linear-gradient(150deg, #fefefe, #ddf0ff);
+  box-shadow: inset 0 0 0 1px rgba(146, 194, 235, 0.6);
+  display: grid;
+  place-items: center;
+  font-size: 32px;
+  color: #1f6bb1;
+  font-weight: 700;
+}
+
+.title {
+  margin: 16px 0 4px;
+  text-align: center;
+  font-size: 24px;
+  line-height: 1.2;
+  color: #143a67;
+  font-weight: 700;
+}
+
+.subtitle {
+  margin: 0 0 20px;
+  text-align: center;
+  color: #4b6f96;
+  font-size: 13px;
+  letter-spacing: 0.3px;
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.field-group {
+  position: relative;
+}
+
+.input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  border-radius: 11px;
+  border: 1px solid #b3d8fb;
+  background: #f8fcff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  padding: 0 10px;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.input-wrap:focus-within {
+  border-color: #3b95eb;
+  box-shadow: 0 0 0 3px rgba(59, 149, 235, 0.15);
+}
+
+.field-icon {
+  width: 18px;
+  text-align: center;
+  font-size: 14px;
+  opacity: 0.8;
+}
+
+.field-input {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  height: 42px;
+  outline: none;
+  color: #184a7d;
+  font-size: 14px;
+}
+
+.field-input::placeholder {
+  color: #89a8c5;
+}
+
+.picker-trigger {
+  border: 0;
+  background: transparent;
+  color: #3f7fb7;
+  font-size: 12px;
+  cursor: pointer;
+  height: 28px;
+  border-radius: 7px;
+  padding: 0 8px;
+}
+
+.picker-trigger:hover {
+  background: rgba(120, 175, 224, 0.16);
+}
+
+.account-panel {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 6px;
+  border-radius: 11px;
+  border: 1px solid #b8d8f7;
+  background: #ffffff;
+  box-shadow: 0 8px 22px rgba(18, 79, 135, 0.14);
+  max-height: 164px;
+  overflow: auto;
+  position: absolute;
+  z-index: 12;
+  left: 0;
+  right: 0;
+}
+
+.account-item {
+  height: 34px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 9px;
+  color: #1d4f82;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.account-item:hover {
+  background: #edf6ff;
+}
+
+.account-name {
+  max-width: 80%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-remove {
+  border: 0;
+  background: transparent;
+  color: #6a92ba;
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+
+.account-remove:hover {
+  color: #e15858;
+  background: #ffecee;
 }
 
 .form-tools {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  margin: 6px 0 18px;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+  color: #5c7fa3;
 }
 
 .remember-row {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 10px;
-  color: #334155;
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: 0.2px;
-  line-height: 1;
-  white-space: nowrap;
-  flex-wrap: nowrap;
-}
-
-.remember-text {
-  display: inline-block;
-  white-space: nowrap;
+  gap: 7px;
+  cursor: pointer;
 }
 
 .remember-checkbox {
-  position: relative;
-  width: 0;
-  height: 0;
-  margin: 0;
+  position: absolute;
   opacity: 0;
   pointer-events: none;
 }
 
 .remember-indicator {
-  width: 18px;
-  height: 18px;
-  border-radius: 6px;
-  border: 1.5px solid #9fb8d8;
-  background: #f3f8ff;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.65);
-  transition: all 0.2s ease;
+  width: 15px;
+  height: 15px;
+  border-radius: 5px;
+  border: 1px solid #8ebde8;
+  background: #eef7ff;
   position: relative;
-  flex: 0 0 18px;
-}
-
-.remember-row:hover .remember-indicator {
-  border-color: #2d77cc;
-  background: #e9f2ff;
-}
-
-.remember-checkbox:focus-visible + .remember-indicator {
-  outline: 2px solid rgba(5, 104, 193, 0.25);
-  outline-offset: 2px;
 }
 
 .remember-checkbox:checked + .remember-indicator {
-  border-color: #0568c1;
-  background: linear-gradient(135deg, #1976d2, #0358a7);
+  background: linear-gradient(145deg, #4ea2ef, #2f8ee5);
+  border-color: #2f8de4;
 }
 
 .remember-checkbox:checked + .remember-indicator::after {
   content: '';
   position: absolute;
+  width: 3px;
+  height: 7px;
+  border-right: 2px solid #ffffff;
+  border-bottom: 2px solid #ffffff;
   left: 5px;
-  top: 2px;
-  width: 4px;
-  height: 8px;
-  border: solid #ffffff;
-  border-width: 0 2px 2px 0;
-  transform: rotate(45deg);
+  top: 1px;
+  transform: rotate(38deg);
+}
+
+.status-dot {
+  position: relative;
+  padding-left: 12px;
+}
+
+.status-dot::before {
+  content: '';
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #35bd6d;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  box-shadow: 0 0 0 3px rgba(53, 189, 109, 0.18);
 }
 
 .login-error {
-  margin: 0 0 16px;
-  color: #b91c1c;
-  font-size: 14px;
-  line-height: 1.5;
-  text-align: left;
-  opacity: 1;
+  margin: 2px 0 0;
+  color: #d64040;
+  font-size: 13px;
+  line-height: 1.4;
 }
 
-p.account,
-p.account a {
-  text-align: center;
-  padding-top: 20px;
-  padding-bottom: 0;
-  font-size: 16px;
-  color: #333;
-}
-
-p.account a {
-  color: #0568c1;
-}
-
-p.account a:hover {
-  text-decoration: underline;
-}
-
-.w3l-hotair-form h1 {
-  text-align: center;
-  font-size: 40px;
+.login-btn {
+  margin-top: 3px;
+  height: 42px;
+  border: 0;
+  border-radius: 11px;
+  background: linear-gradient(160deg, #41a2fa, #2389e6);
+  box-shadow: 0 8px 16px rgba(28, 129, 219, 0.3);
+  color: #ffffff;
+  font-size: 15px;
   font-weight: 700;
-  color: #fff;
+  letter-spacing: 3px;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, opacity 0.2s ease;
 }
 
-.w3l-hotair-form h2 {
-  font-size: 30px;
-  line-height: 40px;
-  margin-bottom: 5px;
-  font-weight: 900;
-  color: #272346;
-  text-align: center;
+.login-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 20px rgba(28, 129, 219, 0.34);
 }
 
-.w3l-hotair-form input {
-  outline: none;
-  margin-bottom: 15px;
-  font-size: 16px;
-  color: #999;
-  text-align: left;
-  padding: 14px 20px;
-  width: 100%;
-  display: inline-block;
-  box-sizing: border-box;
-  border: none;
-  background: #f7fafc;
-  border: 1px solid #e5e5e5;
-  transition: .3s ease;
-  -webkit-transition: .3s ease;
-  -moz-transition: .3s ease;
-  -ms-transition: .3s ease;
-  -o-transition: .3s ease;
+.login-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
 }
 
-.w3l-hotair-form input:focus {
-  background: transparent;
-  border: 1px solid #0568c1;
+.card-footer {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #7192b4;
+  font-size: 12px;
 }
 
-.w3l-hotair-form button {
-  font-size: 18px;
-  color: #fff;
-  width: 100%;
-  background: #0568c1;
-  border: none;
-  padding: 14px 15px;
-  font-weight: 700;
-  transition: .3s ease;
-  -webkit-transition: .3s ease;
-  -moz-transition: .3s ease;
-  -ms-transition: .3s ease;
-  -o-transition: .3s ease;
+.fade-slide-enter-active,
+.fade-slide-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
 }
 
-.w3l-hotair-form button:hover {
-  background: #fdc500;
+.fade-slide-enter-from,
+.fade-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
 }
 
-.copyright p {
-  text-align: center;
-  font-size: 17px;
-  line-height: 26px;
-  color: #fff;
-  opacity: 1;
+@keyframes float-up {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-12px);
+  }
 }
 
-@media (max-width: 736px) {
-  .w3l-hotair-form .main-hotair {
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(24px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (max-width: 540px) {
+  .login-shell {
+    padding: 16px;
+  }
+
+  .login-body {
+    padding: 24px 18px 20px;
+  }
+
+  .card-footer {
     flex-direction: column;
-  }
-
-  .w3l-hotair-form form {
-    margin-top: 30px;
-    margin-bottom: 10px;
-  }
-
-  .w3l_form {
-    order: 2;
-    border-radius: 0;
-    border-bottom-left-radius: 8px;
-    border-bottom-right-radius: 8px;
-    border-top-right-radius: 0;
-  }
-
-  .content-wthree {
-    order: 1;
-    border-radius: 0;
-    border-top-left-radius: 8px;
-    border-top-right-radius: 8px;
-  }
-}
-
-@media (max-width: 568px) {
-  .w3l-hotair-form h1 {
-    font-size: 36px;
-  }
-
-  .w3l-hotair-form .main-hotair {
-    margin: 30px 0;
-  }
-
-  .content-wthree {
-    padding: 2.5em;
-  }
-}
-
-@media (max-width: 480px) {
-  .w3l-hotair-form {
-    padding: 40px 30px;
-  }
-
-  .w3l-hotair-form h1 {
-    font-size: 26px;
-  }
-}
-
-@media (max-width: 384px) {
-  .w3l-hotair-form {
-    padding: 30px 15px;
-  }
-
-  .content-wthree {
-    padding: 2em;
-  }
-
-  .w3l-hotair-form h2 {
-    font-size: 22px;
-    line-height: 32px;
-  }
-
-  .copyright p {
-    font-size: 16px;
+    gap: 4px;
   }
 }
 </style>
