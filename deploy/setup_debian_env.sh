@@ -188,6 +188,9 @@ setup_python_env() {
   if [ -f requirements.txt ]; then
     pip install -r requirements.txt
   fi
+  if [ -f requirements-sqlcipher.txt ]; then
+    pip install -r requirements-sqlcipher.txt
+  fi
   if [ -f fastapi_server/requirements.txt ]; then
     pip install -r fastapi_server/requirements.txt
   fi

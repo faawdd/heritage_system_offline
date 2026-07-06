@@ -79,6 +79,9 @@ else
 fi
 
 pip install -r requirements.txt -q
+if [ -f requirements-sqlcipher.txt ]; then
+    pip install -r requirements-sqlcipher.txt -q
+fi
 
 # 可选：前端构建（若构建产物不入库，建议开启）
 if [ -f frontend/package.json ]; then

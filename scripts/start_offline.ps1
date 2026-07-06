@@ -47,6 +47,7 @@ Write-Host "[offline] Upgrading pip..."
 if ($InitDeps) {
     Write-Host "[offline] Installing dependencies from requirements.txt..."
     & $pythonExe -m pip install -r requirements.txt
+    & $pythonExe -m pip install -r requirements-sqlcipher.txt
 }
 
 $env:DJANGO_DEBUG = "1"

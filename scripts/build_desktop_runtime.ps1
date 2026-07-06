@@ -24,6 +24,7 @@ Write-Host "[desktop-runtime] Using Python: $pythonExe (version $pyVersionText)"
 Write-Host "[desktop-runtime] Installing build tools..."
 & $pythonExe -m pip install --upgrade pip
 & $pythonExe -m pip install -r requirements.txt
+& $pythonExe -m pip install -r requirements-sqlcipher.txt
 & $pythonExe -m pip install pyinstaller
 
 Write-Host "[desktop-runtime] Building backend executable..."
