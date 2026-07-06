@@ -161,12 +161,36 @@ python manage.py reset_super_admin_password --username admin --password NewPassw
 HERITAGE_FORCE_RESET_SUPER_ADMIN_PASSWORD=1 HERITAGE_BOOTSTRAP_ADMIN_PASSWORD=NewPassword123
 ```
 
+<<<<<<< HEAD
 ## 版权信息
 
 - 版权所有：北辰
 - 作者：北辰
 - 联系邮箱：1443469207@qq.com
 - 联系电话：13899665458
+=======
+## macOS 安装后提示“已损坏，无法打开”
+
+该提示通常与 Gatekeeper 隔离属性或未公证安装包有关，不代表安装包内容损坏。可按以下步骤修复：
+
+1. 执行一键修复脚本（推荐）
+
+```bash
+chmod +x ./scripts/macos_fix_damaged_app.sh
+./scripts/macos_fix_damaged_app.sh "/Applications/基层文物管理系统（离线版）.app"
+```
+
+2. 手工执行（等效）
+
+```bash
+xattr -rd com.apple.quarantine "/Applications/基层文物管理系统（离线版）.app"
+codesign --force --deep --sign - "/Applications/基层文物管理系统（离线版）.app"
+```
+
+3. 若仍被拦截，可在“系统设置 -> 隐私与安全性”中允许该应用后再次打开。
+
+长期方案建议：发布版本接入 Apple Developer 签名与 notarization（公证），可从源头避免该提示。
+>>>>>>> 164b0e9 (更改合并)
 
 ## 许可证
 
