@@ -54,8 +54,8 @@ $env:HERITAGE_OFFLINE_DEBUG = "1"
 $env:DJANGO_FORCE_HTTPS = "0"
 $env:DJANGO_WEB_BASE_URL = "http://${BindHost}:${Port}"
 
-Write-Host "[offline] Running database migrations..."
-& $pythonExe manage.py migrate --noinput
+Write-Host "[offline] Bootstrapping SQLCipher database..."
+& $pythonExe manage.py sqlcipher_bootstrap
 
 Write-Host "[offline] Ensuring debug super admin account (test/test)..."
 $debugUserBootstrap = @'

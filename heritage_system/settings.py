@@ -202,8 +202,8 @@ WSGI_APPLICATION = 'heritage_system.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': Path(env('HERITAGE_DB_FILE', default=str(DATA_DIR / 'db.sqlite3'))),
+        'ENGINE': 'heritage_system.db.backends.sqlcipher',
+        'NAME': Path(env('HERITAGE_DB_FILE', default=str(DATA_DIR / 'database.db'))),
     }
 }
 

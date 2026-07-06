@@ -191,8 +191,8 @@ export HERITAGE_OFFLINE_DEBUG="1"
 export DJANGO_FORCE_HTTPS="0"
 export DJANGO_WEB_BASE_URL="http://${BIND_HOST}:${PORT}"
 
-echo "[offline] Running database migrations..."
-"$PYTHON_EXE" manage.py migrate --noinput
+echo "[offline] Bootstrapping SQLCipher database..."
+"$PYTHON_EXE" manage.py sqlcipher_bootstrap
 
 echo "[offline] Ensuring debug super admin account (test/test)..."
 "$PYTHON_EXE" manage.py shell -c "from django.contrib.auth import get_user_model; from django.contrib.auth.models import Group, Permission; ROLE_SUPER_ADMIN='超级管理员'; ROLE_ADMIN='管理员'; User=get_user_model(); super_group,_=Group.objects.get_or_create(name=ROLE_SUPER_ADMIN); admin_group,_=Group.objects.get_or_create(name=ROLE_ADMIN); super_group.permissions.set(Permission.objects.all()); admin_group.permissions.set(Permission.objects.exclude(content_type__app_label__in=['auth','contenttypes','sessions','admin'])); user,created=User.objects.get_or_create(username='test', defaults={'is_staff':True,'is_superuser':True,'is_active':True,'first_name':'调试账号'}); user.is_staff=True; user.is_superuser=True; user.is_active=True; user.set_password('test'); user.save(); user.groups.add(super_group); print('debug user ensured: test')"

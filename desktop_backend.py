@@ -8,7 +8,6 @@ ROLE_SUPER_ADMIN = '超级管理员'
 ROLE_ADMIN = '管理员'
 DEFAULT_ADMIN_USERNAME = 'admin'
 DEFAULT_ADMIN_PASSWORD = 'Admin@123456'
-FORCE_RESET_SUPER_ADMIN_PASSWORD = str(os.environ.get('HERITAGE_FORCE_RESET_SUPER_ADMIN_PASSWORD') or '').lower() in {'1', 'true', 'yes', 'on'}
 OFFLINE_DEBUG_MODE = str(os.environ.get('HERITAGE_OFFLINE_DEBUG') or '').lower() in {'1', 'true', 'yes', 'on'}
 OFFLINE_DEBUG_USERNAME = 'test'
 OFFLINE_DEBUG_PASSWORD = 'test'
@@ -113,65 +112,6 @@ def _load_admin_bootstrap(config_dir: Path, logger: logging.Logger) -> tuple[str
   return username, password
 
 
-def _ensure_roles_and_super_admin(config_dir: Path, logger: logging.Logger) -> None:
-  from django.contrib.auth import get_user_model
-  from django.contrib.auth.models import Group, Permission
-
-  super_group, _ = Group.objects.get_or_create(name=ROLE_SUPER_ADMIN)
-  admin_group, _ = Group.objects.get_or_create(name=ROLE_ADMIN)
-
-  all_permissions = Permission.objects.all()
-  super_group.permissions.set(all_permissions)
-  admin_permissions = Permission.objects.exclude(content_type__app_label__in=['auth', 'contenttypes', 'sessions', 'admin'])
-  admin_group.permissions.set(admin_permissions)
-
-  User = get_user_model()
-  username, password = _load_admin_bootstrap(config_dir, logger)
-  if not OFFLINE_DEBUG_MODE and not FORCE_RESET_SUPER_ADMIN_PASSWORD:
-    has_super_admin = User.objects.filter(is_superuser=True, is_active=True).exists() or User.objects.filter(
-      is_active=True,
-      groups__name=ROLE_SUPER_ADMIN,
-    ).exists()
-
-    if has_super_admin:
-      logger.info('Super admin already exists, skip bootstrap.')
-      return
-
-  user = User.objects.filter(username=username).first()
-  if user is None:
-    user = User.objects.create_user(
-      username=username,
-      password=password,
-      is_staff=True,
-      is_superuser=True,
-      is_active=True,
-      first_name='超级管理员',
-    )
-    logger.info('Bootstrap super admin created: %s', username)
-  else:
-    user.set_password(password)
-    user.is_staff = True
-    user.is_superuser = True
-    user.is_active = True
-    if not user.first_name:
-      user.first_name = '超级管理员'
-    user.save()
-    if FORCE_RESET_SUPER_ADMIN_PASSWORD:
-      logger.info('Existing super admin password force-reset: %s', username)
-    else:
-      logger.info('Existing admin user promoted to super admin: %s', username)
-
-  user.groups.add(super_group)
-
-
-def _apply_migrations(logger: logging.Logger) -> None:
-  from django.core.management import call_command
-
-  logger.info('Applying database migrations...')
-  call_command('migrate', interactive=False, run_syncdb=True, verbosity=1)
-  logger.info('Database migrations applied.')
-
-
 def _start_waitress(host: str, port: int, logger: logging.Logger) -> None:
   from django.core.wsgi import get_wsgi_application
   from waitress import serve
@@ -191,7 +131,7 @@ def main() -> int:
     for path in [data_dir, config_dir, log_dir, uploads_dir, backup_dir]:
       path.mkdir(parents=True, exist_ok=True)
 
-    db_file = Path(os.environ.get('HERITAGE_DB_FILE', data_dir / 'database.sqlite3')).resolve()
+    db_file = Path(os.environ.get('HERITAGE_DB_FILE', data_dir / 'database.db')).resolve()
     db_file.parent.mkdir(parents=True, exist_ok=True)
 
     os.chdir(app_dir)
@@ -219,8 +159,9 @@ def main() -> int:
     import django
 
     django.setup()
-    _apply_migrations(logger)
-    _ensure_roles_and_super_admin(config_dir, logger)
+    from heritage_system.sqlcipher.maintenance import bootstrap_sqlcipher_database
+
+    bootstrap_sqlcipher_database(logger=logger)
     _start_waitress(host, port, logger)
 
     logger.info('Backend started successfully')

@@ -1,0 +1,30 @@
+import importlib
+import os
+
+
+SQLCIPHER_MODULE_CANDIDATES = (
+    'sqlcipher3.dbapi2',
+    'sqlcipher3',
+    'pysqlcipher3.dbapi2',
+    'pysqlcipher3',
+)
+
+
+def resolve_sqlcipher_dbapi():
+    allow_fallback = str(os.environ.get('HERITAGE_SQLCIPHER_ALLOW_FALLBACK') or '').lower() in {'1', 'true', 'yes', 'on'}
+
+    for module_name in SQLCIPHER_MODULE_CANDIDATES:
+        try:
+            return importlib.import_module(module_name)
+        except Exception:
+            continue
+
+    if allow_fallback:
+        import sqlite3
+
+        return sqlite3
+
+    raise RuntimeError(
+        'SQLCipher DB-API module is not available. Install sqlcipher3-binary or set '
+        'HERITAGE_SQLCIPHER_ALLOW_FALLBACK=1 only for tests.'
+    )

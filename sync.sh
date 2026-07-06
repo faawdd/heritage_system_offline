@@ -10,18 +10,19 @@ echo "=================================="
 echo ""
 
 BACKUP_DB_PATH=""
+DB_FILE="data/database.db"
 
 backup_database() {
-    if [ -f db.sqlite3 ]; then
+    if [ -f "$DB_FILE" ]; then
         BACKUP_DB_PATH="$(mktemp /tmp/heritage_db_backup.XXXXXX)"
-        cp db.sqlite3 "$BACKUP_DB_PATH"
+        cp "$DB_FILE" "$BACKUP_DB_PATH"
         echo "已备份当前数据库到: $BACKUP_DB_PATH"
     fi
 }
 
 restore_database() {
     if [ -n "$BACKUP_DB_PATH" ] && [ -f "$BACKUP_DB_PATH" ]; then
-        cp "$BACKUP_DB_PATH" db.sqlite3
+        cp "$BACKUP_DB_PATH" "$DB_FILE"
         echo "已恢复数据库文件"
     fi
 }
@@ -92,7 +93,7 @@ fi
 
 # 5. 应用数据库迁移
 echo "[5/7] 应用数据库迁移..."
-python manage.py migrate --no-input
+python manage.py sqlcipher_bootstrap
 
 # 6. 修复登陆问题 - 为现有用户创建 UserProfile
 echo "[6/7] 修复用户 Profile 缺失问题..."

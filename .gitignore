@@ -19,6 +19,7 @@ frontend/.vite/
 /data/
 /config/
 /desktop_runtime/
+/backup/
 *.sqlite3
 *.sqlite3.*
 .env

@@ -57,6 +57,8 @@ from core.models import ImmovableHeritage, HeritagePhoto            # type: igno
 
 DB_PATH = Path(settings.DATABASES["default"]["NAME"])
 MEDIA_ROOT = Path(settings.MEDIA_ROOT)
+from heritage_system.sqlcipher.connection import connect_sqlcipher_database
+from heritage_system.sqlcipher.dbapi import resolve_sqlcipher_dbapi
 
 
 app = FastAPI(title="Heritage Patrol FastAPI", version="1.0.0")
@@ -84,8 +86,9 @@ def resolve_django_web_base_url() -> str:
 def get_conn() -> sqlite3.Connection:
     if not DB_PATH.exists():
         raise HTTPException(status_code=500, detail="Django database file not found")
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.row_factory = sqlite3.Row
+    dbapi = resolve_sqlcipher_dbapi()
+    conn = connect_sqlcipher_database(DB_PATH, create_if_missing=False, verify=True)
+    conn.row_factory = dbapi.Row
     return conn
 
 
