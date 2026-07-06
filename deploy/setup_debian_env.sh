@@ -201,7 +201,7 @@ run_django_tasks() {
   source .venv/bin/activate
 
   sudo -u "$APP_USER" env PATH="$PROJECT_DIR/.venv/bin:$PATH" \
-    "$PROJECT_DIR/.venv/bin/python" manage.py migrate --no-input
+    "$PROJECT_DIR/.venv/bin/python" manage.py sqlcipher_bootstrap
 
   sudo -u "$APP_USER" env PATH="$PROJECT_DIR/.venv/bin:$PATH" \
     "$PROJECT_DIR/.venv/bin/python" manage.py collectstatic --noinput

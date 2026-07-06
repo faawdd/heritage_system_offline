@@ -88,13 +88,13 @@ These values ensure generated media and entry URLs use local addresses.
 
 ## 5. Data location and backup
 
-- Main database: `db.sqlite3`
+- Main database: `data/database.db`
 - Media uploads: `media/`
 
 Simple backup:
 
 ```powershell
-Copy-Item db.sqlite3 db.sqlite3.bak_$(Get-Date -Format yyyyMMdd_HHmmss)
+Copy-Item data/database.db data/database.db.bak_$(Get-Date -Format yyyyMMdd_HHmmss)
 Copy-Item media media_bak_$(Get-Date -Format yyyyMMdd_HHmmss) -Recurse
 ```
 

@@ -43,6 +43,12 @@ echo "[desktop-runtime] Building backend executable..."
   --noconfirm \
   --clean \
   --collect-data rasterio \
+  --hidden-import sqlite3 \
+  --hidden-import heritage_system.db.backends.sqlcipher \
+  --hidden-import heritage_system.db.backends.sqlcipher.base \
+  --collect-all sqlcipher3 \
+  --collect-all cryptography \
+  --collect-all keyring \
   --onedir
 
 OUTPUT_DIR="$PROJECT_ROOT/$OUTPUT_ROOT"

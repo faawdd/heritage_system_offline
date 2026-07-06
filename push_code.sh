@@ -17,13 +17,13 @@ git config --global --add safe.directory "$PROJECT_ROOT"
 CURRENT_BRANCH=$(git symbolic-ref --short -q HEAD || echo "master")
 echo "当前分支: $CURRENT_BRANCH"
 
-if git ls-files --error-unmatch db.sqlite3 >/dev/null 2>&1; then
-    echo "检测到 db.sqlite3 仍被 Git 跟踪，准备从仓库中移除"
-    git rm --cached -f db.sqlite3
+if git ls-files --error-unmatch data/database.db >/dev/null 2>&1; then
+    echo "检测到 data/database.db 仍被 Git 跟踪，准备从仓库中移除"
+    git rm --cached -f data/database.db
 fi
 
-if git ls-files --error-unmatch db.sqlite3.bak_20260303_234321 >/dev/null 2>&1; then
-    git rm --cached -f db.sqlite3.bak_20260303_234321
+if git ls-files --error-unmatch data/database.db.bak_20260303_234321 >/dev/null 2>&1; then
+    git rm --cached -f data/database.db.bak_20260303_234321
 fi
 
 echo ""
