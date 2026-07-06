@@ -184,6 +184,7 @@ echo "[offline] Upgrading pip..."
 if [[ "$INIT_DEPS" == "1" ]]; then
   echo "[offline] Installing dependencies from requirements.txt..."
   "$PYTHON_EXE" -m pip install -r requirements.txt
+  "$PYTHON_EXE" -m pip install -r requirements-sqlcipher.txt
 fi
 
 export DJANGO_DEBUG="1"
