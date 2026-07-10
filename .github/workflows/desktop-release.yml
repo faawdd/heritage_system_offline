@@ -19,24 +19,24 @@ jobs:
         include:
           - id: windows-x64
             os: windows-latest
-            asset_glob: frontend/dist-electron/*.exe
+            # 调整为相对 frontend/dist-electron 的路径，避免层级混乱
+            asset_glob: "*.exe"
             build_cmd: npx electron-builder --publish never --win nsis --x64
             artifact_name: windows-x64
           - id: macos-arm64
             os: macos-14
-            asset_glob: |
-              frontend/dist-electron/*.dmg
-              frontend/dist-electron/*-arm64-mac.zip
+            # 使用逗号或通配符单行表达，避免多行字符串在跨平台传递时的换行符坑
+            asset_glob: "*.dmg,*-arm64-mac.zip"
             build_cmd: npx electron-builder --publish never --mac dmg zip --arm64
             artifact_name: macos-arm64
           - id: linux-amd64
             os: ubuntu-24.04
-            asset_glob: frontend/dist-electron/*.AppImage
+            asset_glob: "*.AppImage"
             build_cmd: npx electron-builder --publish never --linux AppImage --x64
             artifact_name: linux-amd64
           - id: linux-arm64
             os: ubuntu-24.04-arm
-            asset_glob: frontend/dist-electron/*.AppImage
+            asset_glob: "*.AppImage"
             build_cmd: npx electron-builder --publish never --linux AppImage --arm64
             artifact_name: linux-arm64
 
@@ -89,12 +89,10 @@ jobs:
             if npm ci --no-audit; then
               exit 0
             fi
-
             if [ "$attempt" -eq 3 ]; then
               echo "npm ci failed after 3 attempts"
               exit 1
             fi
-
             echo "npm ci failed, retrying after short delay..."
             sleep 20
           done
@@ -110,12 +108,10 @@ jobs:
             if ($LASTEXITCODE -eq 0) {
               exit 0
             }
-
             if ($attempt -eq 3) {
               Write-Host "npm ci failed after 3 attempts"
               exit 1
             }
-
             Write-Host "npm ci failed, retrying after short delay..."
             Start-Sleep -Seconds 20
           }
@@ -209,7 +205,6 @@ jobs:
               }
               Start-Sleep -Milliseconds 500
             }
-
             if (-not $ok) {
               throw "Backend smoke test failed: health endpoint not ready"
             }
@@ -339,7 +334,6 @@ jobs:
               }
               Start-Sleep -Milliseconds 500
             }
-
             if (-not $ok) {
               throw "Packaged backend smoke test failed: health endpoint not ready"
             }
@@ -447,22 +441,34 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.asset_glob }}
+          # 核心修复：直接切入 frontend/dist-electron 目录下寻找
+          path: |
+            frontend/dist-electron/${{ matrix.asset_glob }}
           if-no-files-found: error
 
   release:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
     needs: [build]
+    if: startsWith(github.ref, 'refs/tags/v') # 确保只有推 tag 时才跑 release，手动触发不跑
 
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
-          path: release-assets
+          # 不指定 path，默认下载到当前工作目录，结构为：./<artifact_name>/<files>
+
+      - name: Flatten assets for Release
+        run: |
+          mkdir cleaned-assets
+          # 将各个不同平台矩阵文件夹里的最终安装包，统一复制到扁平目录中
+          find . -maxdepth 2 -type f \( -name "*.exe" -o -name "*.dmg" -o -name "*.zip" -o -name "*.AppImage" \) -exec cp {} cleaned-assets/ \;
+          echo "=== Files to be released ==="
+          ls -l cleaned-assets/
 
       - name: Publish release assets
         uses: softprops/action-gh-release@v2
         with:
-          files: release-assets/**/*
+          # 发行扁平化目录下的所有文件，避免 Release 里出现套娃文件夹
+          files: cleaned-assets/*
           generate_release_notes: true
