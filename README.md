@@ -161,14 +161,33 @@ python manage.py reset_super_admin_password --username admin --password NewPassw
 HERITAGE_FORCE_RESET_SUPER_ADMIN_PASSWORD=1 HERITAGE_BOOTSTRAP_ADMIN_PASSWORD=NewPassword123
 ```
 
-<<<<<<< HEAD
+## 离线地图瓦片（开发阶段准备）
+
+为避免 GitHub Actions 在发布阶段在线下载天地图瓦片导致卡住，离线瓦片改为开发阶段预下载并提交到仓库。
+
+执行脚本（macOS/Linux）：
+
+```bash
+chmod +x ./scripts/refresh_tianditu_tiles.sh
+./scripts/refresh_tianditu_tiles.sh --commit --push
+```
+
+说明：
+
+- 该脚本会调用 `scripts/prefetch_tianditu_tiles.py` 下载吐鲁番范围瓦片到 `static/tiles/tianditu`
+- `--commit` 会自动 `git add` 并生成提交
+- `--push` 会将当前分支推送到默认远端
+- 可通过 `TDT_TK` 或 `VITE_TDT_TK` 环境变量覆盖天地图 key
+
+发布流程现在会在 CI 中校验 `static/tiles/tianditu` 是否已存在且非空；若不存在会直接失败，避免在线下载。
+
 ## 版权信息
 
 - 版权所有：北辰
 - 作者：北辰
 - 联系邮箱：1443469207@qq.com
 - 联系电话：13899665458
-=======
+
 ## macOS 安装后提示“已损坏，无法打开”
 
 该提示通常与 Gatekeeper 隔离属性或未公证安装包有关，不代表安装包内容损坏。可按以下步骤修复：
@@ -190,7 +209,6 @@ codesign --force --deep --sign - "/Applications/基层文物管理系统（离�
 3. 若仍被拦截，可在“系统设置 -> 隐私与安全性”中允许该应用后再次打开。
 
 长期方案建议：发布版本接入 Apple Developer 签名与 notarization（公证），可从源头避免该提示。
->>>>>>> 164b0e9 (更改合并)
 
 ## 许可证
 
