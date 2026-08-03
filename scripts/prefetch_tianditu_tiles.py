@@ -28,6 +28,10 @@ DEFAULT_ZOOM_MAX = 13
 DEFAULT_CONCURRENCY = 16
 DEFAULT_TIMEOUT = 20
 DEFAULT_RETRIES = 3
+DEFAULT_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
+)
 
 
 def env_or_default(name: str, default: str) -> str:
@@ -97,6 +101,7 @@ def download_one(
     token: str,
     timeout_sec: int,
     retries: int,
+    user_agent: str,
 ) -> Tuple[str, bool, str]:
     layer, z, x, y = task
     target = output_dir / layer / str(z) / str(x) / f"{y}.png"
@@ -106,11 +111,16 @@ def download_one(
 
     target.parent.mkdir(parents=True, exist_ok=True)
     url = build_url(layer, z, x, y, token)
+    headers = {
+        "User-Agent": user_agent,
+        "Referer": "http://lbs.tianditu.gov.cn/home.html",
+        "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+    }
 
     last_error = ""
     for _ in range(retries):
         try:
-            response = requests.get(url, timeout=timeout_sec)
+            response = requests.get(url, headers=headers, timeout=timeout_sec)
             if response.status_code != 200:
                 last_error = f"HTTP {response.status_code}"
                 continue
@@ -140,6 +150,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--timeout", type=int, default=int(env_or_default("TDT_PREFETCH_TIMEOUT", str(DEFAULT_TIMEOUT))))
     parser.add_argument("--retries", type=int, default=int(env_or_default("TDT_PREFETCH_RETRIES", str(DEFAULT_RETRIES))))
     parser.add_argument("--token", default=env_or_default("VITE_TDT_TK", env_or_default("TDT_TK", DEFAULT_TDT_TK)))
+    parser.add_argument("--user-agent", default=env_or_default("TDT_PREFETCH_USER_AGENT", DEFAULT_USER_AGENT))
     return parser.parse_args()
 
 
@@ -187,6 +198,7 @@ def main() -> int:
                 args.token,
                 int(args.timeout),
                 int(args.retries),
+                args.user_agent,
             )
             for task in task_list
         ]
