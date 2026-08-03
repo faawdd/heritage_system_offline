@@ -1,4 +1,4 @@
 # SQLCipher runtime dependency
 # Windows uses the binary distribution; other platforms build pysqlcipher3 against system SQLCipher.
-sqlcipher3-binary>=0.5.4; platform_system == "Windows"
+sqlcipher3>=0.5.4; platform_system == "Windows"
 pysqlcipher3>=1.2.0; platform_system != "Windows"
