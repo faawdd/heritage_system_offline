@@ -175,6 +175,7 @@ chmod +x ./scripts/refresh_tianditu_tiles.sh
 说明：
 
 - 该脚本会调用 `scripts/prefetch_tianditu_tiles.py` 下载吐鲁番范围瓦片到 `static/tiles/tianditu`
+- 默认下载级别为 0-18（可通过参数或环境变量覆盖）
 - `--commit` 会自动 `git add` 并生成提交
 - `--push` 会将当前分支推送到默认远端
 - 可通过 `TDT_TK` 或 `VITE_TDT_TK` 环境变量覆盖天地图 key

@@ -77,9 +77,17 @@ cd "$PROJECT_ROOT"
 
 echo "[tdt-refresh] python: $PYTHON"
 echo "[tdt-refresh] output: $PROJECT_ROOT/static/tiles/tianditu"
-"$PYTHON" "$PROJECT_ROOT/scripts/prefetch_tianditu_tiles.py" \
-  --output-dir "$PROJECT_ROOT/static/tiles/tianditu" \
-  "${PREFETCH_ARGS[@]}"
+prefetch_cmd=(
+  "$PYTHON"
+  "$PROJECT_ROOT/scripts/prefetch_tianditu_tiles.py"
+  --output-dir "$PROJECT_ROOT/static/tiles/tianditu"
+)
+
+if [[ ${#PREFETCH_ARGS[@]} -gt 0 ]]; then
+  prefetch_cmd+=("${PREFETCH_ARGS[@]}")
+fi
+
+"${prefetch_cmd[@]}"
 
 if [[ "$DO_COMMIT" -eq 0 ]]; then
   echo "[tdt-refresh] done (download only)."
