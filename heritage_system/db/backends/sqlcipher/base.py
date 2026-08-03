@@ -3,6 +3,7 @@ from itertools import tee
 from collections.abc import Mapping
 import re
 
+from django.db import DEFAULT_DB_ALIAS
 from django.db.backends.sqlite3.base import DatabaseWrapper as SQLiteDatabaseWrapper
 
 from heritage_system.sqlcipher.connection import connect_sqlcipher_database
@@ -40,6 +41,18 @@ class SqlCipherCursorWrapper:
         return getattr(self.cursor, name)
 
 
+class SqlCipherDatabaseFeatures:
+    def __init__(self, wrapped_features):
+        self._wrapped_features = wrapped_features
+
+    @property
+    def max_query_params(self):
+        return 999
+
+    def __getattr__(self, name):
+        return getattr(self._wrapped_features, name)
+
+
 class DatabaseWrapper(SQLiteDatabaseWrapper):
     vendor = 'sqlite'
 
@@ -50,3 +63,7 @@ class DatabaseWrapper(SQLiteDatabaseWrapper):
 
     def create_cursor(self, name=None):
         return SqlCipherCursorWrapper(self.connection.cursor())
+
+    def __init__(self, settings_dict, alias=DEFAULT_DB_ALIAS):
+        super().__init__(settings_dict, alias)
+        self.features = SqlCipherDatabaseFeatures(self.features)
