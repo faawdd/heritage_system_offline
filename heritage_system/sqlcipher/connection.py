@@ -36,8 +36,9 @@ def connect_sqlcipher_database(database_path: str | Path, create_if_missing: boo
 
     connection = dbapi.connect(str(path))
     try:
-        key_text = load_database_key(get_config_dir(), create_if_missing=create_if_missing)
-        apply_database_key(connection, key_text)
+        if getattr(dbapi, '__name__', '') != 'sqlite3':
+            key_text = load_database_key(get_config_dir(), create_if_missing=create_if_missing)
+            apply_database_key(connection, key_text)
         if verify:
             verify_connection(connection)
     except Exception:

@@ -75,6 +75,52 @@ class SqlCipherConnectionTests(SimpleTestCase):
         self.assertIn('PRAGMA integrity_check;', fake_connection.calls)
         self.assertFalse(fake_connection.closed)
 
+    def test_resolve_sqlcipher_dbapi_allows_desktop_fallback(self):
+        with patch.dict('os.environ', {'HERITAGE_DESKTOP_MODE': '1'}, clear=False), \
+             patch.object(sqlcipher_connection_module.importlib, 'import_module', side_effect=ImportError):
+            dbapi = sqlcipher_connection_module.resolve_sqlcipher_dbapi()
+
+        self.assertEqual(dbapi.__name__, 'sqlite3')
+
+    def test_connect_skips_key_setup_for_sqlite_fallback(self):
+        class FakeCursor:
+            def fetchall(self):
+                return [('ok',)]
+
+        class FakeConnection:
+            def __init__(self):
+                self.calls = []
+
+            def execute(self, sql):
+                self.calls.append(sql)
+                return FakeCursor()
+
+            def close(self):
+                self.calls.append('close')
+
+        fake_connection = FakeConnection()
+
+        class FakeSqliteDbApi:
+            __name__ = 'sqlite3'
+
+            def connect(self, _path):
+                return fake_connection
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / 'database.db'
+
+            with patch.object(sqlcipher_connection_module, 'resolve_sqlcipher_dbapi', return_value=FakeSqliteDbApi()), \
+                 patch.object(sqlcipher_connection_module, 'load_database_key') as load_key_mock:
+                connection = sqlcipher_connection_module.connect_sqlcipher_database(
+                    db_path,
+                    create_if_missing=True,
+                    verify=True,
+                )
+
+        self.assertIs(connection, fake_connection)
+        load_key_mock.assert_not_called()
+        self.assertIn('PRAGMA integrity_check;', fake_connection.calls)
+
 
 class SqlCipherMaintenanceTests(SimpleTestCase):
     def test_backup_database_creates_encrypted_copy(self):
