@@ -5,7 +5,9 @@ from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase
 
+from heritage_system.db.backends.sqlcipher.base import DatabaseWrapper as SqlCipherDatabaseWrapper
 from heritage_system.sqlcipher import connection as sqlcipher_connection_module
+from heritage_system.sqlcipher import dbapi as sqlcipher_dbapi_module
 from heritage_system.sqlcipher import key_store, maintenance
 
 
@@ -75,10 +77,40 @@ class SqlCipherConnectionTests(SimpleTestCase):
         self.assertIn('PRAGMA integrity_check;', fake_connection.calls)
         self.assertFalse(fake_connection.closed)
 
+    def test_sqlcipher_backend_create_cursor_wraps_raw_cursor(self):
+        class FakeRawCursor:
+            def __init__(self):
+                self.calls = []
+
+            def execute(self, sql, params=None):
+                self.calls.append((sql, params))
+                return self
+
+            def executemany(self, sql, param_list):
+                self.calls.append((sql, list(param_list)))
+                return self
+
+        class FakeConnection:
+            def __init__(self):
+                self.raw_cursor = FakeRawCursor()
+
+            def cursor(self):
+                return self.raw_cursor
+
+        wrapper = SqlCipherDatabaseWrapper({'NAME': ':memory:'}, alias='default')
+        wrapper.connection = FakeConnection()
+
+        cursor = wrapper.create_cursor()
+        cursor.execute('SELECT %s', [1])
+        cursor.executemany('SELECT %s', [[2], [3]])
+
+        self.assertEqual(wrapper.connection.raw_cursor.calls[0], ('SELECT ?', [1]))
+        self.assertEqual(wrapper.connection.raw_cursor.calls[1], ('SELECT ?', [[2], [3]]))
+
     def test_resolve_sqlcipher_dbapi_allows_desktop_fallback(self):
         with patch.dict('os.environ', {'HERITAGE_DESKTOP_MODE': '1'}, clear=False), \
-             patch.object(sqlcipher_connection_module.importlib, 'import_module', side_effect=ImportError):
-            dbapi = sqlcipher_connection_module.resolve_sqlcipher_dbapi()
+             patch.object(sqlcipher_dbapi_module.importlib, 'import_module', side_effect=ImportError):
+            dbapi = sqlcipher_dbapi_module.resolve_sqlcipher_dbapi()
 
         self.assertEqual(dbapi.__name__, 'sqlite3')
 
