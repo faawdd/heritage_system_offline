@@ -71,6 +71,10 @@
         <span class="legend-dot dot-conflict"></span>
         <span>冲突点</span>
       </div>
+      <div class="legend-item">
+        <span class="legend-dot dot-bubble"></span>
+        <span>KML要素定位气泡</span>
+      </div>
     </div>
     <div class="kml-overlay-tip" v-if="tips.length > 0">
       <div v-for="(item, idx) in tips" :key="idx">{{ item }}</div>
@@ -98,6 +102,7 @@ import CircleStyle from 'ol/style/Circle'
 import Fill from 'ol/style/Fill'
 import Stroke from 'ol/style/Stroke'
 import Style from 'ol/style/Style'
+import Text from 'ol/style/Text'
 
 import { createTiandituLayerGroup } from '../../utils/tianditu'
 import { fetchGisKmlBatchKmlContent } from '../../api/gisApi'
@@ -151,12 +156,14 @@ const kmlSource = new VectorSource()
 const heritageSource = new VectorSource()
 const conflictSource = new VectorSource()
 const overlapSource = new VectorSource()
+const elementBubbleSource = new VectorSource()
 const measureSource = new VectorSource()
 const mapRef = ref(null)
 const kmlLayerRef = ref(null)
 const heritageLayerRef = ref(null)
 const conflictLayerRef = ref(null)
 const overlapLayerRef = ref(null)
+const elementBubbleLayerRef = ref(null)
 const measureLayerRef = ref(null)
 const baseLayersRef = ref({ img: [], vec: [], ter: [] })
 const featurePopupEl = ref(null)
@@ -166,6 +173,7 @@ let loadToken = 0
 let overlapToken = 0
 const overlapEntries = ref([])
 const kmlStyleCache = new Map()
+const elementBubbleStyleCache = new Map()
 const kmlTextCache = new Map()
 const hatchPatternCache = new Map()
 
@@ -318,6 +326,68 @@ function overlapStyle(kind) {
       fill: new Fill({ color }),
       stroke: new Stroke({ color: '#ffffff', width: 2.2 })
     })
+  })
+}
+
+function elementBubbleStyle(label, isConflict) {
+  const key = `${label}|${isConflict ? '1' : '0'}`
+  if (elementBubbleStyleCache.has(key)) {
+    return elementBubbleStyleCache.get(key)
+  }
+
+  const fillColor = isConflict ? '#ef4444' : '#0ea5e9'
+  const style = new Style({
+    image: new CircleStyle({
+      radius: 10,
+      fill: new Fill({ color: fillColor }),
+      stroke: new Stroke({ color: '#ffffff', width: 2 }),
+    }),
+    text: new Text({
+      text: String(label || ''),
+      fill: new Fill({ color: '#ffffff' }),
+      stroke: new Stroke({ color: 'rgba(15, 23, 42, 0.55)', width: 2 }),
+      font: '600 11px sans-serif',
+      offsetY: 0,
+    }),
+  })
+
+  elementBubbleStyleCache.set(key, style)
+  return style
+}
+
+function geometryAnchorCoordinate(geometry) {
+  if (!geometry) {
+    return null
+  }
+  const extent = geometry.getExtent?.()
+  if (!extent || Number.isFinite(extent[0]) === false) {
+    return null
+  }
+  return getCenter(extent)
+}
+
+function rebuildElementBubbleLayer() {
+  elementBubbleSource.clear()
+
+  if (!showOverlapLayer.value) {
+    return
+  }
+
+  const features = kmlSource.getFeatures().filter((feature) => Boolean(feature.get('isKmlFeature')))
+  features.forEach((feature, index) => {
+    const anchor = geometryAnchorCoordinate(feature.getGeometry())
+    if (!anchor) {
+      return
+    }
+
+    const bubble = new Feature({ geometry: new Point(anchor) })
+    const label = index + 1
+    const isConflict = Boolean(feature.get('isOverlapConflict')) || Boolean(feature.get('isHeritageConflict'))
+    bubble.set('isElementBubble', true)
+    bubble.set('bubbleLabel', label)
+    bubble.set('targetFeature', feature)
+    bubble.setStyle(elementBubbleStyle(label, isConflict))
+    elementBubbleSource.addFeature(bubble)
   })
 }
 
@@ -541,12 +611,17 @@ async function reloadKmlLayers() {
   loadToken += 1
   const currentToken = loadToken
   kmlSource.clear()
+  elementBubbleSource.clear()
   tips.value = []
   closeFeaturePopup()
 
   const selectedRecords = props.selectedRecords || []
   if (selectedRecords.length === 0) {
-    reloadOverlapLayer()
+    overlapSource.clear()
+    overlapEntries.value = []
+    applyKmlHighlightStates([])
+    emit('overlap-update', [])
+    rebuildElementBubbleLayer()
     fitAll()
     return
   }
@@ -686,7 +761,15 @@ async function reloadKmlLayers() {
     }
   }
 
-  await reloadOverlapLayer()
+  if (showOverlapLayer.value) {
+    await reloadOverlapLayer()
+  } else {
+    overlapSource.clear()
+    overlapEntries.value = []
+    applyKmlHighlightStates([])
+    emit('overlap-update', [])
+  }
+  rebuildElementBubbleLayer()
   fitAll()
   isKmlLoading.value = false
 }
@@ -813,6 +896,7 @@ function applyKmlHighlightStates(entries = overlapEntries.value) {
   if (kmlLayerRef.value) {
     kmlLayerRef.value.changed()
   }
+  rebuildElementBubbleLayer()
 }
 
 async function reloadOverlapLayer() {
@@ -1021,6 +1105,13 @@ function toggleOverlapLayer() {
   showOverlapLayer.value = !showOverlapLayer.value
   if (overlapLayerRef.value) {
     overlapLayerRef.value.setVisible(showOverlapLayer.value)
+  }
+  if (elementBubbleLayerRef.value) {
+    elementBubbleLayerRef.value.setVisible(showOverlapLayer.value)
+  }
+  if (showOverlapLayer.value) {
+    reloadOverlapLayer()
+    rebuildElementBubbleLayer()
   }
 }
 
@@ -1310,6 +1401,7 @@ onMounted(() => {
   const heritageLayer = new VectorLayer({ source: heritageSource })
   const conflictLayer = new VectorLayer({ source: conflictSource })
   const overlapLayer = new VectorLayer({ source: overlapSource })
+  const elementBubbleLayer = new VectorLayer({ source: elementBubbleSource })
   const measureLayer = new VectorLayer({ source: measureSource })
 
   const popupOverlay = new Overlay({
@@ -1335,6 +1427,7 @@ onMounted(() => {
       heritageLayer,
       conflictLayer,
       overlapLayer,
+      elementBubbleLayer,
       measureLayer
     ],
     view: new View({
@@ -1351,6 +1444,13 @@ onMounted(() => {
     }
 
     const feature = map.forEachFeatureAtPixel(evt.pixel, (item) => item)
+    if (feature && feature.get('isElementBubble')) {
+      const target = feature.get('targetFeature')
+      if (target && target.getGeometry) {
+        showFeaturePopup(target, evt.coordinate)
+        return
+      }
+    }
     if (feature && Number.isInteger(feature.get('overlapIndex'))) {
       const idx = feature.get('overlapIndex')
       if (idx >= 0 && idx < overlapEntries.value.length) {
@@ -1393,6 +1493,7 @@ onMounted(() => {
   heritageLayerRef.value = heritageLayer
   conflictLayerRef.value = conflictLayer
   overlapLayerRef.value = overlapLayer
+  elementBubbleLayerRef.value = elementBubbleLayer
   measureLayerRef.value = measureLayer
   baseLayersRef.value = {
     img: imgLayers,
@@ -1406,6 +1507,7 @@ onMounted(() => {
   heritageLayer.setVisible(showHeritageLayer.value)
   conflictLayer.setVisible(showConflictLayer.value)
   overlapLayer.setVisible(showOverlapLayer.value)
+  elementBubbleLayer.setVisible(showOverlapLayer.value)
 
   loadHeritageLayer()
 })
@@ -1699,6 +1801,10 @@ watch(
 
 .dot-conflict {
   background: #dc2626;
+}
+
+.dot-bubble {
+  background: #0ea5e9;
 }
 
 @media (max-width: 768px) {
