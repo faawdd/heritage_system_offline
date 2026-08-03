@@ -153,6 +153,62 @@ class SqlCipherConnectionTests(SimpleTestCase):
         load_key_mock.assert_not_called()
         self.assertIn('PRAGMA integrity_check;', fake_connection.calls)
 
+    def test_connect_falls_back_when_key_file_missing_in_desktop_mode(self):
+        class FakeCursor:
+            def fetchall(self):
+                return [('ok',)]
+
+        class FakeSqlCipherConnection:
+            def __init__(self):
+                self.closed = False
+
+            def execute(self, _sql):
+                return FakeCursor()
+
+            def close(self):
+                self.closed = True
+
+        class FakeSqliteConnection:
+            def __init__(self):
+                self.calls = []
+
+            def execute(self, sql):
+                self.calls.append(sql)
+                return FakeCursor()
+
+            def close(self):
+                self.calls.append('close')
+
+        class FakeSqlCipherDbApi:
+            __name__ = 'sqlcipher3.dbapi2'
+
+            def __init__(self, connection):
+                self._connection = connection
+
+            def connect(self, _path):
+                return self._connection
+
+        fake_sqlcipher_connection = FakeSqlCipherConnection()
+        fake_sqlite_connection = FakeSqliteConnection()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / 'database.db'
+            db_path.write_bytes(b'plain-sqlite-db-placeholder')
+
+            with patch.dict('os.environ', {'HERITAGE_DESKTOP_MODE': '1'}, clear=False), \
+                 patch.object(sqlcipher_connection_module, 'resolve_sqlcipher_dbapi', return_value=FakeSqlCipherDbApi(fake_sqlcipher_connection)), \
+                 patch.object(sqlcipher_connection_module, 'load_database_key', side_effect=key_store.SqlCipherKeyError('SQLCipher key file not found')), \
+                 patch.object(sqlcipher_connection_module.sqlite3, 'connect', return_value=fake_sqlite_connection):
+                connection = sqlcipher_connection_module.connect_sqlcipher_database(
+                    db_path,
+                    create_if_missing=False,
+                    verify=True,
+                )
+
+        self.assertIs(connection, fake_sqlite_connection)
+        self.assertTrue(fake_sqlcipher_connection.closed)
+        self.assertIn('PRAGMA integrity_check;', fake_sqlite_connection.calls)
+
 
 class SqlCipherMaintenanceTests(SimpleTestCase):
     def test_backup_database_creates_encrypted_copy(self):
