@@ -32,6 +32,9 @@ fi
 echo "[desktop-runtime] Using Python: $PYTHON_BIN (version $PYTHON_VERSION)"
 
 echo "[desktop-runtime] Installing build tools..."
+export ELECTRON_MIRROR="${ELECTRON_MIRROR:-https://npmmirror.com/mirrors/electron/}"
+export ELECTRON_BUILDER_BINARIES_MIRROR="${ELECTRON_BUILDER_BINARIES_MIRROR:-https://npmmirror.com/mirrors/electron-builder-binaries/}"
+export ELECTRON_GET_USE_PROXY="${ELECTRON_GET_USE_PROXY:-1}"
 "$PYTHON_BIN" -m pip install --upgrade pip
 "$PYTHON_BIN" -m pip install -r requirements.txt
 "$PYTHON_BIN" -m pip install -r requirements-sqlcipher.txt

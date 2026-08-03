@@ -22,6 +22,15 @@ if ($major -lt 3 -or ($major -eq 3 -and $minor -lt 10)) {
 Write-Host "[desktop-runtime] Using Python: $pythonExe (version $pyVersionText)"
 
 Write-Host "[desktop-runtime] Installing build tools..."
+if (-not $env:ELECTRON_MIRROR) {
+    $env:ELECTRON_MIRROR = "https://npmmirror.com/mirrors/electron/"
+}
+if (-not $env:ELECTRON_BUILDER_BINARIES_MIRROR) {
+    $env:ELECTRON_BUILDER_BINARIES_MIRROR = "https://npmmirror.com/mirrors/electron-builder-binaries/"
+}
+if (-not $env:ELECTRON_GET_USE_PROXY) {
+    $env:ELECTRON_GET_USE_PROXY = "1"
+}
 & $pythonExe -m pip install --upgrade pip
 & $pythonExe -m pip install -r requirements.txt
 & $pythonExe -m pip install -r requirements-sqlcipher.txt
