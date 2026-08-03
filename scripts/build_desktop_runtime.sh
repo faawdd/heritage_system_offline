@@ -64,6 +64,14 @@ if [[ ! -f "$FRONTEND_INDEX" ]]; then
   exit 1
 fi
 
+if [[ "${SKIP_TDT_PREFETCH:-0}" != "1" ]]; then
+  echo "[desktop-runtime] Prefetch TianDiTu offline tiles for Turpan..."
+  "$PYTHON_BIN" "$PROJECT_ROOT/scripts/prefetch_tianditu_tiles.py" \
+    --output-dir "$PROJECT_ROOT/static/tiles/tianditu"
+else
+  echo "[desktop-runtime] SKIP_TDT_PREFETCH=1, skip TianDiTu tile prefetch"
+fi
+
 rm -rf "$OUTPUT_DIR"
 mkdir -p "$APP_DIR" "$DATA_DIR" "$CONFIG_DIR"
 

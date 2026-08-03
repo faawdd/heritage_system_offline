@@ -52,6 +52,13 @@ if (-not (Test-Path $frontendIndex)) {
     throw "[desktop-runtime] ERROR: Missing frontend bundle at static/frontend/index.html. Run: cd frontend ; npm run build"
 }
 
+if ($env:SKIP_TDT_PREFETCH -ne "1") {
+    Write-Host "[desktop-runtime] Prefetch TianDiTu offline tiles for Turpan..."
+    & $pythonExe "$projectRoot\scripts\prefetch_tianditu_tiles.py" --output-dir "$projectRoot\static\tiles\tianditu"
+} else {
+    Write-Host "[desktop-runtime] SKIP_TDT_PREFETCH=1, skip TianDiTu tile prefetch"
+}
+
 if (Test-Path $outputDir) {
     Remove-Item -Path $outputDir -Recurse -Force
 }
