@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sqlite3
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -10,6 +11,7 @@ from pathlib import Path
 from django.core.management import call_command
 
 from .connection import apply_database_key, sqlcipher_connection, verify_connection
+from .dbapi import resolve_sqlcipher_dbapi
 from .key_store import generate_database_key, load_database_key, store_database_key
 from .paths import ensure_runtime_directories, get_backup_dir, get_config_dir, get_database_path
 
@@ -22,6 +24,67 @@ DEFAULT_ADMIN_PASSWORD = 'Admin@123456'
 
 class SqlCipherMaintenanceError(RuntimeError):
     pass
+
+
+def _is_plain_sqlite_database(database_path: Path) -> bool:
+    try:
+        connection = sqlite3.connect(str(database_path))
+        try:
+            connection.execute('PRAGMA schema_version;').fetchone()
+            result = connection.execute('PRAGMA integrity_check;').fetchone()
+            return bool(result) and result[0] == 'ok'
+        finally:
+            connection.close()
+    except Exception:
+        return False
+
+
+def _convert_plain_sqlite_to_sqlcipher_database(database_path: Path) -> Path:
+    source_path = Path(database_path)
+    if not source_path.exists():
+        raise SqlCipherMaintenanceError('Plain SQLite database file not found')
+
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    backup_path = get_backup_dir() / f'{source_path.stem}_plain_{timestamp}{source_path.suffix}.bak'
+    backup_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source_path, backup_path)
+
+    target_path = source_path.with_suffix(source_path.suffix + '.sqlcipher_tmp')
+    if target_path.exists():
+        target_path.unlink()
+
+    key_text = load_database_key(get_config_dir(), create_if_missing=True)
+    dbapi = resolve_sqlcipher_dbapi()
+    if getattr(dbapi, '__name__', '') == 'sqlite3':
+        raise SqlCipherMaintenanceError('SQLCipher module is unavailable, cannot convert plain SQLite database')
+
+    source_connection = sqlite3.connect(str(source_path))
+    target_connection = dbapi.connect(str(target_path))
+    try:
+        apply_database_key(target_connection, key_text)
+        target_connection.execute('PRAGMA foreign_keys = OFF')
+        dump_sql = '\n'.join(source_connection.iterdump())
+        target_connection.executescript(dump_sql)
+        target_connection.commit()
+        verify_connection(target_connection)
+    except Exception as exc:
+        target_connection.close()
+        source_connection.close()
+        if target_path.exists():
+            target_path.unlink()
+        raise SqlCipherMaintenanceError('Failed to convert plain SQLite database to SQLCipher') from exc
+    finally:
+        try:
+            source_connection.close()
+        except Exception:
+            pass
+        try:
+            target_connection.close()
+        except Exception:
+            pass
+
+    shutil.move(str(target_path), str(source_path))
+    return backup_path
 
 
 def _load_admin_bootstrap_password() -> tuple[str, str]:
@@ -168,8 +231,18 @@ def ensure_roles_and_super_admin(config_dir: Path | None = None, logger: logging
 def bootstrap_sqlcipher_database(logger: logging.Logger | None = None) -> dict:
     ensure_runtime_directories()
     database_path = get_database_path()
+    converted_from_plain = False
+    converted_plain_backup_path = ''
 
     if database_path.exists():
+        if _is_plain_sqlite_database(database_path):
+            if logger:
+                logger.warning('Detected unencrypted SQLite database, converting to SQLCipher: %s', database_path)
+            backup_plain_path = _convert_plain_sqlite_to_sqlcipher_database(database_path)
+            converted_from_plain = True
+            converted_plain_backup_path = str(backup_plain_path)
+            if logger:
+                logger.warning('Plain SQLite database has been converted to SQLCipher. Backup saved at: %s', backup_plain_path)
         if logger:
             logger.info('Validating existing SQLCipher database: %s', database_path)
         verify_database_file(database_path)
@@ -190,4 +263,6 @@ def bootstrap_sqlcipher_database(logger: logging.Logger | None = None) -> dict:
     return {
         'database_path': str(database_path),
         'backup_path': str(backup_path) if backup_path else '',
+        'converted_from_plain': converted_from_plain,
+        'converted_plain_backup_path': converted_plain_backup_path,
     }

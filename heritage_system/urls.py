@@ -104,4 +104,7 @@ urlpatterns = [
     path('admin/login/', admin_direct_entry_block_view, name='admin_login_block'),
     path('admin/', admin_direct_entry_block_view, name='admin_direct_block'),
     path('admin/', admin.site.urls),
+    # Vue Router uses history mode; desktop app may open routes like /login directly.
+    # Fallback non-backend paths to SPA entry to avoid backend 404.
+    re_path(r'^(?!api/|admin/|static/|media/|mobile/|app-download/|download/).+$', frontend_spa_entry_view, name='frontend_spa_fallback'),
 ] + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT) + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

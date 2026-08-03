@@ -297,6 +297,34 @@ class SqlCipherMaintenanceTests(SimpleTestCase):
         self.assertEqual(result['database_path'], str(database_path))
         self.assertEqual(result['backup_path'], str(temp_path / 'backup' / 'database_20260703.db.enc'))
 
+    def test_bootstrap_converts_plain_sqlite_then_runs_migrations(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            database_path = temp_path / 'database.db'
+            database_path.write_bytes(b'plain-sqlite-bytes')
+            plain_backup_path = temp_path / 'backup' / 'database_plain_20260803.db.bak'
+
+            with patch.object(maintenance, 'ensure_runtime_directories') as runtime_mock, \
+                 patch.object(maintenance, 'get_database_path', return_value=database_path), \
+                 patch.object(maintenance, 'get_backup_dir', return_value=temp_path / 'backup'), \
+                 patch.object(maintenance, 'get_config_dir', return_value=temp_path / 'config'), \
+                 patch.object(maintenance, '_is_plain_sqlite_database', return_value=True), \
+                 patch.object(maintenance, '_convert_plain_sqlite_to_sqlcipher_database', return_value=plain_backup_path) as convert_mock, \
+                 patch.object(maintenance, 'verify_database_file') as verify_mock, \
+                 patch.object(maintenance, 'backup_database', return_value=temp_path / 'backup' / 'database_20260703.db.enc') as backup_mock, \
+                 patch.object(maintenance, 'call_command') as call_command_mock, \
+                 patch.object(maintenance, 'ensure_roles_and_super_admin') as super_admin_mock:
+                result = maintenance.bootstrap_sqlcipher_database()
+
+        runtime_mock.assert_called_once()
+        convert_mock.assert_called_once_with(database_path)
+        backup_mock.assert_called_once_with(database_path, temp_path / 'backup')
+        call_command_mock.assert_called_once_with('migrate', interactive=False, run_syncdb=True, verbosity=1)
+        super_admin_mock.assert_called_once()
+        verify_mock.assert_called()
+        self.assertTrue(result['converted_from_plain'])
+        self.assertEqual(result['converted_plain_backup_path'], str(plain_backup_path))
+
     def test_export_and_import_copy_files(self):
         @contextmanager
         def fake_sqlcipher_connection(*_args, **_kwargs):
