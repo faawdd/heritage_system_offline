@@ -27,9 +27,6 @@ django-import-export>=4.1.0
 keyring>=25.2.1
 cryptography>=42.0.8
 
-# SQLCipher runtime dependency（桌面/离线后端需要）
--r requirements-sqlcipher.txt
-
 # Word 公文生成 (实现项目管理中的快速发文)
 python-docx>=1.1.0
 docxtpl>=0.16.7

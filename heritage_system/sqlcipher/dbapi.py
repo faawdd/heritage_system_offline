@@ -27,6 +27,6 @@ def resolve_sqlcipher_dbapi():
         return sqlite3
 
     raise RuntimeError(
-        'SQLCipher DB-API module is not available. Install sqlcipher3-binary or '
+        'SQLCipher DB-API module is not available. Install sqlcipher3 or '
         'run in desktop mode with sqlite fallback enabled.'
     )
