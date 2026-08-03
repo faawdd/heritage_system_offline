@@ -4,7 +4,7 @@
 Default behavior:
 - Region: Turpan (configurable via env or CLI)
 - Layers: img, cia, vec, cva, ter, cta
-- Zoom levels: 0-13 (configurable)
+- Zoom levels: 0-18 (configurable)
 - Output: static/tiles/tianditu/<layer>/<z>/<x>/<y>.png
 """
 
@@ -24,7 +24,7 @@ DEFAULT_LAYERS = ("img", "cia", "vec", "cva", "ter", "cta")
 # Turpan bounding box (rough administrative coverage)
 DEFAULT_BBOX = (87.0, 40.8, 92.2, 43.9)  # west, south, east, north
 DEFAULT_ZOOM_MIN = 0
-DEFAULT_ZOOM_MAX = 13
+DEFAULT_ZOOM_MAX = 18
 DEFAULT_CONCURRENCY = 16
 DEFAULT_TIMEOUT = 20
 DEFAULT_RETRIES = 3
