@@ -127,10 +127,40 @@ jobs:
         working-directory: frontend
         run: npm run build
 
+      - name: Verify preloaded TianDiTu tiles (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          if [ ! -d "static/tiles/tianditu" ]; then
+            echo "Missing static/tiles/tianditu. Please prefetch and commit tiles before tagging release."
+            exit 1
+          fi
+          TILE_COUNT=$(find static/tiles/tianditu -type f | wc -l | tr -d ' ')
+          if [ "$TILE_COUNT" -eq 0 ]; then
+            echo "No tile files found under static/tiles/tianditu."
+            exit 1
+          fi
+          echo "Found $TILE_COUNT TianDiTu offline tile files."
+
+      - name: Verify preloaded TianDiTu tiles (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "static\\tiles\\tianditu")) {
+            throw "Missing static/tiles/tianditu. Please prefetch and commit tiles before tagging release."
+          }
+          $tileCount = (Get-ChildItem -Path "static\\tiles\\tianditu" -File -Recurse | Measure-Object).Count
+          if ($tileCount -eq 0) {
+            throw "No tile files found under static/tiles/tianditu."
+          }
+          Write-Host "Found $tileCount TianDiTu offline tile files."
+
       - name: Build backend runtime (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./scripts/build_desktop_runtime.ps1
+        env:
+          SKIP_TDT_PREFETCH: "1"
 
       - name: Build backend runtime (Linux)
         if: runner.os == 'Linux'
@@ -138,6 +168,8 @@ jobs:
         run: |
           chmod +x ./scripts/build_desktop_runtime.sh
           ./scripts/build_desktop_runtime.sh
+        env:
+          SKIP_TDT_PREFETCH: "1"
 
       - name: Ensure desktop runtime exists for packaging (Windows)
         if: runner.os == 'Windows'
