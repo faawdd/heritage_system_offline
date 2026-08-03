@@ -15,8 +15,9 @@
       </header>
 
       <div class="window-body">
-        <h1 class="title">欢迎登录</h1>
-        <p class="subtitle">离线桌面版</p>
+        <img :src="appLogo" alt="基层文物管理系统 Logo" class="app-logo">
+        <h1 class="title">基层文物管理系统</h1>
+        <p class="subtitle">离线桌面版登录</p>
 
         <form class="login-form" @submit.prevent="handleLogin">
           <label class="field-label" for="username">用户名</label>
@@ -66,6 +67,7 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import appLogo from '../assets/logo.png'
 
 const router = useRouter()
 const SAVED_LOGIN_KEY = 'desktop_saved_login_credential'
@@ -176,21 +178,17 @@ async function handleCloseWindow() {
 .desktop-login-shell {
   height: 100vh;
   min-height: 100vh;
-  display: grid;
-  place-items: center;
-  background: var(--bg-gradient, radial-gradient(circle at 0% 0%, #dbeeff 0, transparent 44%)), var(--bg, #edf5ff);
-  position: relative;
-  overflow: hidden;
+  background: #f5f5f5;
   padding: 0;
   font-family: 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
 }
 
 .login-window {
-  width: 100vw;
-  height: 100vh;
+  width: 100%;
+  height: 100%;
   border-radius: 0;
   overflow: hidden;
-  background: color-mix(in srgb, var(--surface, #ffffff) 94%, #eaf3ff 6%);
+  background: #f5f5f5;
   border: none;
   box-shadow: none;
   display: flex;
@@ -198,28 +196,28 @@ async function handleCloseWindow() {
 }
 
 .window-header {
-  height: 46px;
+  height: 48px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(180deg, #f4f9ff 0%, #e8f2ff 100%);
-  border-bottom: 1px solid var(--line, #d7e6f8);
-  color: var(--text, #163a60);
+  background: #f7f7f7;
+  border-bottom: 1px solid #e5e5e5;
+  color: #222222;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
   position: relative;
 }
 
 .window-close-btn {
   position: absolute;
-  top: 7px;
+  top: 8px;
   right: 10px;
   width: 30px;
   height: 30px;
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: var(--muted, #5f7898);
+  color: #9b9b9b;
   font-size: 20px;
   line-height: 1;
   cursor: pointer;
@@ -227,8 +225,8 @@ async function handleCloseWindow() {
 }
 
 .window-close-btn:hover {
-  background: rgba(128, 176, 229, 0.18);
-  color: var(--text, #163a60);
+  background: #e81123;
+  color: #ffffff;
 }
 
 .window-close-btn:disabled {
@@ -237,30 +235,35 @@ async function handleCloseWindow() {
 }
 
 .window-body {
-  flex: 1;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  max-width: 360px;
-  width: 100%;
-  margin: 0 auto;
-  padding: 24px 20px;
+  width: min(360px, 100%);
+  margin: auto;
+  padding: 12px 24px 26px;
+}
+
+.app-logo {
+  width: 72px;
+  height: 72px;
+  border-radius: 16px;
+  margin: 0 auto 14px;
+  object-fit: cover;
 }
 
 .title {
   text-align: center;
-  margin: 0 0 4px;
+  margin: 0 0 6px;
   font-size: 22px;
-  line-height: 1.2;
-  color: var(--text, #163a60);
+  line-height: 1.3;
+  color: #1f1f1f;
   font-weight: 600;
 }
 
 .subtitle {
-  margin: 0 0 18px;
+  margin: 0 0 20px;
   text-align: center;
-  font-size: 12px;
-  color: var(--muted, #5f7898);
+  font-size: 13px;
+  color: #8c8c8c;
 }
 
 .login-form {
@@ -270,27 +273,27 @@ async function handleCloseWindow() {
 
 .field-label {
   margin-bottom: 6px;
-  color: #466a93;
+  color: #6f6f6f;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .field-input {
-  height: 42px;
-  border-radius: 7px;
-  border: 1px solid var(--line, #d7e6f8);
-  background: var(--surface, #ffffff);
-  padding: 0 12px;
+  height: 44px;
+  border: none;
+  border-bottom: 1px solid #d8d8d8;
+  background: transparent;
+  padding: 0 2px;
   outline: none;
   font-size: 14px;
-  color: var(--text, #163a60);
+  color: #222222;
   margin-bottom: 12px;
-  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
 .field-input:focus {
-  border-color: var(--accent, #66adff);
-  box-shadow: 0 0 0 2px rgba(102, 173, 255, 0.2);
+  border-color: #07c160;
+  box-shadow: none;
 }
 
 .field-input:disabled {
@@ -302,13 +305,13 @@ async function handleCloseWindow() {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  color: var(--muted, #5f7898);
+  color: #6f6f6f;
   font-size: 12px;
-  margin-bottom: 10px;
+  margin-bottom: 14px;
 }
 
 .checkbox-item input {
-  accent-color: var(--accent, #66adff);
+  accent-color: #07c160;
 }
 
 .checkbox-item {
@@ -319,35 +322,33 @@ async function handleCloseWindow() {
 
 .error-box {
   margin: 0 0 10px;
-  border-radius: 7px;
-  border: 1px solid #f1c0c0;
-  background: #fff4f4;
-  color: #d64c4c;
-  padding: 9px 10px;
+  border: none;
+  background: transparent;
+  color: #d44949;
+  padding: 0;
   font-size: 12px;
   line-height: 1.4;
 }
 
 .login-btn {
-  height: 42px;
+  height: 44px;
   border: 0;
-  border-radius: 7px;
-  background: linear-gradient(180deg, #72b6ff 0%, #66adff 100%);
+  border-radius: 6px;
+  background: #07c160;
   color: #ffffff;
   font-size: 15px;
   font-weight: 600;
-  letter-spacing: 1px;
+  letter-spacing: 0.6px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 7px;
-  box-shadow: none;
   transition: background-color 0.16s ease, opacity 0.2s ease;
 }
 
 .login-btn:hover {
-  background: linear-gradient(180deg, #5ea9fb 0%, #4f9cf6 100%);
+  background: #06ad56;
 }
 
 .login-btn:disabled {
@@ -359,7 +360,7 @@ async function handleCloseWindow() {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.5);
+  border: 2px solid rgba(255, 255, 255, 0.52);
   border-top-color: #ffffff;
   animation: spin 0.8s linear infinite;
 }

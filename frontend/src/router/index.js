@@ -44,6 +44,10 @@ function isDesktopAuthorized() {
   return hasElectronBridge() && Boolean(storage) && storage.getItem(DESKTOP_AUTH_KEY) === '1'
 }
 
+function isDesktopLoginWindowRoute(route) {
+  return hasElectronBridge() && route.path === '/login' && route.query.login_window === '1'
+}
+
 const routes = [
   {
     path: '/login',
@@ -88,6 +92,10 @@ const router = createRouter({
 })
 
 router.beforeEach(async (to) => {
+  if (isDesktopLoginWindowRoute(to)) {
+    return true
+  }
+
   if (to.path === '/') {
     return '/login'
   }
