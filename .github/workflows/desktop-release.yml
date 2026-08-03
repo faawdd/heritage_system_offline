@@ -68,6 +68,12 @@ jobs:
           npm config set fetch-retry-maxtimeout 120000
           npm config set prefer-offline true
 
+      - name: Configure Electron download mirror
+        run: |
+          echo "ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/" >> $GITHUB_ENV
+          echo "ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/" >> $GITHUB_ENV
+          echo "ELECTRON_GET_USE_PROXY=1" >> $GITHUB_ENV
+
       - name: Install frontend dependencies (Linux)
         if: runner.os == 'Linux'
         working-directory: frontend
@@ -161,6 +167,8 @@ jobs:
         run: ./scripts/build_desktop_runtime.ps1
         env:
           SKIP_TDT_PREFETCH: "1"
+          ELECTRON_MIRROR: "https://npmmirror.com/mirrors/electron/"
+          ELECTRON_BUILDER_BINARIES_MIRROR: "https://npmmirror.com/mirrors/electron-builder-binaries/"
 
       - name: Build backend runtime (Linux)
         if: runner.os == 'Linux'
@@ -170,6 +178,8 @@ jobs:
           ./scripts/build_desktop_runtime.sh
         env:
           SKIP_TDT_PREFETCH: "1"
+          ELECTRON_MIRROR: "https://npmmirror.com/mirrors/electron/"
+          ELECTRON_BUILDER_BINARIES_MIRROR: "https://npmmirror.com/mirrors/electron-builder-binaries/"
 
       - name: Ensure desktop runtime exists for packaging (Windows)
         if: runner.os == 'Windows'
