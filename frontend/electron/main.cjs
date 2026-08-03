@@ -73,7 +73,9 @@ function normalizeDesktopConfig(rawConfig = {}) {
 
 function requiresInitialization(config = {}) {
   const normalized = normalizeDesktopConfig(config)
-  return !normalized.initialized || !normalized.systemNameConfigured
+  const dbFilePath = path.join(String(normalized.dataDir || ''), 'database.db')
+  const hasDatabase = Boolean(dbFilePath) && fs.existsSync(dbFilePath)
+  return !normalized.initialized || !normalized.systemNameConfigured || !hasDatabase
 }
 
 function ensureDirectoryExists(dirPath) {
@@ -493,7 +495,7 @@ function createLoginWindow() {
     }
   })
 
-  loginWindow.loadURL(buildRendererUrl('/login')).catch((error) => {
+  loginWindow.loadURL(buildRendererUrl('/login?login_window=1')).catch((error) => {
     dialog.showErrorBox('登录窗口加载失败', String(error?.message || error))
   })
 }
