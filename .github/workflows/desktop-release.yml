@@ -455,8 +455,7 @@ jobs:
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
-        with:
-          # 不指定 path，默认下载到当前工作目录，结构为：./<artifact_name>/<files>
+        # 不指定 path，默认下载到当前工作目录，结构为：./<artifact_name>/<files>
 
       - name: Flatten assets for Release
         run: |
