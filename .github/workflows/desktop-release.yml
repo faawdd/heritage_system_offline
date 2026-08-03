@@ -23,12 +23,6 @@ jobs:
             asset_glob: "*.exe"
             build_cmd: npx electron-builder --publish never --win nsis --x64
             artifact_name: windows-x64
-          - id: macos-arm64
-            os: macos-14
-            # 使用逗号或通配符单行表达，避免多行字符串在跨平台传递时的换行符坑
-            asset_glob: "*.dmg,*-arm64-mac.zip"
-            build_cmd: npx electron-builder --publish never --mac dmg zip --arm64
-            artifact_name: macos-arm64
           - id: linux-amd64
             os: ubuntu-24.04
             asset_glob: "*.AppImage"
@@ -65,11 +59,6 @@ jobs:
             libdrm2 libgbm1 libxkbcommon0 libxrandr2 libxcomposite1 libxdamage1 \
             sqlcipher libsqlcipher-dev pkg-config
 
-      - name: Install system libraries (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          brew install sqlcipher pkg-config
-
       - name: Configure npm network settings
         working-directory: frontend
         run: |
@@ -79,8 +68,8 @@ jobs:
           npm config set fetch-retry-maxtimeout 120000
           npm config set prefer-offline true
 
-      - name: Install frontend dependencies (macOS/Linux)
-        if: runner.os != 'Windows'
+      - name: Install frontend dependencies (Linux)
+        if: runner.os == 'Linux'
         working-directory: frontend
         shell: bash
         run: |
@@ -116,8 +105,8 @@ jobs:
             Start-Sleep -Seconds 20
           }
 
-      - name: Derive app version from tag (macOS/Linux)
-        if: github.ref_type == 'tag' && runner.os != 'Windows'
+      - name: Derive app version from tag (Linux)
+        if: github.ref_type == 'tag' && runner.os == 'Linux'
         working-directory: frontend
         shell: bash
         run: |
@@ -150,14 +139,6 @@ jobs:
           chmod +x ./scripts/build_desktop_runtime.sh
           ./scripts/build_desktop_runtime.sh
 
-      - name: Build backend runtime (macOS, non-blocking)
-        if: runner.os == 'macOS'
-        continue-on-error: true
-        shell: bash
-        run: |
-          chmod +x ./scripts/build_desktop_runtime.sh
-          ./scripts/build_desktop_runtime.sh
-
       - name: Ensure desktop runtime exists for packaging (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -172,8 +153,8 @@ jobs:
             Copy-Item -Path "templates" -Destination "desktop_runtime\app" -Recurse -Force
           }
 
-      - name: Ensure desktop runtime exists for packaging (macOS/Linux)
-        if: runner.os != 'Windows'
+      - name: Ensure desktop runtime exists for packaging (Linux)
+        if: runner.os == 'Linux'
         shell: bash
         run: |
           mkdir -p desktop_runtime/app
@@ -208,7 +189,7 @@ jobs:
         run: |
           mkdir cleaned-assets
           # 将各个不同平台矩阵文件夹里的最终安装包，统一复制到扁平目录中
-          find . -maxdepth 2 -type f \( -name "*.exe" -o -name "*.dmg" -o -name "*.zip" -o -name "*.AppImage" \) -exec cp {} cleaned-assets/ \;
+          find . -maxdepth 2 -type f \( -name "*.exe" -o -name "*.AppImage" \) -exec cp {} cleaned-assets/ \;
           echo "=== Files to be released ==="
           ls -l cleaned-assets/
 
