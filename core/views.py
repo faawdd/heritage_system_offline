@@ -24,7 +24,7 @@ import hashlib
 import hmac
 import json
 import csv
-from datetime import datetime
+from datetime import datetime, date
 from urllib.parse import quote, urlsplit, urlunsplit, parse_qsl, urlencode
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth import get_user_model, login as auth_login
@@ -648,11 +648,66 @@ def _load_conflict_site_points():
     return site_points
 
 
+def _collect_feature_points(coords, out_points):
+    if isinstance(coords, (list, tuple)):
+        if len(coords) >= 2 and isinstance(coords[0], (int, float)) and isinstance(coords[1], (int, float)):
+            out_points.append((float(coords[0]), float(coords[1])))
+            return
+        for item in coords:
+            _collect_feature_points(item, out_points)
+
+
+def _feature_bbox(feature):
+    points = []
+    _collect_feature_points(feature.get('coordinates'), points)
+    if not points:
+        return None
+    lons = [item[0] for item in points]
+    lats = [item[1] for item in points]
+    return (min(lons), min(lats), max(lons), max(lats))
+
+
+def _build_site_spatial_index(site_points, cell_deg):
+    index = {}
+    for site in site_points:
+        lon = site.get('longitude')
+        lat = site.get('latitude')
+        if lon is None or lat is None:
+            continue
+        key = (int(math.floor(lon / cell_deg)), int(math.floor(lat / cell_deg)))
+        index.setdefault(key, []).append(site)
+    return index
+
+
+def _query_candidate_sites(site_index, bbox, threshold_m, cell_deg):
+    if not bbox:
+        return []
+
+    min_lon, min_lat, max_lon, max_lat = bbox
+    mid_lat = (min_lat + max_lat) / 2 if math.isfinite(min_lat) and math.isfinite(max_lat) else 0.0
+    cos_lat = max(0.1, abs(math.cos(math.radians(mid_lat))))
+    lat_pad = threshold_m / 111320.0
+    lon_pad = threshold_m / (111320.0 * cos_lat)
+
+    min_x = int(math.floor((min_lon - lon_pad) / cell_deg))
+    max_x = int(math.floor((max_lon + lon_pad) / cell_deg))
+    min_y = int(math.floor((min_lat - lat_pad) / cell_deg))
+    max_y = int(math.floor((max_lat + lat_pad) / cell_deg))
+
+    rows = []
+    for x in range(min_x, max_x + 1):
+        for y in range(min_y, max_y + 1):
+            rows.extend(site_index.get((x, y), []))
+    return rows
+
+
 def _analyze_conflicts(features, threshold_m, site_points=None):
     if site_points is None:
         site_points = _load_conflict_site_points()
 
     threshold = float(threshold_m)
+    cell_deg = max(0.0002, threshold / 111320.0)
+    site_index = _build_site_spatial_index(site_points, cell_deg)
     conflicts = []
 
     for feature in features:
@@ -661,7 +716,12 @@ def _analyze_conflicts(features, threshold_m, site_points=None):
         feature_source = feature.get('source') or ''
         coords = feature.get('coordinates')
 
-        for site in site_points:
+        feature_bbox = _feature_bbox(feature)
+        candidate_sites = _query_candidate_sites(site_index, feature_bbox, threshold, cell_deg)
+        if not candidate_sites:
+            continue
+
+        for site in candidate_sites:
             site_lon = site['longitude']
             site_lat = site['latitude']
 
@@ -1652,22 +1712,46 @@ def land_project_detail_api(request, project_id):
 
 
 def _load_json_payload(request):
-    if not request.body:
-        return {}
-    try:
-        return json.loads(request.body.decode('utf-8'))
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        raise ValueError('请求体必须是合法JSON')
+    """兼容 JSON 与表单请求体，避免不同前端提交格式导致创建失败。"""
+    body = request.body or b''
+    content_type = (request.META.get('CONTENT_TYPE') or '').lower()
+
+    if body:
+        should_parse_json = 'application/json' in content_type
+        if not should_parse_json:
+            stripped = body.lstrip()
+            should_parse_json = stripped.startswith(b'{') or stripped.startswith(b'[')
+
+        if should_parse_json:
+            try:
+                payload = json.loads(body.decode('utf-8'))
+                if isinstance(payload, dict):
+                    return payload
+                raise ValueError('请求体必须是JSON对象')
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                raise ValueError('请求体必须是合法JSON')
+
+    if getattr(request, 'POST', None):
+        return request.POST.dict()
+
+    return {}
 
 
-def _parse_incoming_doc_date(raw_value):
-    if not raw_value:
-        raise ValueError('incoming_doc_date 必填')
+def _parse_date_value(raw_value, field_name):
+    if raw_value in (None, ''):
+        return None
+    if isinstance(raw_value, datetime):
+        return raw_value.date()
+    if isinstance(raw_value, date):
+        return raw_value
+
     text = str(raw_value).strip().replace('/', '-')
+    if not text:
+        return None
     try:
         return datetime.strptime(text, '%Y-%m-%d').date()
     except ValueError:
-        raise ValueError('incoming_doc_date 格式错误，需为 YYYY-MM-DD')
+        raise ValueError(f'{field_name} 格式错误，需为 YYYY-MM-DD')
 
 
 @csrf_exempt
@@ -1683,18 +1767,36 @@ def land_project_create_api(request):
     except ValueError as exc:
         return JsonResponse({'success': False, 'message': str(exc)}, status=400)
 
-    project_name = (payload.get('project_name') or '').strip()
-    company_name = (payload.get('company_name') or '').strip()
-    incoming_doc_date_raw = payload.get('incoming_doc_date')
-    receive_date = payload.get('receive_date') or timezone.localdate()
+    project_name = (payload.get('project_name') or payload.get('projectName') or '').strip()
+    company_name = (
+        payload.get('company_name')
+        or payload.get('construction_unit')
+        or payload.get('project_unit')
+        or payload.get('companyName')
+        or ''
+    ).strip()
+
+    incoming_doc_date_raw = (
+        payload.get('incoming_doc_date')
+        or payload.get('incomingDocDate')
+        or payload.get('received_date')
+    )
+    receive_date_raw = payload.get('receive_date') or payload.get('receiveDate')
 
     if not project_name or not company_name:
         return JsonResponse({'success': False, 'message': 'project_name/company_name 必填'}, status=400)
 
     try:
-        incoming_doc_date = _parse_incoming_doc_date(incoming_doc_date_raw)
+        incoming_doc_date = _parse_date_value(incoming_doc_date_raw, 'incoming_doc_date')
+        receive_date = _parse_date_value(receive_date_raw, 'receive_date')
     except ValueError as exc:
         return JsonResponse({'success': False, 'message': str(exc)}, status=400)
+
+    # 兼容旧版页面：未传来函日期时回退到收文日期/当日。
+    if incoming_doc_date is None:
+        incoming_doc_date = receive_date or timezone.localdate()
+    if receive_date is None:
+        receive_date = incoming_doc_date or timezone.localdate()
 
     try:
         project = LandUseProjectApproval.objects.create(
