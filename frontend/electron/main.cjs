@@ -282,12 +282,19 @@ function startBackend(config) {
   ensureLogStream(config.logDir)
 
   const repoRoot = path.resolve(__dirname, '..', '..')
+  const userRuntimeRoot = app.getPath('userData')
   const appDir = app.isPackaged
     ? path.join(process.resourcesPath, 'runtime', 'app')
     : repoRoot
   const configDir = app.isPackaged
-    ? path.join(process.resourcesPath, 'runtime', 'config')
+    ? path.join(userRuntimeRoot, 'config')
     : path.join(repoRoot, 'config')
+  const uploadDir = app.isPackaged
+    ? path.join(userRuntimeRoot, 'uploads')
+    : path.join(repoRoot, 'uploads')
+  const backupDir = app.isPackaged
+    ? path.join(userRuntimeRoot, 'backup')
+    : path.join(repoRoot, 'backup')
 
   const backendEnv = {
     ...process.env,
@@ -299,6 +306,8 @@ function startBackend(config) {
     HERITAGE_DATA_DIR: config.dataDir,
     HERITAGE_CONFIG_DIR: configDir,
     HERITAGE_LOG_DIR: config.logDir,
+    HERITAGE_UPLOAD_DIR: uploadDir,
+    HERITAGE_BACKUP_DIR: backupDir,
     DJANGO_DEBUG: '1',
     DJANGO_FORCE_HTTPS: '0',
     DJANGO_WEB_BASE_URL: `http://${BACKEND_HOST}:${config.backendPort}`,
