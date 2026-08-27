@@ -9,62 +9,10 @@ class Migration(migrations.Migration):
         ('core', '0024_rename_core_heritag_heritag_26948d_idx_core_herita_heritag_634100_idx_and_more'),
     ]
 
+    # 0024 已将索引重命名操作改为 no-op：不同环境/Django版本下自动索引名的哈希可能不一致，
+    # RenameIndex 依赖的旧索引名在部分历史库上并不存在，执行时会抛出 ValueError 并回滚。
+    # makemigrations 会反复检测到同一批"索引名漂移"，这里同样将其剔除，仅保留新增字段。
     operations = [
-        migrations.RenameIndex(
-            model_name='heritagephoto',
-            new_name='core_herita_heritag_634100_idx',
-            old_name='core_heritag_heritag_26948d_idx',
-        ),
-        migrations.RenameIndex(
-            model_name='heritagephoto',
-            new_name='core_herita_heritag_22ec4a_idx',
-            old_name='core_heritag_heritag_11b432_idx',
-        ),
-        migrations.RenameIndex(
-            model_name='immovableheritage',
-            new_name='core_immova_survey__bf71be_idx',
-            old_name='core_immova_survey__7b071f_idx',
-        ),
-        migrations.RenameIndex(
-            model_name='immovableheritage',
-            new_name='core_immova_categor_7ef5a2_idx',
-            old_name='core_immova_categor_d12a80_idx',
-        ),
-        migrations.RenameIndex(
-            model_name='immovableheritage',
-            new_name='core_immova_protect_63a2d0_idx',
-            old_name='core_immova_protect_9040d5_idx',
-        ),
-        migrations.RenameIndex(
-            model_name='immovableheritage',
-            new_name='core_immova_provinc_d1279a_idx',
-            old_name='core_immova_provinc_432bf2_idx',
-        ),
-        migrations.RenameIndex(
-            model_name='landuseprojectapproval',
-            new_name='core_landus_status_2ea6ef_idx',
-            old_name='core_landuse_status_0d2326_idx',
-        ),
-        migrations.RenameIndex(
-            model_name='landuseprojectapproval',
-            new_name='core_landus_receive_578bc0_idx',
-            old_name='core_landuse_receive_fbc95f_idx',
-        ),
-        migrations.RenameIndex(
-            model_name='landuseprojectapproval',
-            new_name='core_landus_company_466345_idx',
-            old_name='core_landuse_company_3d94e8_idx',
-        ),
-        migrations.RenameIndex(
-            model_name='landuseprojectoperationlog',
-            new_name='core_landus_project_3309e1_idx',
-            old_name='core_landus_project_1226b2_idx',
-        ),
-        migrations.RenameIndex(
-            model_name='landuseprojectoperationlog',
-            new_name='core_landus_action_e548a6_idx',
-            old_name='core_landus_action_09d133_idx',
-        ),
         migrations.AddField(
             model_name='landuseprojectapproval',
             name='involves_kanerjing',
