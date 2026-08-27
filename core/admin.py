@@ -672,11 +672,16 @@ class LandUseProjectApprovalAdmin(admin.ModelAdmin):
                 'archaeology_report_path',
                 'region_approval_num',
                 'city_final_reply_num',
+                'involves_kanerjing',
+                'kanerjing_protection_plan_path',
+                'water_department_opinion',
+                'requires_state_council_approval',
+                'state_council_approval_num',
             ),
             'classes': ('collapse',),
         }),
         ('办结归档', {
-            'fields': ('final_reply_to_company', 'created_at', 'updated_at'),
+            'fields': ('final_reply_to_company', 'protection_measures_note', 'protection_measures_confirmed', 'created_at', 'updated_at'),
             'classes': ('collapse',),
         }),
     )

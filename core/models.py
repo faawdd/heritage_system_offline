@@ -300,8 +300,19 @@ class LandUseProjectApproval(models.Model):
     region_approval_num = models.CharField('自治区文物局批复文号', max_length=120, blank=True, default='')
     city_final_reply_num = models.CharField('市文物局最终复函号', max_length=120, blank=True, default='')
 
+    # 坎儿井保护加固与水利部门意见（涉及坎儿井时按流程要求编制方案并征求意见）
+    involves_kanerjing = models.BooleanField('是否涉及坎儿井', default=False)
+    kanerjing_protection_plan_path = models.CharField('坎儿井保护加固方案路径', max_length=500, blank=True, default='')
+    water_department_opinion = models.TextField('水利部门意见', blank=True, default='')
+
+    # 逐级报审：市级之外，依法需要时可报自治区/国务院文物行政部门
+    requires_state_council_approval = models.BooleanField('是否需报国务院文物行政部门', default=False)
+    state_council_approval_num = models.CharField('国务院文物行政部门批复文号', max_length=120, blank=True, default='')
+
     # 办结归档
     final_reply_to_company = models.CharField('给企业最终复函号', max_length=120, blank=True, default='')
+    protection_measures_note = models.TextField('保护措施落实情况说明', blank=True, default='')
+    protection_measures_confirmed = models.BooleanField('保护措施落实核实', default=False)
     created_at = models.DateTimeField('创建时间', auto_now_add=True)
     updated_at = models.DateTimeField('更新时间', auto_now=True)
 

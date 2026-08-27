@@ -107,10 +107,43 @@
             <el-input v-model="workflow.region_approval_num" placeholder="自治区批复文号" />
             <el-button type="primary" :loading="processing" @click="executeAction('submit_archaeology_request')">发起后续流程</el-button>
           </div>
+
+          <div class="action-row top-space">
+            <el-checkbox v-model="workflow.involves_kanerjing">涉及坎儿井</el-checkbox>
+          </div>
+          <div class="workflow-grid compact" v-if="workflow.involves_kanerjing">
+            <el-input
+              v-model="workflow.water_department_opinion"
+              type="textarea"
+              :rows="2"
+              placeholder="水利部门意见（坎儿井保护加固方案需先在“附件与文档”上传）"
+            />
+          </div>
+
+          <div class="action-row top-space">
+            <el-checkbox v-model="workflow.requires_state_council_approval">需报国务院文物行政部门</el-checkbox>
+          </div>
+          <div class="workflow-grid compact" v-if="workflow.requires_state_council_approval">
+            <el-input v-model="workflow.state_council_approval_num" placeholder="国务院文物行政部门批复文号" />
+          </div>
+
+          <div class="action-row top-space">
+            <el-button :loading="processing" @click="executeAction('update_extra_info')">保存坎儿井/逐级报审信息</el-button>
+          </div>
         </div>
 
         <div class="card pane-card" v-show="activeStep === 'archive'">
           <h3>办结归档</h3>
+          <div class="workflow-grid compact" v-if="detail.is_overlap_artifact">
+            <el-input
+              v-model="workflow.protection_measures_note"
+              type="textarea"
+              :rows="2"
+              placeholder="保护措施落实情况说明（原址保护/迁移保护/坎儿井加固等）"
+            />
+            <el-checkbox v-model="workflow.protection_measures_confirmed">保护措施已核实落实</el-checkbox>
+            <el-button :loading="processing" @click="executeAction('update_extra_info')">保存核实结果</el-button>
+          </div>
           <div class="action-row">
             <el-button type="primary" :loading="processing" @click="executeAction('archive_case')">办结归档</el-button>
           </div>
@@ -124,6 +157,7 @@
               <el-option label="现场照片" value="field_photo" />
               <el-option label="杂项ZIP" value="misc_zip" />
               <el-option label="考古报告PDF" value="archaeology_report" />
+              <el-option label="坎儿井保护加固方案PDF" value="kanerjing_plan" />
             </el-select>
             <input type="file" @change="onFileChange" />
             <el-input v-model="upload.note" placeholder="附件说明（可选）" style="max-width: 240px" />
@@ -144,6 +178,7 @@
               <el-option label="录入考古与批复结果" value="record_archaeology_reply" />
               <el-option label="录入复函结果（含直接复函）" value="record_city_reply" />
               <el-option label="办结归档" value="archive_case" />
+              <el-option label="保存坎儿井/报审/保护措施信息" value="update_extra_info" />
             </el-select>
             <el-button type="primary" :loading="processing" @click="runWorkflowAction">执行流程动作</el-button>
           </div>
@@ -211,7 +246,13 @@ const workflow = reactive({
   archaeology_request_num: '',
   region_approval_num: '',
   city_final_reply_num: '',
-  final_reply_to_company: ''
+  final_reply_to_company: '',
+  involves_kanerjing: false,
+  water_department_opinion: '',
+  requires_state_council_approval: false,
+  state_council_approval_num: '',
+  protection_measures_note: '',
+  protection_measures_confirmed: false
 })
 
 function goList() {
@@ -348,6 +389,12 @@ async function loadDetail() {
     }
     fillReactive(detail, detailRes.data || {})
     fillReactive(controls, controlsRes.controls || {})
+    workflow.involves_kanerjing = Boolean(detail.involves_kanerjing)
+    workflow.water_department_opinion = detail.water_department_opinion || ''
+    workflow.requires_state_council_approval = Boolean(detail.requires_state_council_approval)
+    workflow.state_council_approval_num = detail.state_council_approval_num || ''
+    workflow.protection_measures_note = detail.protection_measures_note || ''
+    workflow.protection_measures_confirmed = Boolean(detail.protection_measures_confirmed)
     const detected = detectStepKeyFromStatus()
     activeStep.value = navSteps.value.some((step) => step.key === detected)
       ? detected

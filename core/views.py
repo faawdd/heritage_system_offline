@@ -90,6 +90,10 @@ def _build_payload_doc_nums(payload):
         'region_approval_num',
         'city_final_reply_num',
         'final_reply_to_company',
+        'state_council_approval_num',
+        'involves_kanerjing',
+        'requires_state_council_approval',
+        'protection_measures_confirmed',
     ]
     result = {}
     for key in keys:
@@ -1736,6 +1740,13 @@ def land_project_detail_api(request, project_id):
             'region_approval_num': project.region_approval_num,
             'city_final_reply_num': project.city_final_reply_num,
             'final_reply_to_company': project.final_reply_to_company,
+            'involves_kanerjing': project.involves_kanerjing,
+            'kanerjing_protection_plan_path': project.kanerjing_protection_plan_path,
+            'water_department_opinion': project.water_department_opinion,
+            'requires_state_council_approval': project.requires_state_council_approval,
+            'state_council_approval_num': project.state_council_approval_num,
+            'protection_measures_note': project.protection_measures_note,
+            'protection_measures_confirmed': project.protection_measures_confirmed,
             'controls': get_status_controls(project.status, project),
             'field_photos': photo_rows,
             'operation_logs': operation_logs,
@@ -1990,7 +2001,29 @@ def land_project_upload_api(request, project_id):
         )
         return JsonResponse({'success': True, 'file_path': saved_path})
 
-    return JsonResponse({'success': False, 'message': 'file_type 必须为 kml/misc_zip/field_photo/archaeology_report'}, status=400)
+    if file_type == 'kanerjing_plan':
+        if not filename.lower().endswith('.pdf'):
+            return JsonResponse({'success': False, 'message': '坎儿井保护加固方案仅支持PDF'}, status=400)
+        status_before = project.status
+        relative_path = build_project_media_path(project, 'kanerjing', filename)
+        saved_path = default_storage.save(relative_path, upload_file)
+        project.kanerjing_protection_plan_path = saved_path
+        project.save(update_fields=['kanerjing_protection_plan_path', 'updated_at'])
+        _record_land_project_operation(
+            project=project,
+            user=request.user,
+            action='upload_kanerjing_plan',
+            payload={
+                'file_type': file_type,
+                'original_filename': filename,
+                'saved_path': saved_path,
+            },
+            status_before=status_before,
+            status_after=project.status,
+        )
+        return JsonResponse({'success': True, 'file_path': saved_path})
+
+    return JsonResponse({'success': False, 'message': 'file_type 必须为 kml/misc_zip/field_photo/archaeology_report/kanerjing_plan'}, status=400)
 
 
 @staff_member_required
