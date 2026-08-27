@@ -28,6 +28,8 @@ from datetime import datetime, date
 from urllib.parse import quote, urlsplit, urlunsplit, parse_qsl, urlencode
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth import get_user_model, login as auth_login
+from rest_framework.decorators import api_view, permission_classes
+from core.permissions.api_permissions import IsManagementAdmin
 from django.db import OperationalError, ProgrammingError
 from django.db.models import Count, Q
 from django.http import JsonResponse, HttpResponse, HttpResponseForbidden, FileResponse
@@ -115,6 +117,39 @@ def _b64url_decode(value):
     return base64.urlsafe_b64decode((value + padding).encode('utf-8'))
 
 
+def _b64url_encode(raw_bytes):
+    return base64.urlsafe_b64encode(raw_bytes).rstrip(b'=').decode('utf-8')
+
+
+def build_collect_entry_token(user, expires_in=1800):
+    """生成与 fastapi_server 兼容的短时签名令牌，供 mobile_collect_entry_view 建立 Django 会话使用。
+
+    前端 SPA 走 JWT 鉴权，不会自动携带 Django Session Cookie；直接新开标签页访问
+    需要 Session 登录的预览页会被 @login_required 拦回登录页。这里复用现有的
+    token 登录入口（mobile_collect_entry_view），为当前已通过 JWT 鉴权的用户签发
+    一个短时有效的一次性令牌，用于建立浏览器新标签页的 Django Session。
+    """
+    payload = {
+        'user_id': user.id,
+        'username': user.username,
+        'exp': int(timezone.now().timestamp()) + expires_in,
+    }
+    payload_str = _b64url_encode(json.dumps(payload, separators=(',', ':')).encode('utf-8'))
+    signature = hmac.new(
+        settings.SECRET_KEY.encode('utf-8'),
+        payload_str.encode('utf-8'),
+        hashlib.sha256,
+    ).hexdigest()
+    return f'{payload_str}.{signature}'
+
+
+def build_heritage_preview_entry_url(user, site_id, mode='view'):
+    """构造带登录令牌的采集登记表预览入口 URL，避免新标签页因缺少 Session 而无法访问。"""
+    token = build_collect_entry_token(user)
+    next_path = f'/mobile/collect/{site_id}/preview/?mode={mode}'
+    return f'/mobile/collect-entry/?{urlencode({"token": token, "next": next_path})}'
+
+
 def _decode_fastapi_token(token):
     try:
         payload_str, signature = token.split('.', 1)
@@ -194,8 +229,7 @@ def mobile_collect_entry_view(request):
     if not user:
         return HttpResponseForbidden('用户不存在或已禁用')
 
-    is_admin = user.is_superuser or user.groups.filter(name='管理员').exists() or user.groups.filter(name='超级管理员').exists()
-    if not is_admin:
+    if not is_management_admin(user):
         return HttpResponseForbidden('当前账号无权使用不可移动文物采集管理')
 
     auth_login(request, user, backend='django.contrib.auth.backends.ModelBackend')
@@ -2840,9 +2874,11 @@ def _build_group_rows(queryset, group_field, choices_map):
     return rows
 
 
-@staff_member_required
+@api_view(['GET'])
+@permission_classes([IsManagementAdmin])
 def heritage_classification_stats_api(request):
     """文物分类统计 API：按数据库真实字段自动分组统计，并保持旧结构兼容。"""
+    # 前端 SPA 使用 JWT 鉴权而非 Django Session，需走 DRF 权限而非 staff_member_required。
     category = request.GET.get('category', '').strip()
     level = request.GET.get('level', '').strip()
     township = request.GET.get('township', '').strip()
@@ -2937,9 +2973,11 @@ def heritage_classification_stats_api(request):
     })
 
 
-@staff_member_required
+@api_view(['GET'])
+@permission_classes([IsManagementAdmin])
 def heritage_stats_api(request):
     """统计数据 API 端点"""
+    # 前端 SPA 使用 JWT 鉴权而非 Django Session，需走 DRF 权限而非 staff_member_required。
     total = HeritageSite.objects.count()
     national = HeritageSite.objects.filter(level='GB').count()
     regional = HeritageSite.objects.filter(level='SB').count()
@@ -3032,9 +3070,11 @@ def dem_elevation_lookup_api(request):
         }
     )
 
-@staff_member_required
+@api_view(['GET'])
+@permission_classes([IsManagementAdmin])
 def heritage_stats_by_category_api(request):
     """按类别统计的 API 端点"""
+    # 前端 SPA 使用 JWT 鉴权而非 Django Session，需走 DRF 权限而非 staff_member_required。
     category_stats = HeritageSite.objects.values('category').annotate(count=Count('id'))
     
     labels = []
@@ -3057,9 +3097,11 @@ def kanerjing_list_view(request):
     """旧坎儿井专项管理页已迁移到 Vue，保留兼容入口。"""
     return redirect('/static/frontend/heritage/kanerjing')
 
-@staff_member_required
+@api_view(['GET'])
+@permission_classes([IsManagementAdmin])
 def kanerjing_stats_api(request):
     """坎儿井统计 API - 基于名称包含'坎儿井'进行筛选"""
+    # 前端 SPA 使用 JWT 鉴权而非 Django Session，需走 DRF 权限而非 staff_member_required。
     kanerjing_sites = HeritageSite.filter_kanerjing()
     total = kanerjing_sites.count()
     
