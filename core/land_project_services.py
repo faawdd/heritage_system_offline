@@ -294,27 +294,46 @@ def get_status_controls(status: str, project: LandUseProjectApproval = None) -> 
         status == LandUseProjectApproval.STATUS_CHECK_OVERLAP and not feasible_overlap
     )
 
+    is_overlap = bool(project.is_overlap_artifact) if project else False
+
     return {
         'upload_kml': status == LandUseProjectApproval.STATUS_RECEIVED,
         'upload_misc_zip': True,
         'verify_spatial': status == LandUseProjectApproval.STATUS_RECEIVED,
+        # 市县联合实地勘查：不涉及/涉及且可行两条分支都需先完成，与流程文档步骤4对应。
         'upload_field_photos': status in {
             LandUseProjectApproval.STATUS_PRELIM_SAFE,
+            LandUseProjectApproval.STATUS_CHECK_OVERLAP,
             LandUseProjectApproval.STATUS_FIELD_DONE,
         },
         'input_city_reply': status == LandUseProjectApproval.STATUS_CITY_REVIEWING or can_direct_reply,
-        'submit_archaeology': (
-            status == LandUseProjectApproval.STATUS_CHECK_OVERLAP and feasible_overlap
-        ) or status == LandUseProjectApproval.STATUS_CITY_REVIEWING,
+        'submit_archaeology': status in {
+            LandUseProjectApproval.STATUS_CHECK_OVERLAP,
+            LandUseProjectApproval.STATUS_FIELD_DONE,
+            LandUseProjectApproval.STATUS_CITY_REVIEWING,
+        } and feasible_overlap,
         'upload_archaeology_report': status == LandUseProjectApproval.STATUS_ARCHAEOLOGY,
+        # 坎儿井保护加固方案与水利部门意见：项目确认涉及文物后即可录入，专项流转前需补齐。
+        'update_kanerjing_info': is_overlap and status not in {
+            LandUseProjectApproval.STATUS_ARCHIVED,
+        },
+        'upload_kanerjing_plan': is_overlap and status not in {
+            LandUseProjectApproval.STATUS_ARCHIVED,
+        },
         'close_archive': status == LandUseProjectApproval.STATUS_REPLY_RECEIVED,
+        # 保护措施落实核实：仅涉及文物的项目在办结归档前需要确认。
+        'confirm_protection_measures': is_overlap and status == LandUseProjectApproval.STATUS_REPLY_RECEIVED,
     }
 
 
 def apply_workflow_action(project: LandUseProjectApproval, action: str, payload: Dict):
     """业务流转强控：校验当前状态与必填字段后再跳转。"""
     if action == 'complete_field_check':
-        if project.status != LandUseProjectApproval.STATUS_PRELIM_SAFE:
+        # 无论初审结果是否涉及文物，均需先完成市县联合实地勘查（流程文档步骤4）。
+        if project.status not in {
+            LandUseProjectApproval.STATUS_PRELIM_SAFE,
+            LandUseProjectApproval.STATUS_CHECK_OVERLAP,
+        }:
             raise ValueError('当前状态不允许提交现场勘查完成')
         if not payload.get('field_check_date'):
             raise ValueError('请先填写现场勘查日期')
@@ -360,11 +379,17 @@ def apply_workflow_action(project: LandUseProjectApproval, action: str, payload:
     elif action == 'submit_archaeology_request':
         if project.status not in {
             LandUseProjectApproval.STATUS_CHECK_OVERLAP,
+            LandUseProjectApproval.STATUS_FIELD_DONE,
             LandUseProjectApproval.STATUS_CITY_REVIEWING,
         }:
             raise ValueError('当前状态不允许发起考古流转')
         if project.is_overlap_artifact and not _is_feasible_for_overlap(project):
             raise ValueError('当前项目涉及自治区及以上级别文物，判定为不可行，不得进入考古流转')
+        if project.involves_kanerjing:
+            if not project.kanerjing_protection_plan_path:
+                raise ValueError('涉及坎儿井时，需先上传坎儿井保护加固方案')
+            if not project.water_department_opinion.strip():
+                raise ValueError('涉及坎儿井时，需先征求并录入水利部门意见')
         archaeology_request_num = (payload.get('archaeology_request_num') or '').strip()
         if not archaeology_request_num:
             raise ValueError('考古请示文号不能为空')
@@ -384,6 +409,16 @@ def apply_workflow_action(project: LandUseProjectApproval, action: str, payload:
             raise ValueError('市文物局复函文号不能为空')
         project.region_approval_num = region_approval_num
         project.city_final_reply_num = city_final_reply_num
+        # 依法需报国务院文物行政部门审批/审核/征求意见的，逐级报审需补齐批复文号（流程文档步骤8）。
+        if 'requires_state_council_approval' in payload:
+            project.requires_state_council_approval = bool(payload.get('requires_state_council_approval'))
+        if project.requires_state_council_approval:
+            state_council_approval_num = (
+                payload.get('state_council_approval_num') or project.state_council_approval_num or ''
+            ).strip()
+            if not state_council_approval_num:
+                raise ValueError('已标记需报国务院文物行政部门，国务院批复文号不能为空')
+            project.state_council_approval_num = state_council_approval_num
         project.status = LandUseProjectApproval.STATUS_REPLY_RECEIVED
 
     elif action == 'archive_case':
@@ -392,8 +427,29 @@ def apply_workflow_action(project: LandUseProjectApproval, action: str, payload:
         final_reply = (payload.get('final_reply_to_company') or '').strip()
         if not final_reply:
             raise ValueError('最终复函号不能为空')
+        # 涉及文物的项目需先核实原址保护/迁移保护/坎儿井加固等保护措施已落实（流程文档步骤9）。
+        if project.is_overlap_artifact and not project.protection_measures_confirmed:
+            raise ValueError('涉及文物的项目需先核实保护措施落实情况，再办结归档')
         project.final_reply_to_company = final_reply
         project.status = LandUseProjectApproval.STATUS_ARCHIVED
+
+    elif action == 'update_extra_info':
+        # 不涉及状态跳转的辅助信息录入：坎儿井方案/水利意见/国务院报审标记/保护措施说明等。
+        if 'involves_kanerjing' in payload:
+            project.involves_kanerjing = bool(payload.get('involves_kanerjing'))
+        if 'water_department_opinion' in payload:
+            project.water_department_opinion = (payload.get('water_department_opinion') or '').strip()
+        if 'requires_state_council_approval' in payload:
+            project.requires_state_council_approval = bool(payload.get('requires_state_council_approval'))
+        if 'state_council_approval_num' in payload:
+            project.state_council_approval_num = (payload.get('state_council_approval_num') or '').strip()
+        if 'protection_measures_note' in payload:
+            project.protection_measures_note = (payload.get('protection_measures_note') or '').strip()
+        if 'protection_measures_confirmed' in payload:
+            confirmed = bool(payload.get('protection_measures_confirmed'))
+            if confirmed and not project.protection_measures_note.strip():
+                raise ValueError('确认保护措施落实前，请先填写落实情况说明')
+            project.protection_measures_confirmed = confirmed
 
     else:
         raise ValueError('不支持的流程动作')
