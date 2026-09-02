@@ -1962,17 +1962,13 @@ class GisKmlManagementActionAPIView(APIView):
         if action == 'export_conflict_kml':
             return legacy_views._build_conflict_sites_kml(combined_conflicts, threshold, records)
 
-        cookie = (request.data.get('sipu_cookie') or '').strip()
-        if not cookie:
-            return Response({'success': False, 'message': '请先填写四普系统的 Cookie。'}, status=400)
         if not combined_conflicts:
             return Response({'success': False, 'message': '所选文件中未发现冲突文物点，无需导出边界。'}, status=400)
-        user_county = (request.data.get('sipu_county') or '').strip()
 
         if action == 'export_boundary_points':
-            return legacy_views._build_boundary_points_csv(combined_conflicts, records, cookie, user_county)
+            return legacy_views._build_boundary_points_csv(combined_conflicts, records)
         if action == 'export_boundary_kmz':
-            return legacy_views._build_boundary_points_kmz(combined_conflicts, records, cookie, user_county)
+            return legacy_views._build_boundary_points_kmz(combined_conflicts, records)
 
         return Response(
             {

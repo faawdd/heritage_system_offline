@@ -53,8 +53,6 @@
                 <el-button type="primary" :loading="processing" @click="exportByAction('analyze_export_selected', 'conflict_report.csv')">导出查询报告</el-button>
                 <el-button type="warning" :loading="processing" @click="exportByAction('export_conflict_kml', 'conflict_sites.kml')">导出冲突KML</el-button>
               </div>
-              <el-input v-model="sipuCookie" placeholder="四普 Cookie（导出边界必填）" />
-              <el-input v-model="sipuCounty" placeholder="行政区划代码（可选）" />
               <div class="floating-btn-grid">
                 <el-button type="primary" plain :loading="processing" @click="exportByAction('export_boundary_points', 'boundary_points.csv')">导出边界CSV</el-button>
                 <el-button type="primary" plain :loading="processing" @click="exportByAction('export_boundary_kmz', 'boundary.kmz')">导出边界KMZ</el-button>
@@ -216,8 +214,6 @@ const latestConflicts = ref([])
 
 const threshold = ref(50)
 const immediateAnalyze = ref(true)
-const sipuCookie = ref('')
-const sipuCounty = ref('')
 const conflictKeyword = ref('')
 const activeConflict = ref(null)
 const overlapRows = ref([])
@@ -564,10 +560,6 @@ async function exportByAction(action, fallbackFileName) {
     formData.set('threshold_m', String(threshold.value))
     formData.set('force_reanalyze', forceReanalyze.value ? '1' : '0')
     appendSelectedIds(formData)
-    if (action === 'export_boundary_points' || action === 'export_boundary_kmz') {
-      formData.set('sipu_cookie', sipuCookie.value)
-      formData.set('sipu_county', sipuCounty.value)
-    }
     await runAction(formData, fallbackFileName)
     ElMessage.success('导出成功')
     await loadRows()

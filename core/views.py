@@ -284,25 +284,19 @@ def heritage_detail_view(request, pk):
 
 @staff_member_required
 def heritage_boundary_export_view(request, pk):
-    """单个不可移动文物边界导出（四普系统）：支持 CSV / KMZ。"""
+    """单个不可移动文物边界导出（使用本系统已存储的范围坐标）：支持 CSV / KMZ。"""
     heritage = get_object_or_404(HeritageSite, pk=pk)
 
     if request.method != 'POST':
         return redirect('heritage_detail', pk=pk)
 
     action = (request.POST.get('action') or '').strip()
-    cookie = (request.POST.get('sipu_cookie') or '').strip()
-    user_county = (request.POST.get('sipu_county') or '').strip()
-
-    if not cookie:
-        messages.error(request, '请先填写四普系统 Cookie，再执行单文物边界导出。')
-        return redirect('heritage_detail', pk=pk)
 
     combined_conflicts = [{
         'feature_source': '单文物导出',
         'site_id': heritage.id,
         'site_name': heritage.name,
-        'site_level': heritage.level,
+        'site_level': heritage.get_level_display(),
         'site_longitude': heritage.longitude,
         'site_latitude': heritage.latitude,
     }]
@@ -311,10 +305,10 @@ def heritage_boundary_export_view(request, pk):
     selected_records = [type('ExportRecord', (), {'title': heritage.name})()]
 
     if action == 'export_single_boundary_csv':
-        return _build_boundary_points_csv(combined_conflicts, selected_records, cookie, user_county)
+        return _build_boundary_points_csv(combined_conflicts, selected_records)
 
     if action == 'export_single_boundary_kmz':
-        return _build_boundary_points_kmz(combined_conflicts, selected_records, cookie, user_county)
+        return _build_boundary_points_kmz(combined_conflicts, selected_records)
 
     messages.error(request, '未知导出操作。')
     return redirect('heritage_detail', pk=pk)
@@ -1453,17 +1447,22 @@ def _run_sipu_boundary_import_job(job_id, cookie: str, scope: str, user_county: 
         connections.close_all()
 
 
-def _build_boundary_points_csv(combined_conflicts, selected_records, cookie: str, user_county: str = '') -> HttpResponse:
+_BOUNDARY_ZONE_FIELDS = (
+    ('body_boundary', '本体边界'),
+    ('protection_zone', '保护范围'),
+    ('control_zone', '建控地带'),
+)
+
+
+def _collect_local_boundary_sites(combined_conflicts):
+    """按来源KML文件聚合冲突文物，并从本系统读取已存储的范围坐标。
+
+    返回 [(来源文件, [{'site': HeritageSite|None, 'name', 'level', 'zones': [(类型, [环, ...]), ...]}, ...]), ...]
     """
-    对冲突文物点按文件分组，逐个调用四普系统接口获取边界坐标，
-    导出为一张 CSV 表格（含文件分组列）。
-    """
-    # 按来源 KML 文件聚合冲突文物（site_id 去重）
     from collections import OrderedDict
 
-    # 建立 {feature_source: [site_id, ...]} 映射（保序、去重）
-    source_sites: dict = OrderedDict()
-    site_meta: dict = {}  # site_id -> {name, level, longitude, latitude}
+    source_sites = OrderedDict()
+    site_meta = {}
 
     for row in combined_conflicts:
         src = row.get('feature_source') or '未知来源'
@@ -1477,82 +1476,78 @@ def _build_boundary_points_csv(combined_conflicts, selected_records, cookie: str
             site_meta[sid] = {
                 'name': row.get('site_name', ''),
                 'level': row.get('site_level', ''),
-                'longitude': row.get('site_longitude', ''),
-                'latitude': row.get('site_latitude', ''),
             }
 
+    all_ids = {sid for ids in source_sites.values() for sid in ids}
+    site_map = {site.id: site for site in HeritageSite.objects.filter(id__in=all_ids)}
+
+    grouped = []
+    for src, site_ids in source_sites.items():
+        entries = []
+        for sid in site_ids:
+            meta = site_meta[sid]
+            site = site_map.get(sid)
+            zones = []
+            if site is not None:
+                for field_name, zone_label in _BOUNDARY_ZONE_FIELDS:
+                    rings = HeritageSite._load_polygon_rings(getattr(site, field_name, None))
+                    rings = [ring for ring in rings if len(ring) >= 3]
+                    if rings:
+                        zones.append((zone_label, rings))
+            entries.append({
+                'site': site,
+                'name': (site.name if site else meta['name']) or '未命名文物',
+                'level': (site.get_level_display() if site else meta['level']) or '',
+                'sip_code': site.sip_code if site else '',
+                'zones': zones,
+            })
+        grouped.append((src, entries))
+    return grouped
+
+
+def _build_boundary_points_csv(combined_conflicts, selected_records, cookie: str = '', user_county: str = '') -> HttpResponse:
+    """
+    对冲突文物点按文件分组，直接读取本系统已存储的文物范围坐标，
+    导出为一张 CSV 表格（含文件分组列）。
+    """
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow([
-        '来源KML文件', '文物名称', '文物级别', '四普文物名称',
-        '序号', '点描述', '备注',
-        '纬度(十进制)', '经度(十进制)', '海拔',
-        '纬度度', '纬度分', '纬度秒',
-        '经度度', '经度分', '经度秒',
-        '出界标记', '距出界距离(m)',
+        '来源KML文件', '文物名称', '文物级别', '四普编号',
+        '范围类型', '区块序号', '点序号',
+        '经度(十进制)', '纬度(十进制)', '备注',
     ])
 
-    # 用于缓存 site_id -> culRid 映射，避免重复搜索
-    cul_rid_cache: dict = {}
-
-    for src, site_ids in source_sites.items():
-        for sid in site_ids:
-            meta = site_meta[sid]
-            site_name = meta['name']
-
-            # 查找 culRid
-            if sid in cul_rid_cache:
-                cul_rid, sipu_name = cul_rid_cache[sid]
-            else:
-                candidates = _sipu_search_culrid(site_name, cookie, user_county)
-                # 精确匹配文物名称；若无精确匹配则取第一条
-                matched = next((c for c in candidates if c.get('name') == site_name), None)
-                if matched is None and candidates:
-                    matched = candidates[0]
-                if matched:
-                    cul_rid = matched.get('id') or ''
-                    sipu_name = matched.get('name') or ''
-                else:
-                    cul_rid = ''
-                    sipu_name = ''
-                cul_rid_cache[sid] = (cul_rid, sipu_name)
-
-            if not cul_rid:
+    for src, entries in _collect_local_boundary_sites(combined_conflicts):
+        for entry in entries:
+            if entry['site'] is None:
                 writer.writerow([
-                    src, site_name, meta['level'], '（四普系统未找到该文物）',
-                    '', '', '', '', '', '', '', '', '', '', '', '', '', '',
+                    src, entry['name'], entry['level'], '',
+                    '', '', '', '', '', '（本系统中未找到该文物档案）',
+                ])
+                continue
+            if not entry['zones']:
+                writer.writerow([
+                    src, entry['name'], entry['level'], entry['sip_code'],
+                    '', '', '', '', '', '（该文物暂无已存储的范围坐标）',
                 ])
                 continue
 
-            points = _sipu_fetch_boundary_points(cul_rid, cookie)
-            if not points:
-                writer.writerow([
-                    src, site_name, meta['level'], sipu_name,
-                    '', '', '', '', '', '', '', '', '', '', '', '', '（无边界点数据）', '',
-                ])
-                continue
-
-            for pt in points:
-                writer.writerow([
-                    src,
-                    site_name,
-                    meta['level'],
-                    sipu_name,
-                    pt.get('counter', ''),
-                    pt.get('pointDesc', ''),
-                    pt.get('remark', ''),
-                    pt.get('lat', ''),
-                    pt.get('lng', ''),
-                    pt.get('altitude', ''),
-                    pt.get('latitude1', ''),
-                    pt.get('latitude2', ''),
-                    pt.get('latitude3', ''),
-                    pt.get('longitude1', ''),
-                    pt.get('longitude2', ''),
-                    pt.get('longitude3', ''),
-                    pt.get('outBody', ''),
-                    pt.get('distanceOut', ''),
-                ])
+            for zone_label, rings in entry['zones']:
+                for ring_index, ring in enumerate(rings, start=1):
+                    for point_index, (lon, lat) in enumerate(ring, start=1):
+                        writer.writerow([
+                            src,
+                            entry['name'],
+                            entry['level'],
+                            entry['sip_code'],
+                            zone_label,
+                            ring_index,
+                            point_index,
+                            f'{lon:.10f}',
+                            f'{lat:.10f}',
+                            '',
+                        ])
 
     date_str = timezone.now().strftime('%Y%m%d')
     if selected_records and len(selected_records) == 1:
@@ -1568,120 +1563,32 @@ def _build_boundary_points_csv(combined_conflicts, selected_records, cookie: str
     return response
 
 
-def _build_boundary_points_kmz(combined_conflicts, selected_records, cookie: str, user_county: str = '') -> HttpResponse:
+def _build_boundary_points_kmz(combined_conflicts, selected_records, cookie: str = '', user_county: str = '') -> HttpResponse:
     """
-    将冲突文物点在四普系统中的边界点（measurePointType=1）导出为 KMZ。
-    每个文物点按边界点顺序闭合成面，并以文物名称命名 Placemark。
+    将冲突文物点在本系统中已存储的范围坐标导出为 KMZ。
+    每个文物点按范围类型生成 Placemark，多区块合并为 MultiGeometry。
     """
-    from collections import OrderedDict
-
-    source_sites: dict = OrderedDict()
-    site_meta: dict = {}
-
-    for row in combined_conflicts:
-        src = row.get('feature_source') or '未知来源'
-        sid = row.get('site_id')
-        if not sid:
-            continue
-        source_sites.setdefault(src, [])
-        if sid not in source_sites[src]:
-            source_sites[src].append(sid)
-        if sid not in site_meta:
-            site_meta[sid] = {
-                'name': row.get('site_name', ''),
-                'level': row.get('site_level', ''),
-            }
-
-    def _point_order_key(item):
-        for key in ('snNuM', 'counter'):
-            value = item.get(key)
-            try:
-                return int(value)
-            except (TypeError, ValueError):
-                continue
-        return 0
-
-    def _to_lonlat(item):
-        try:
-            lon = float(item.get('lng'))
-            lat = float(item.get('lat'))
-        except (TypeError, ValueError):
-            return None
-        return lon, lat
-
-    cul_rid_cache: dict = {}
     polygons = []
 
-    for src, site_ids in source_sites.items():
-        for sid in site_ids:
-            meta = site_meta[sid]
-            site_name = meta.get('name') or '未命名文物'
-
-            if sid in cul_rid_cache:
-                cul_rid, sipu_name = cul_rid_cache[sid]
-            else:
-                candidates = _sipu_search_culrid(site_name, cookie, user_county)
-                matched = next((c for c in candidates if c.get('name') == site_name), None)
-                if matched is None and candidates:
-                    matched = candidates[0]
-                if matched:
-                    cul_rid = matched.get('id') or ''
-                    sipu_name = matched.get('name') or site_name
-                else:
-                    cul_rid = ''
-                    sipu_name = site_name
-                cul_rid_cache[sid] = (cul_rid, sipu_name)
-
-            if not cul_rid:
-                continue
-
-            points = _sipu_fetch_boundary_points(cul_rid, cookie)
-            if not points:
-                continue
-
-            # 按 groupLink 分区，避免多块墓地被错误串接成一个面
-            grouped_points = {}
-            for item in points:
-                group_key = str(item.get('groupLink') or '1')
-                grouped_points.setdefault(group_key, []).append(item)
-
-            rings = []
-            for group_key, group_items in grouped_points.items():
-                ordered = sorted(group_items, key=_point_order_key)
-                ring = []
-                for item in ordered:
-                    lonlat = _to_lonlat(item)
-                    if lonlat is None:
-                        continue
-                    ring.append(lonlat)
-
-                # 多边形至少需要3个点
-                if len(ring) < 3:
+    for src, entries in _collect_local_boundary_sites(combined_conflicts):
+        for entry in entries:
+            for zone_label, raw_rings in entry['zones']:
+                rings = []
+                for ring_index, ring in enumerate(raw_rings, start=1):
+                    coords = list(ring)
+                    if coords[0] != coords[-1]:
+                        coords.append(coords[0])
+                    rings.append({'group_key': str(ring_index), 'coords': coords})
+                if not rings:
                     continue
-
-                # 闭合线环
-                if ring[0] != ring[-1]:
-                    ring.append(ring[0])
-
-                rings.append({
-                    'group_key': group_key,
-                    'coords': ring,
+                polygons.append({
+                    'name': f"{entry['name']}-{zone_label}" if len(entry['zones']) > 1 else entry['name'],
+                    'source': src,
+                    'site_level': entry['level'],
+                    'sip_code': entry['sip_code'],
+                    'zone_label': zone_label,
+                    'rings': rings,
                 })
-
-            if not rings:
-                continue
-
-            polygons.append({
-                'name': sipu_name or site_name,
-                'source': src,
-                'site_level': meta.get('level', ''),
-                'cul_rid': cul_rid,
-                'rings': rings,
-            })
-
-    if not polygons:
-        # 无可导出多边形时，返回空 KML 文档，避免下载报错
-        polygons = []
 
     date_str = timezone.now().strftime('%Y%m%d')
     if selected_records and len(selected_records) == 1:
@@ -1697,23 +1604,32 @@ def _build_boundary_points_kmz(combined_conflicts, selected_records, cookie: str
     doc = ET.SubElement(kml_root, f'{{{ns}}}Document')
     ET.SubElement(doc, f'{{{ns}}}name').text = kmz_name
 
-    # 奥维可读的面样式（红边半透明填充）
-    style = ET.SubElement(doc, f'{{{ns}}}Style')
-    style.set('id', 'conflictBoundaryPolygon')
-    line_style = ET.SubElement(style, f'{{{ns}}}LineStyle')
-    ET.SubElement(line_style, f'{{{ns}}}color').text = 'ff0000ff'
-    ET.SubElement(line_style, f'{{{ns}}}width').text = '2'
-    poly_style = ET.SubElement(style, f'{{{ns}}}PolyStyle')
-    ET.SubElement(poly_style, f'{{{ns}}}color').text = '4d0000ff'
+    # 奥维可读的面样式：按范围类型区分颜色（AABBGGRR）
+    zone_style_ids = {
+        '本体边界': ('boundaryBody', 'ff0000ff', '4d0000ff'),
+        '保护范围': ('boundaryProtection', 'ff00a5ff', '4d00a5ff'),
+        '建控地带': ('boundaryControl', 'ffff9900', '4dff9900'),
+    }
+    for style_id, line_color, fill_color in zone_style_ids.values():
+        style = ET.SubElement(doc, f'{{{ns}}}Style')
+        style.set('id', style_id)
+        line_style = ET.SubElement(style, f'{{{ns}}}LineStyle')
+        ET.SubElement(line_style, f'{{{ns}}}color').text = line_color
+        ET.SubElement(line_style, f'{{{ns}}}width').text = '2'
+        poly_style = ET.SubElement(style, f'{{{ns}}}PolyStyle')
+        ET.SubElement(poly_style, f'{{{ns}}}color').text = fill_color
 
     for item in polygons:
         pm = ET.SubElement(doc, f'{{{ns}}}Placemark')
         ET.SubElement(pm, f'{{{ns}}}name').text = item['name']
-        ET.SubElement(pm, f'{{{ns}}}styleUrl').text = '#conflictBoundaryPolygon'
+        style_id = zone_style_ids.get(item['zone_label'], zone_style_ids['本体边界'])[0]
+        ET.SubElement(pm, f'{{{ns}}}styleUrl').text = f'#{style_id}'
         total_points = sum(max(len(r['coords']) - 1, 0) for r in item['rings'])
         ET.SubElement(pm, f'{{{ns}}}description').text = (
             f"来源KML: {item['source']}\n"
             f"文物级别: {item['site_level']}\n"
+            f"四普编号: {item['sip_code']}\n"
+            f"范围类型: {item['zone_label']}\n"
             f"区块数: {len(item['rings'])}\n"
             f"边界点数: {total_points}"
         )
