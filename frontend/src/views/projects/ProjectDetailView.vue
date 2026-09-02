@@ -1,224 +1,289 @@
 <template>
-  <section class="workflow-page" v-loading="loading">
+  <section class="project-detail" v-loading="loading">
     <header class="page-header">
-      <h1>建设项目流程详情</h1>
-      <p>流程导航、当前步骤内容与时间轴记录三栏联动</p>
+      <div class="title-row">
+        <h1>{{ detail.project_name || '项目详情' }}</h1>
+        <el-tag :type="statusTagType" effect="dark">{{ detail.status_label || '-' }}</el-tag>
+        <el-tag v-if="guide.path_label" :type="pathTagType" effect="plain">{{ guide.path_label }}</el-tag>
+        <el-tag v-if="detail.has_high_level_overlap" type="danger">涉及自治区及以上级别文物</el-tag>
+      </div>
+      <div class="header-actions">
+        <el-button @click="goList">返回列表</el-button>
+        <el-button type="primary" :loading="loading" @click="loadDetail">刷新</el-button>
+      </div>
     </header>
 
-    <div class="toolbar card">
-      <el-button @click="goList">返回列表</el-button>
-      <el-button type="primary" :loading="loading" @click="loadDetail">刷新</el-button>
+    <div class="card">
+      <el-descriptions :column="4" size="small" border>
+        <el-descriptions-item label="项目单位">{{ detail.company_name || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="来函日期">{{ detail.incoming_doc_date || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="收文日期">{{ detail.receive_date || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="现场勘查日期">{{ detail.field_check_date || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="县局请示文号">{{ detail.shanshan_request_num || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="市局复函文号">{{ detail.city_reply_num || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="考古请示文号">{{ detail.archaeology_request_num || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="给项目方复函号">{{ detail.final_reply_to_company || '-' }}</el-descriptions-item>
+      </el-descriptions>
     </div>
 
-    <div class="card header-card">
-      <div class="header-grid">
-        <div><span>项目名称</span><strong>{{ detail.project_name || '-' }}</strong></div>
-        <div><span>项目编号</span><strong>{{ detail.project_code || detail.id || '-' }}</strong></div>
-        <div><span>状态</span><strong>{{ detail.status_label || '-' }}</strong></div>
-        <div><span>负责人</span><strong>{{ detail.owner_name || detail.operator || '-' }}</strong></div>
-        <div><span>项目位置</span><strong>{{ detail.location_name || detail.address || '-' }}</strong></div>
-        <div><span>项目类型</span><strong>{{ detail.project_type || '-' }}</strong></div>
-        <div><span>建设单位</span><strong>{{ detail.company_name || '-' }}</strong></div>
-        <div><span>文号</span><strong>{{ detail.shanshan_request_num || detail.city_reply_num || '-' }}</strong></div>
-        <div><span>收文日期</span><strong>{{ detail.receive_date || '-' }}</strong></div>
-      </div>
+    <div class="card">
+      <el-steps :active="activeStepIndex" align-center finish-status="success">
+        <el-step
+          v-for="step in guide.steps || []"
+          :key="step.key"
+          :title="step.title"
+          :description="step.state === 'skipped' ? '本流程不涉及' : step.description"
+          :status="elStepStatus(step)"
+        />
+      </el-steps>
     </div>
 
-    <div class="workflow-three-pane">
-      <aside class="pane-left card">
-        <h3>流程导航</h3>
-        <ul class="step-nav">
-          <li
-            v-for="(step, index) in navSteps"
-            :key="step.key"
-            class="step-item"
-            :class="stepClass(index)"
-            @click="activeStep = step.key"
-          >
-            <span class="dot"></span>
-            <span>{{ step.label }}</span>
-          </li>
-        </ul>
-      </aside>
+    <div class="detail-body">
+      <main class="detail-main">
+        <div class="card">
+          <div class="card-title">
+            <h3>当前待办</h3>
+            <span class="advice">{{ guide.advice }}</span>
+          </div>
 
-      <main class="pane-middle">
-        <div class="card pane-card" v-show="activeStep === 'receive'">
-          <h3>接收请示 / 收文登记</h3>
-          <el-descriptions :column="2" border>
-            <el-descriptions-item label="项目名称">{{ detail.project_name || '-' }}</el-descriptions-item>
-            <el-descriptions-item label="企业单位">{{ detail.company_name || '-' }}</el-descriptions-item>
-            <el-descriptions-item label="来函日期">{{ detail.incoming_doc_date || '-' }}</el-descriptions-item>
-            <el-descriptions-item label="收文日期">{{ detail.receive_date || '-' }}</el-descriptions-item>
-          </el-descriptions>
-        </div>
+          <el-empty
+            v-if="!todos.length"
+            :description="guide.is_archived ? '项目已办结归档，无待办事项' : '当前无可执行动作'"
+            :image-size="60"
+          />
 
-        <div class="card pane-card" v-show="activeStep === 'survey'">
-          <h3>空间核验 / 现场勘查</h3>
-          <div class="action-row">
-            <el-input v-model="workflow.field_check_date" placeholder="勘查日期 YYYY-MM-DD" style="max-width: 220px" />
-            <el-button
+          <div v-for="todo in todos" :key="todo.action" class="todo-card">
+            <div class="todo-head">
+              <strong>{{ todo.label }}</strong>
+              <el-button
+                :type="todo.kind === 'spatial' ? 'warning' : 'primary'"
+                :disabled="!todo.enabled"
+                :loading="processing"
+                @click="runTodo(todo)"
+              >执行</el-button>
+            </div>
+            <p class="todo-desc">{{ todo.description }}</p>
+
+            <el-alert
+              v-for="blocker in todo.blockers"
+              :key="blocker"
+              :title="blocker"
               type="warning"
-              :disabled="!controls.verify_spatial"
-              :loading="processing"
-              @click="runSpatialVerify"
-            >执行空间核验</el-button>
-          </div>
-        </div>
-
-        <div class="card pane-card" v-show="activeStep === 'approval'">
-          <h3>上报市局</h3>
-          <div class="workflow-grid compact">
-            <el-input v-model="workflow.shanshan_request_num" placeholder="县局请示文号" />
-            <el-input v-model="workflow.archaeology_request_num" placeholder="考古请示文号（后续可用）" />
-            <el-button type="primary" :loading="processing" @click="executeAction('submit_city_request')">提交市局上报</el-button>
-          </div>
-        </div>
-
-        <div class="card pane-card" v-show="activeStep === 'reply'">
-          <h3>复函项目方</h3>
-          <div class="workflow-grid compact">
-            <el-input v-model="workflow.city_reply_num" placeholder="市局复函号（有则填写）" />
-            <el-input v-model="workflow.final_reply_to_company" placeholder="给企业最终复函号" />
-            <el-button type="primary" :loading="processing" @click="executeAction('record_city_reply')">录入复函结果</el-button>
-          </div>
-        </div>
-
-        <div class="card pane-card" v-show="activeStep === 'decision'">
-          <h3>涉及性与可行性判定</h3>
-          <el-radio-group v-model="decisionType" class="decision-group">
-            <el-radio label="NO_HERITAGE">不涉及文物</el-radio>
-            <el-radio label="IMMOVABLE_HERITAGE">涉及不可移动文物</el-radio>
-            <el-radio label="PROTECTION_ZONE">涉及保护范围</el-radio>
-            <el-radio label="CONTROL_ZONE">涉及建设控制地带</el-radio>
-            <el-radio label="UNDERGROUND_HERITAGE">涉及地下文物</el-radio>
-            <el-radio label="NEED_MORE_INVESTIGATION">需要进一步调查</el-radio>
-          </el-radio-group>
-          <div class="action-row">
-            <el-button type="primary" @click="applyDecisionBranch">应用后续流程建议</el-button>
-            <span class="hint">当前建议动作：{{ workflow.action || '未选择' }}</span>
-          </div>
-          <div class="hint top-space">{{ detail.workflow_advice || '请先执行空间核验，再依据文物级别判断后续流程。' }}</div>
-        </div>
-
-        <div class="card pane-card" v-show="activeStep === 'followup'">
-          <h3>考古调查与批复</h3>
-          <div class="workflow-grid compact">
-            <el-input v-model="workflow.archaeology_request_num" placeholder="考古请示文号" />
-            <el-input v-model="workflow.region_approval_num" placeholder="自治区批复文号" />
-            <el-button type="primary" :loading="processing" @click="executeAction('submit_archaeology_request')">发起后续流程</el-button>
-          </div>
-
-          <div class="action-row top-space">
-            <el-checkbox v-model="workflow.involves_kanerjing">涉及坎儿井</el-checkbox>
-          </div>
-          <div class="workflow-grid compact" v-if="workflow.involves_kanerjing">
-            <el-input
-              v-model="workflow.water_department_opinion"
-              type="textarea"
-              :rows="2"
-              placeholder="水利部门意见（坎儿井保护加固方案需先在“附件与文档”上传）"
+              :closable="false"
+              show-icon
+              class="blocker"
             />
-          </div>
 
-          <div class="action-row top-space">
-            <el-checkbox v-model="workflow.requires_state_council_approval">需报国务院文物行政部门</el-checkbox>
-          </div>
-          <div class="workflow-grid compact" v-if="workflow.requires_state_council_approval">
-            <el-input v-model="workflow.state_council_approval_num" placeholder="国务院文物行政部门批复文号" />
-          </div>
-
-          <div class="action-row top-space">
-            <el-button :loading="processing" @click="executeAction('update_extra_info')">保存坎儿井/逐级报审信息</el-button>
+            <div class="field-grid" v-if="todo.fields?.length">
+              <div v-for="field in todo.fields" :key="field.name" class="field-item">
+                <label>
+                  {{ field.label }}
+                  <span v-if="field.required" class="required">*</span>
+                </label>
+                <el-checkbox
+                  v-if="field.type === 'checkbox'"
+                  v-model="formState[todo.action][field.name]"
+                >{{ field.hint || '是' }}</el-checkbox>
+                <el-date-picker
+                  v-else-if="field.type === 'date'"
+                  v-model="formState[todo.action][field.name]"
+                  type="date"
+                  value-format="YYYY-MM-DD"
+                  placeholder="选择日期"
+                  style="width: 100%"
+                />
+                <el-input-number
+                  v-else-if="field.type === 'number'"
+                  v-model="formState[todo.action][field.name]"
+                  :min="1"
+                  :max="5000"
+                  style="width: 100%"
+                />
+                <el-input
+                  v-else
+                  v-model="formState[todo.action][field.name]"
+                  :type="field.type === 'textarea' ? 'textarea' : 'text'"
+                  :rows="2"
+                  :placeholder="field.placeholder"
+                />
+                <span v-if="field.hint && field.type !== 'checkbox'" class="hint">{{ field.hint }}</span>
+              </div>
+            </div>
           </div>
         </div>
 
-        <div class="card pane-card" v-show="activeStep === 'archive'">
-          <h3>办结归档</h3>
-          <div class="workflow-grid compact" v-if="detail.is_overlap_artifact">
-            <el-input
-              v-model="workflow.protection_measures_note"
-              type="textarea"
-              :rows="2"
-              placeholder="保护措施落实情况说明（原址保护/迁移保护/坎儿井加固等）"
+        <div class="card">
+          <div class="card-title">
+            <h3>叠加核验结果</h3>
+            <div>
+              <el-button v-if="detail.kml_record_id" link type="primary" @click="openKmlCheckPage">
+                在 KML 叠加检查中打开
+              </el-button>
+              <el-button link type="primary" @click="linkDialogVisible = true">关联已有叠加检查记录</el-button>
+            </div>
+          </div>
+
+          <el-alert
+            v-if="!detail.kml_file_path"
+            title="尚未上传项目选址KML/KMZ，请先在下方「附件与文档」上传后再执行核验"
+            type="info"
+            :closable="false"
+            show-icon
+          />
+
+          <template v-else>
+            <div class="stats-row">
+              <div class="stat"><span>核验时间</span><strong>{{ detail.spatial_check_at || '尚未核验' }}</strong></div>
+              <div class="stat"><span>缓冲阈值</span><strong>{{ detail.spatial_check_threshold_m }} 米</strong></div>
+              <div class="stat"><span>项目要素</span><strong>{{ detail.spatial_feature_count || 0 }} 个</strong></div>
+              <div class="stat">
+                <span>涉及文物</span>
+                <strong :class="{ danger: detail.is_overlap_artifact }">{{ overlapRows.length }} 处</strong>
+              </div>
+            </div>
+
+            <el-table v-if="overlapRows.length" :data="overlapRows" size="small" border max-height="280">
+              <el-table-column prop="heritage_name" label="文物名称" min-width="160" />
+              <el-table-column label="保护级别" width="190">
+                <template #default="{ row }">
+                  <el-tag :type="row.is_high_level_protected ? 'danger' : 'warning'" size="small">
+                    {{ row.site_level_label || '-' }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="zone_type" label="叠加关系" width="140" />
+              <el-table-column prop="distance_m" label="距离(米)" width="100" />
+              <el-table-column prop="feature_name" label="项目要素" min-width="140" />
+            </el-table>
+            <el-empty
+              v-else-if="detail.spatial_check_at"
+              description="核验未发现涉及已登记文物"
+              :image-size="60"
             />
-            <el-checkbox v-model="workflow.protection_measures_confirmed">保护措施已核实落实</el-checkbox>
-            <el-button :loading="processing" @click="executeAction('update_extra_info')">保存核实结果</el-button>
-          </div>
-          <div class="action-row">
-            <el-button type="primary" :loading="processing" @click="executeAction('archive_case')">办结归档</el-button>
-          </div>
+
+            <div class="map-box" v-if="detail.kml_record_id">
+              <KmlOverlayMap :selected-records="mapRecords" :conflict-rows="detail.map_conflicts || []" />
+            </div>
+          </template>
         </div>
 
-        <div class="card pane-card">
+        <div class="card">
           <h3>附件与文档</h3>
           <div class="action-row">
-            <el-select v-model="upload.file_type" style="width: 220px">
-              <el-option label="请示文件(KML/KMZ)" value="kml" />
-              <el-option label="现场照片" value="field_photo" />
+            <el-select v-model="upload.file_type" style="width: 230px">
+              <el-option label="项目选址(KML/KMZ)" value="kml" />
+              <el-option label="现场勘查照片" value="field_photo" />
               <el-option label="杂项ZIP" value="misc_zip" />
-              <el-option label="考古报告PDF" value="archaeology_report" />
+              <el-option label="考古调查报告PDF" value="archaeology_report" />
               <el-option label="坎儿井保护加固方案PDF" value="kanerjing_plan" />
             </el-select>
-            <input type="file" @change="onFileChange" />
-            <el-input v-model="upload.note" placeholder="附件说明（可选）" style="max-width: 240px" />
+            <input ref="fileInputRef" type="file" @change="onFileChange" />
+            <el-input v-model="upload.note" placeholder="附件说明（可选）" style="max-width: 220px" />
             <el-button type="primary" :loading="uploading" @click="submitUpload">上传</el-button>
-            <el-button v-if="detail.misc_zip_url" type="success" @click="downloadMiscZip">下载杂项ZIP</el-button>
+            <el-button v-if="detail.misc_zip_url" @click="downloadMiscZip">下载杂项ZIP</el-button>
           </div>
 
-          <OfficialDocumentGenerator :project-id="projectId" :project-detail="detail" />
+          <div class="attach-list">
+            <el-tag v-if="detail.kml_file_path" type="success" size="small">选址KML 已上传</el-tag>
+            <el-tag v-if="detail.archaeology_report_path" type="success" size="small">考古报告 已上传</el-tag>
+            <el-tag v-if="detail.kanerjing_protection_plan_path" type="success" size="small">坎儿井方案 已上传</el-tag>
+            <el-tag size="small">现场照片 {{ (detail.field_photos || []).length }} 张</el-tag>
+          </div>
+
+          <div class="photo-grid" v-if="(detail.field_photos || []).length">
+            <a v-for="photo in detail.field_photos" :key="photo.id" :href="photo.photo_url" target="_blank">
+              <img :src="photo.photo_url" :alt="photo.note || '现场照片'" />
+            </a>
+          </div>
         </div>
 
-        <div class="card pane-card">
-          <h3>流程动作执行</h3>
-          <div class="workflow-grid compact">
-            <el-select v-model="workflow.action" placeholder="选择流程动作" style="width: 280px">
-              <el-option label="提交现场勘查完成" value="complete_field_check" />
-              <el-option label="录入县局请示并提交市局" value="submit_city_request" />
-              <el-option label="发起考古流转" value="submit_archaeology_request" />
-              <el-option label="录入考古与批复结果" value="record_archaeology_reply" />
-              <el-option label="录入复函结果（含直接复函）" value="record_city_reply" />
-              <el-option label="办结归档" value="archive_case" />
-              <el-option label="保存坎儿井/报审/保护措施信息" value="update_extra_info" />
-            </el-select>
-            <el-button type="primary" :loading="processing" @click="runWorkflowAction">执行流程动作</el-button>
+        <div class="card">
+          <div class="card-title">
+            <h3>补充信息</h3>
+            <el-button :loading="processing" @click="saveExtraInfo">保存补充信息</el-button>
           </div>
+          <div class="field-grid">
+            <div v-for="field in extraFields" :key="field.name" class="field-item">
+              <label>{{ field.label }}</label>
+              <el-checkbox v-if="field.type === 'checkbox'" v-model="extraState[field.name]">
+                {{ field.hint || '是' }}
+              </el-checkbox>
+              <el-input
+                v-else
+                v-model="extraState[field.name]"
+                :type="field.type === 'textarea' ? 'textarea' : 'text'"
+                :rows="2"
+                :placeholder="field.placeholder"
+              />
+              <span v-if="field.hint && field.type !== 'checkbox'" class="hint">{{ field.hint }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>公文生成</h3>
+          <OfficialDocumentGenerator :project-id="projectId" :project-detail="detail" />
         </div>
       </main>
 
-      <aside class="pane-right card">
-        <h3>时间轴</h3>
-        <el-timeline>
+      <aside class="detail-side card">
+        <h3>办理记录</h3>
+        <el-timeline v-if="timelineEvents.length">
           <el-timeline-item
             v-for="(event, index) in timelineEvents"
-            :key="`${event.created_at || index}-${event.action_label || index}`"
+            :key="event.id || index"
             :timestamp="event.created_at || '-'"
             :type="index === 0 ? 'primary' : 'info'"
           >
-            <div class="timeline-title">{{ event.action_label || event.event_title || '流程操作' }}</div>
+            <div class="timeline-title">{{ event.action_label || event.action || '流程操作' }}</div>
             <div class="timeline-detail">
               <span>操作人：{{ event.operator || '-' }}</span>
-              <span>所属环节：{{ event.stageLabel || '流程处理' }}</span>
-              <span v-if="event.status_before || event.status_after">状态：{{ event.status_before || '-' }} → {{ event.status_after || '-' }}</span>
+              <span v-if="event.status_after">{{ event.status_before || '-' }} → {{ event.status_after }}</span>
             </div>
           </el-timeline-item>
         </el-timeline>
+        <el-empty v-else description="暂无办理记录" :image-size="60" />
       </aside>
     </div>
+
+    <el-dialog v-model="linkDialogVisible" title="关联已有 KML 叠加检查记录" width="640px" @open="loadKmlRecords">
+      <el-table
+        :data="kmlRecords"
+        size="small"
+        border
+        highlight-current-row
+        max-height="360"
+        @current-change="(row) => (selectedKmlRecord = row)"
+      >
+        <el-table-column prop="title" label="记录名称" min-width="200" />
+        <el-table-column prop="feature_count" label="要素数" width="90" />
+        <el-table-column prop="conflict_count" label="冲突数" width="90" />
+        <el-table-column prop="created_at" label="上传时间" width="160" />
+      </el-table>
+      <template #footer>
+        <el-button @click="linkDialogVisible = false">取消</el-button>
+        <el-button type="primary" :disabled="!selectedKmlRecord" :loading="processing" @click="submitLinkRecord">
+          关联到本项目
+        </el-button>
+      </template>
+    </el-dialog>
   </section>
 </template>
 
 <script setup>
-import { computed, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { computed, reactive, ref, watch } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 
 import {
-  fetchProjectControls,
   fetchProjectDetail,
+  linkProjectKmlRecord,
   runProjectWorkflowAction,
   uploadProjectFile,
   verifyProjectSpatialSafety
 } from '../../api/projectApi'
+import { fetchGisKmlRecords } from '../../api/gisApi'
+import KmlOverlayMap from '../../components/gis/KmlOverlayMap.vue'
 import OfficialDocumentGenerator from '../../components/projects/OfficialDocumentGenerator.vue'
 
 const route = useRoute()
@@ -229,180 +294,93 @@ const loading = ref(false)
 const uploading = ref(false)
 const processing = ref(false)
 const selectedFile = ref(null)
-const activeStep = ref('receive')
-const decisionType = ref('NO_HERITAGE')
+const fileInputRef = ref(null)
 
 const detail = reactive({})
-const controls = reactive({})
-const upload = reactive({
-  file_type: 'kml',
-  note: ''
+const guide = reactive({ steps: [], todos: [], advice: '', extra_info_form: { fields: [] } })
+const formState = reactive({})
+const extraState = reactive({})
+const upload = reactive({ file_type: 'kml', note: '' })
+
+const linkDialogVisible = ref(false)
+const kmlRecords = ref([])
+const selectedKmlRecord = ref(null)
+
+const todos = computed(() => guide.todos || [])
+const extraFields = computed(() => guide.extra_info_form?.fields || [])
+const overlapRows = computed(() => detail.overlapped_relics_info || [])
+const timelineEvents = computed(() => detail.operation_logs || [])
+
+const mapRecords = computed(() => (
+  detail.kml_record_id
+    ? [{ id: detail.kml_record_id, title: detail.project_name || '项目选址' }]
+    : []
+))
+
+const statusTagType = computed(() => {
+  if (String(detail.status || '').startsWith('60')) return 'success'
+  if (detail.has_high_level_overlap) return 'danger'
+  if (detail.is_overlap_artifact) return 'warning'
+  return 'info'
 })
-const workflow = reactive({
-  action: '',
-  field_check_date: '',
-  shanshan_request_num: '',
-  city_reply_num: '',
-  archaeology_request_num: '',
-  region_approval_num: '',
-  city_final_reply_num: '',
-  final_reply_to_company: '',
-  involves_kanerjing: false,
-  water_department_opinion: '',
-  requires_state_council_approval: false,
-  state_council_approval_num: '',
-  protection_measures_note: '',
-  protection_measures_confirmed: false
+
+const pathTagType = computed(() => {
+  if (guide.path === 'ARCHAEOLOGY_FLOW') return 'warning'
+  if (guide.path === 'PENDING') return 'info'
+  return 'success'
 })
+
+const activeStepIndex = computed(() => {
+  const steps = guide.steps || []
+  const index = steps.findIndex((step) => step.state === 'current')
+  return index >= 0 ? index : steps.length
+})
+
+function elStepStatus(step) {
+  if (step.state === 'done') return 'success'
+  if (step.state === 'current') return 'process'
+  if (step.state === 'skipped') return 'finish'
+  return 'wait'
+}
 
 function goList() {
   router.push('/projects')
 }
 
+function openKmlCheckPage() {
+  router.push({ path: '/gis/kml-management', query: { record: detail.kml_record_id } })
+}
+
 function onFileChange(event) {
-  const file = event.target.files?.[0]
-  selectedFile.value = file || null
+  selectedFile.value = event.target.files?.[0] || null
 }
 
-function fillReactive(target, source) {
-  Object.keys(target).forEach((key) => {
-    delete target[key]
+function syncFormState() {
+  Object.keys(formState).forEach((key) => delete formState[key])
+  todos.value.forEach((todo) => {
+    formState[todo.action] = {}
+    ;(todo.fields || []).forEach((field) => {
+      formState[todo.action][field.name] = field.value
+    })
   })
-  Object.keys(source || {}).forEach((key) => {
-    target[key] = source[key]
+
+  Object.keys(extraState).forEach((key) => delete extraState[key])
+  extraFields.value.forEach((field) => {
+    extraState[field.name] = field.value
   })
 }
-
-const baseStepMeta = [
-  { key: 'receive', label: '接收请示 / 收文登记' },
-  { key: 'survey', label: '空间核验 / 现场勘查' },
-  { key: 'decision', label: '涉及性与可行性判定' },
-  { key: 'approval', label: '上报市局' },
-  { key: 'followup', label: '考古调查与批复' },
-  { key: 'reply', label: '复函项目方' },
-  { key: 'archive', label: '办结归档' }
-]
-
-const actionStepMap = {
-  create: 'receive',
-  upload_kml: 'survey',
-  verify_spatial_safety: 'decision',
-  complete_field_check: 'survey',
-  submit_city_request: 'approval',
-  submit_archaeology_request: 'followup',
-  record_archaeology_reply: 'followup',
-  record_city_reply: 'reply',
-  archive_case: 'archive',
-  generate_official_document: 'reply'
-}
-
-const stepLabelMap = {
-  receive: '接收请示 / 收文登记',
-  survey: '空间核验 / 现场勘查',
-  decision: '涉及性与可行性判定',
-  approval: '上报市局',
-  followup: '考古调查与批复',
-  reply: '复函项目方',
-  archive: '办结归档'
-}
-
-const navSteps = computed(() => {
-  const overlap = Boolean(detail.is_overlap_artifact)
-  const feasible = Boolean(detail.is_feasible_by_level)
-  const keys = ['receive', 'survey', 'decision']
-
-  if (overlap && feasible) {
-    keys.push('approval', 'followup')
-  }
-  keys.push('reply', 'archive')
-
-  return keys.map((key, index) => ({
-    key,
-    label: `${index + 1}. ${stepLabelMap[key]}`
-  }))
-})
-
-function statusRaw() {
-  return String(detail.status || detail.status_label || '').trim()
-}
-
-function detectStepKeyFromStatus() {
-  const status = statusRaw()
-  if (status.includes('60_')) return 'archive'
-  if (status.includes('50_')) return 'reply'
-  if (status.includes('45_')) return 'followup'
-  if (status.includes('40_')) return 'approval'
-  if (status.includes('30_')) return 'survey'
-  if (status.includes('20_') || status.includes('21_')) return 'decision'
-  return 'receive'
-}
-
-const currentStepIndex = computed(() => {
-  const key = detectStepKeyFromStatus()
-  const index = navSteps.value.findIndex((step) => step.key === key)
-  if (index >= 0) {
-    return index
-  }
-
-  if (key === 'followup' && !navSteps.value.some((step) => step.key === 'followup')) {
-    return Math.max(0, navSteps.value.findIndex((step) => step.key === 'reply'))
-  }
-  if (key === 'approval' && !navSteps.value.some((step) => step.key === 'approval')) {
-    return Math.max(0, navSteps.value.findIndex((step) => step.key === 'reply'))
-  }
-  return 0
-})
-
-function stepClass(index) {
-  if (index < currentStepIndex.value) return 'is-done'
-  if (index === currentStepIndex.value) return 'is-active'
-  return 'is-pending'
-}
-
-const timelineEvents = computed(() => {
-  return [...(detail.operation_logs || [])].sort((a, b) => {
-    const t1 = new Date(a?.created_at || 0).getTime()
-    const t2 = new Date(b?.created_at || 0).getTime()
-    return t2 - t1
-  }).map((event) => {
-    const stageKey = actionStepMap[event?.action] || detectStepKeyFromStatus()
-    return {
-      ...event,
-      stageKey,
-      stageLabel: stepLabelMap[stageKey] || '流程处理'
-    }
-  })
-})
 
 async function loadDetail() {
   loading.value = true
   try {
-    const [detailRes, controlsRes] = await Promise.all([
-      fetchProjectDetail(projectId),
-      fetchProjectControls(projectId)
-    ])
-    if (!detailRes.success) {
-      throw new Error(detailRes.message || '加载项目详情失败')
+    const result = await fetchProjectDetail(projectId)
+    if (!result.success) {
+      throw new Error(result.message || '加载项目详情失败')
     }
-    if (!controlsRes.success) {
-      throw new Error(controlsRes.message || '加载按钮权限失败')
-    }
-    fillReactive(detail, detailRes.data || {})
-    fillReactive(controls, controlsRes.controls || {})
-    workflow.involves_kanerjing = Boolean(detail.involves_kanerjing)
-    workflow.water_department_opinion = detail.water_department_opinion || ''
-    workflow.requires_state_council_approval = Boolean(detail.requires_state_council_approval)
-    workflow.state_council_approval_num = detail.state_council_approval_num || ''
-    workflow.protection_measures_note = detail.protection_measures_note || ''
-    workflow.protection_measures_confirmed = Boolean(detail.protection_measures_confirmed)
-    const detected = detectStepKeyFromStatus()
-    activeStep.value = navSteps.value.some((step) => step.key === detected)
-      ? detected
-      : (navSteps.value[0]?.key || 'receive')
-
-    if (!workflow.action) {
-      applyDecisionBranch(false)
-    }
+    Object.keys(detail).forEach((key) => delete detail[key])
+    Object.assign(detail, result.data || {})
+    Object.assign(guide, result.data?.guide || {})
+    syncFormState()
   } catch (error) {
     ElMessage.error(error?.message || '加载失败')
   } finally {
@@ -410,26 +388,89 @@ async function loadDetail() {
   }
 }
 
-function applyDecisionBranch(showMessage = true) {
-  const overlap = Boolean(detail.is_overlap_artifact)
-  const feasible = Boolean(detail.is_feasible_by_level)
+function validateTodo(todo) {
+  const values = formState[todo.action] || {}
+  const missing = (todo.fields || [])
+    .filter((field) => {
+      if (!field.required) return false
+      const value = values[field.name]
+      return value === '' || value === null || value === undefined
+    })
+    .map((field) => field.label)
 
-  if (!overlap || decisionType.value === 'NO_HERITAGE') {
-    workflow.action = 'record_city_reply'
-  } else if (feasible) {
-    workflow.action = 'submit_city_request'
-  } else {
-    workflow.action = 'record_city_reply'
+  if (missing.length) {
+    ElMessage.warning(`请先填写：${missing.join('、')}`)
+    return false
   }
+  return true
+}
 
-  if (showMessage) {
-    ElMessage.success(`已应用分支建议：${workflow.action || '未匹配动作'}`)
+async function runSpatialVerify(thresholdM) {
+  processing.value = true
+  try {
+    const result = await verifyProjectSpatialSafety(projectId, thresholdM)
+    if (!result.success) {
+      throw new Error(result.message || '空间核验失败')
+    }
+    const data = result.data || {}
+    ElMessage.success(
+      data.is_overlap_artifact
+        ? `核验完成：涉及 ${(data.overlapped_relics_info || []).length} 处文物`
+        : '核验完成：未涉及已登记文物'
+    )
+    await loadDetail()
+  } catch (error) {
+    ElMessage.error(error?.message || '空间核验失败')
+  } finally {
+    processing.value = false
   }
 }
 
-async function executeAction(action) {
-  workflow.action = action
-  await runWorkflowAction()
+async function runTodo(todo) {
+  if (!validateTodo(todo)) {
+    return
+  }
+
+  if (todo.kind === 'spatial') {
+    await runSpatialVerify(formState[todo.action]?.threshold_m)
+    return
+  }
+
+  processing.value = true
+  try {
+    const result = await runProjectWorkflowAction(projectId, {
+      action: todo.action,
+      ...(formState[todo.action] || {})
+    })
+    if (!result.success) {
+      throw new Error(result.message || '流程动作执行失败')
+    }
+    ElMessage.success(`${todo.label} 已完成`)
+    await loadDetail()
+  } catch (error) {
+    ElMessage.error(error?.message || '流程动作执行失败')
+  } finally {
+    processing.value = false
+  }
+}
+
+async function saveExtraInfo() {
+  processing.value = true
+  try {
+    const result = await runProjectWorkflowAction(projectId, {
+      action: 'update_extra_info',
+      ...extraState
+    })
+    if (!result.success) {
+      throw new Error(result.message || '保存失败')
+    }
+    ElMessage.success('补充信息已保存')
+    await loadDetail()
+  } catch (error) {
+    ElMessage.error(error?.message || '保存失败')
+  } finally {
+    processing.value = false
+  }
 }
 
 async function submitUpload() {
@@ -437,10 +478,11 @@ async function submitUpload() {
     ElMessage.warning('请先选择文件')
     return
   }
+
   const formData = new FormData()
   formData.append('file', selectedFile.value)
   formData.append('file_type', upload.file_type)
-  if (upload.file_type === 'field_photo' && upload.note) {
+  if (upload.note) {
     formData.append('note', upload.note)
   }
 
@@ -450,8 +492,14 @@ async function submitUpload() {
     if (!result.success) {
       throw new Error(result.message || '上传失败')
     }
-    ElMessage.success('上传成功')
+    ElMessage.success(
+      upload.file_type === 'kml' ? '选址KML已上传，并同步生成叠加检查记录' : '上传成功'
+    )
     selectedFile.value = null
+    if (fileInputRef.value) {
+      fileInputRef.value.value = ''
+    }
+    upload.note = ''
     await loadDetail()
   } catch (error) {
     ElMessage.error(error?.message || '上传失败')
@@ -460,163 +508,255 @@ async function submitUpload() {
   }
 }
 
-async function runSpatialVerify() {
-  processing.value = true
-  try {
-    const result = await verifyProjectSpatialSafety(projectId)
-    if (!result.success) {
-      throw new Error(result.message || '空间核验失败')
-    }
-    ElMessage.success('空间核验完成')
-    await loadDetail()
-  } catch (error) {
-    ElMessage.error(error?.message || '空间核验失败')
-  } finally {
-    processing.value = false
-  }
-}
-
-async function runWorkflowAction() {
-  if (!workflow.action) {
-    ElMessage.warning('请选择流程动作')
-    return
-  }
-
-  processing.value = true
-  try {
-    const payload = { ...workflow }
-    const result = await runProjectWorkflowAction(projectId, payload)
-    if (!result.success) {
-      throw new Error(result.message || '流程动作执行失败')
-    }
-    ElMessage.success('流程动作执行成功')
-    await loadDetail()
-  } catch (error) {
-    ElMessage.error(error?.message || '流程动作执行失败')
-  } finally {
-    processing.value = false
-  }
-}
-
 function downloadMiscZip() {
-  if (!detail.misc_zip_url) {
-    ElMessage.warning('当前项目没有可下载的杂项ZIP')
+  if (detail.misc_zip_url) {
+    window.open(detail.misc_zip_url, '_blank')
+  }
+}
+
+async function loadKmlRecords() {
+  try {
+    const result = await fetchGisKmlRecords()
+    kmlRecords.value = result?.rows || result?.data?.rows || []
+  } catch (error) {
+    ElMessage.error(error?.message || '加载叠加检查记录失败')
+  }
+}
+
+async function submitLinkRecord() {
+  if (!selectedKmlRecord.value) {
     return
   }
-  window.open(detail.misc_zip_url, '_blank')
+
+  try {
+    await ElMessageBox.confirm(
+      '关联后本项目的选址范围将改用该叠加检查记录的KML文件，是否继续？',
+      '关联确认',
+      { confirmButtonText: '确认关联', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch {
+    return
+  }
+
+  processing.value = true
+  try {
+    const result = await linkProjectKmlRecord(projectId, selectedKmlRecord.value.id)
+    if (!result.success) {
+      throw new Error(result.message || '关联失败')
+    }
+    ElMessage.success('已关联，请执行叠加核验刷新结论')
+    linkDialogVisible.value = false
+    selectedKmlRecord.value = null
+    await loadDetail()
+  } catch (error) {
+    ElMessage.error(error?.message || '关联失败')
+  } finally {
+    processing.value = false
+  }
 }
+
+watch(() => guide.todos, syncFormState)
 
 loadDetail()
 </script>
 
 <style scoped>
-.workflow-page {
-  display: grid;
+.project-detail {
+  display: flex;
+  flex-direction: column;
   gap: 14px;
 }
 
-.header-card {
-  padding: 12px 14px;
-}
-
-.header-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px 14px;
-}
-
-.header-grid div {
+.page-header {
   display: flex;
   justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.title-row {
+  display: flex;
+  align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
+}
+
+.title-row h1 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.card h3 {
+  margin: 0 0 12px;
+  font-size: 16px;
+}
+
+.card-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.card-title h3 {
+  margin: 0;
+}
+
+.advice {
+  color: #64748b;
   font-size: 13px;
 }
 
-.header-grid span {
-  color: #64748b;
-}
-
-.workflow-three-pane {
+.detail-body {
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr) 300px;
-  gap: 12px;
-  min-height: 620px;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 14px;
+  align-items: start;
 }
 
-.pane-left,
-.pane-right {
-  padding: 12px;
-  overflow: auto;
-}
-
-.pane-left h3,
-.pane-right h3 {
-  margin: 0 0 10px;
-  font-size: 15px;
-}
-
-.pane-middle {
-  display: grid;
-  gap: 12px;
+.detail-main {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
   min-width: 0;
 }
 
-.pane-card {
-  padding: 12px;
-}
-
-.pane-card h3 {
-  margin: 0 0 12px;
-  font-size: 15px;
-}
-
-.step-nav {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: grid;
-  gap: 8px;
-}
-
-.step-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 10px;
-  border-radius: 8px;
+.todo-card {
   border: 1px solid #e2e8f0;
-  cursor: pointer;
+  border-radius: 10px;
+  padding: 14px;
+  margin-bottom: 12px;
+  background: #f8fafc;
+}
+
+.todo-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.todo-desc {
+  margin: 6px 0 10px;
+  color: #64748b;
   font-size: 13px;
 }
 
-.step-item .dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: #94a3b8;
+.blocker {
+  margin-bottom: 8px;
 }
 
-.step-item.is-active {
-  border-color: #60a5fa;
-  background: #eaf3ff;
-  color: #0f3d73;
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
 }
 
-.step-item.is-active .dot {
-  background: #3b82f6;
+.field-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
-.step-item.is-done {
-  border-color: #86efac;
-  background: #effdf3;
+.field-item label {
+  font-size: 13px;
+  color: #334155;
 }
 
-.step-item.is-done .dot {
-  background: #16a34a;
+.required {
+  color: #ef4444;
 }
 
-.step-item.is-pending {
+.hint {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border-radius: 8px;
+}
+
+.stat span {
+  font-size: 12px;
   color: #64748b;
+}
+
+.stat strong {
+  font-size: 16px;
+}
+
+.stat strong.danger {
+  color: #ef4444;
+}
+
+.map-box {
+  height: 420px;
+  margin-top: 12px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+}
+
+.map-box :deep(.kml-overlay-map-wrap),
+.map-box :deep(.kml-overlay-map) {
+  height: 100%;
+}
+
+.action-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.attach-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.photo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.photo-grid img {
+  width: 100%;
+  height: 90px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
+.detail-side {
+  position: sticky;
+  top: 12px;
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
 }
 
 .timeline-title {
@@ -625,55 +765,21 @@ loadDetail()
 }
 
 .timeline-detail {
-  margin-top: 4px;
-  display: grid;
-  gap: 3px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: #64748b;
   font-size: 12px;
-  color: #64748b;
 }
 
-.decision-group {
-  display: grid;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-
-.hint {
-  color: #64748b;
-  font-size: 13px;
-}
-
-.workflow-grid.compact {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.doc-actions {
-  margin-top: 12px;
-}
-
-@media (max-width: 1450px) {
-  .workflow-three-pane {
-    grid-template-columns: 220px minmax(0, 1fr);
-  }
-
-  .pane-right {
-    grid-column: 1 / -1;
-  }
-}
-
-@media (max-width: 980px) {
-  .header-grid {
+@media (max-width: 1100px) {
+  .detail-body {
     grid-template-columns: 1fr;
   }
 
-  .workflow-three-pane {
-    grid-template-columns: 1fr;
-  }
-
-  .workflow-grid.compact {
-    grid-template-columns: 1fr;
+  .detail-side {
+    position: static;
+    max-height: none;
   }
 }
 </style>

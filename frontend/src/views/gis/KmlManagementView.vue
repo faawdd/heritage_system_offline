@@ -102,6 +102,15 @@
                 <el-button type="primary" @click="loadRows">刷新记录</el-button>
                 <span class="muted-text">已选 {{ selectedRows.length }} 条</span>
               </div>
+              <div class="floating-row">
+                <el-button
+                  type="success"
+                  plain
+                  :disabled="selectedRows.length !== 1"
+                  @click="openProjectLinkDialog"
+                >关联/新建项目选址</el-button>
+                <span class="muted-text">选中单条记录后，可直接作为建设项目的选址范围</span>
+              </div>
               <div class="gis-info-cards">
                 <article class="gis-info-card">
                   <span class="label">记录总数</span>
@@ -192,15 +201,61 @@
         </el-collapse>
       </el-scrollbar>
     </aside>
+
+    <el-dialog v-model="projectLinkVisible" title="关联/新建项目选址" width="620px">
+      <p class="muted-text">
+        当前记录：<strong>{{ selectedRows[0]?.title || '-' }}</strong>
+      </p>
+      <el-tabs v-model="projectLinkMode">
+        <el-tab-pane label="关联已有项目" name="existing">
+          <el-table
+            :data="projectRows"
+            size="small"
+            border
+            highlight-current-row
+            max-height="300"
+            @current-change="(row) => (selectedProject = row)"
+          >
+            <el-table-column prop="project_name" label="项目名称" min-width="200" />
+            <el-table-column prop="company_name" label="项目单位" min-width="150" />
+            <el-table-column prop="status_label" label="状态" width="140" />
+          </el-table>
+        </el-tab-pane>
+        <el-tab-pane label="新建项目" name="create">
+          <el-form label-width="110px">
+            <el-form-item label="项目名称" required>
+              <el-input v-model="newProject.project_name" placeholder="建设项目名称" />
+            </el-form-item>
+            <el-form-item label="项目单位" required>
+              <el-input v-model="newProject.company_name" placeholder="项目方/企业单位名称" />
+            </el-form-item>
+          </el-form>
+        </el-tab-pane>
+      </el-tabs>
+      <template #footer>
+        <el-button @click="projectLinkVisible = false">取消</el-button>
+        <el-button type="primary" :loading="projectLinking" @click="submitProjectLink">确定</el-button>
+      </template>
+    </el-dialog>
   </section>
 </template>
 
 <script setup>
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useRouter } from 'vue-router'
 
 import { fetchGisKmlRecords, submitGisKmlManagementAction } from '../../api/gisApi'
+import { createProject, fetchProjectList, linkProjectKmlRecord } from '../../api/projectApi'
 import KmlOverlayMap from '../../components/gis/KmlOverlayMap.vue'
+
+const router = useRouter()
+const projectLinkVisible = ref(false)
+const projectLinkMode = ref('existing')
+const projectLinking = ref(false)
+const projectRows = ref([])
+const selectedProject = ref(null)
+const newProject = reactive({ project_name: '', company_name: '' })
 
 const rows = ref([])
 const recordsTableRef = ref(null)
@@ -567,6 +622,70 @@ async function exportByAction(action, fallbackFileName) {
     ElMessage.error(error?.message || '导出失败')
   } finally {
     processing.value = false
+  }
+}
+
+async function openProjectLinkDialog() {
+  if (selectedRows.value.length !== 1) {
+    ElMessage.warning('请先在记录表中勾选一条记录')
+    return
+  }
+
+  selectedProject.value = null
+  newProject.project_name = selectedRows.value[0]?.title || ''
+  newProject.company_name = ''
+  projectLinkVisible.value = true
+
+  try {
+    const result = await fetchProjectList({})
+    projectRows.value = result?.rows || []
+  } catch (error) {
+    ElMessage.error(error?.message || '加载项目列表失败')
+  }
+}
+
+async function submitProjectLink() {
+  const record = selectedRows.value[0]
+  if (!record) {
+    return
+  }
+
+  projectLinking.value = true
+  try {
+    let projectId = selectedProject.value?.id
+
+    if (projectLinkMode.value === 'create') {
+      if (!newProject.project_name.trim() || !newProject.company_name.trim()) {
+        ElMessage.warning('请填写项目名称与项目单位')
+        return
+      }
+      const created = await createProject({
+        project_name: newProject.project_name.trim(),
+        company_name: newProject.company_name.trim()
+      })
+      if (!created?.success) {
+        throw new Error(created?.message || '新建项目失败')
+      }
+      projectId = created.data?.id || created.project_id || created.id
+    }
+
+    if (!projectId) {
+      ElMessage.warning('请选择要关联的项目')
+      return
+    }
+
+    const linked = await linkProjectKmlRecord(projectId, record.id)
+    if (!linked?.success) {
+      throw new Error(linked?.message || '关联失败')
+    }
+
+    ElMessage.success('已关联，正在跳转到项目详情')
+    projectLinkVisible.value = false
+    router.push(`/projects/${projectId}`)
+  } catch (error) {
+    ElMessage.error(error?.message || '操作失败')
+  } finally {
+    projectLinking.value = false
   }
 }
 
