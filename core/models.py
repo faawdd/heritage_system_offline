@@ -432,6 +432,43 @@ class LandUseProjectOperationLog(models.Model):
         ]
 
 
+class SipuImportJob(models.Model):
+    """四普系统文物矢量图边界导入任务：记录后台线程的分页导入进度，供前端轮询展示进度条。"""
+
+    STATUS_RUNNING = 'running'
+    STATUS_SUCCESS = 'success'
+    STATUS_FAILED = 'failed'
+    STATUS_CHOICES = [
+        (STATUS_RUNNING, '进行中'),
+        (STATUS_SUCCESS, '已完成'),
+        (STATUS_FAILED, '失败'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    status = models.CharField('状态', max_length=20, choices=STATUS_CHOICES, default=STATUS_RUNNING)
+    total = models.IntegerField('总数', default=0)
+    processed = models.IntegerField('已处理数', default=0)
+    matched = models.IntegerField('成功写入数', default=0)
+    unmatched_count = models.IntegerField('未匹配数', default=0)
+    no_geometry_count = models.IntegerField('无矢量数据数', default=0)
+    unmatched_items = models.JSONField('未匹配明细', default=list, blank=True)
+    no_geometry_items = models.JSONField('无矢量数据明细', default=list, blank=True)
+    error_message = models.TextField('错误信息', blank=True, default='')
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name='sipu_import_jobs', verbose_name='发起人',
+    )
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+    updated_at = models.DateTimeField('更新时间', auto_now=True)
+
+    def __str__(self):
+        return f"SipuImportJob({self.id})-{self.status}"
+
+    class Meta:
+        verbose_name = '四普边界导入任务'
+        verbose_name_plural = verbose_name
+        ordering = ['-created_at']
+
+
 class Coordinate(models.Model):
     """输变电项目杆塔坐标点"""
     CHECK_STATUS_CHOICES = [

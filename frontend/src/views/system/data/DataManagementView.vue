@@ -9,7 +9,7 @@
       <h3>四普系统文物边界导入</h3>
       <p class="hint">
         Cookie 需手动从浏览器登录四普系统后，通过开发者工具的网络请求中复制 Cookie 请求头粘贴到下方；
-        导入会调用后端可复用的 <code>import_sipu_boundary</code> 命令写入数据库。
+        导入任务在后台按页（默认80条/页）分页多线程并发抓取，避免一次性长耗时请求触发网关超时。
       </p>
 
       <el-form label-width="140px" style="max-width: 760px">
@@ -19,55 +19,84 @@
             type="textarea"
             :rows="3"
             placeholder="粘贴四普系统登录后的 Cookie 请求头"
+            :disabled="running"
           />
         </el-form-item>
 
         <el-form-item label="导入范围">
-          <el-radio-group v-model="form.scope">
+          <el-radio-group v-model="form.scope" :disabled="running">
             <el-radio label="missing">仅补全缺失本体边界的文物点</el-radio>
             <el-radio label="all">全部文物点（覆盖已导入数据）</el-radio>
           </el-radio-group>
         </el-form-item>
 
         <el-form-item label="行政区划代码">
-          <el-input v-model="form.user_county" placeholder="可选，四普系统搜索接口的 userCounty 参数" style="max-width: 320px" />
+          <el-input v-model="form.user_county" placeholder="可选，四普系统搜索接口的 userCounty 参数" style="max-width: 320px" :disabled="running" />
+        </el-form-item>
+
+        <el-form-item label="每页数量">
+          <el-input-number v-model="form.page_size" :min="10" :max="500" :disabled="running" />
+          <div class="hint">文物点列表按此数量自动翻页处理，默认 80 条一页。</div>
+        </el-form-item>
+
+        <el-form-item label="并发线程数">
+          <el-input-number v-model="form.max_workers" :min="1" :max="32" :disabled="running" />
+          <div class="hint">页内并发请求四普系统的线程数，数值越大速度越快，但对目标服务器压力也越大。</div>
         </el-form-item>
 
         <el-form-item label="试跑数量限制">
-          <el-input-number v-model="form.limit" :min="0" :max="2000" placeholder="0 表示不限制" />
+          <el-input-number v-model="form.limit" :min="0" :max="2000" :disabled="running" />
           <div class="hint">建议首次先填写较小数值（如 10）验证 Cookie 有效后，再置 0 全量导入。</div>
         </el-form-item>
 
         <el-form-item>
-          <el-button type="primary" :loading="running" @click="runImport">开始导入</el-button>
+          <el-button type="primary" :loading="starting" :disabled="running" @click="startImport">开始导入</el-button>
         </el-form-item>
       </el-form>
     </div>
 
-    <div class="card top-space" v-if="result">
-      <h3>导入结果</h3>
-      <div class="stats-grid">
+    <div class="card top-space" v-if="progress.job_id">
+      <h3>导入进度</h3>
+      <el-progress
+        :percentage="progressPercentage"
+        :status="progressBarStatus"
+        :stroke-width="18"
+        :text-inside="true"
+      />
+      <div class="stats-grid top-space">
         <div class="stat-card">
-          <p class="stat-title">处理总数</p>
-          <p class="stat-value">{{ result.total }}</p>
+          <p class="stat-title">状态</p>
+          <p class="stat-value">{{ statusLabel }}</p>
         </div>
         <div class="stat-card">
-          <p class="stat-title">成功匹配并写入</p>
-          <p class="stat-value">{{ result.matched }}</p>
+          <p class="stat-title">已处理 / 总数</p>
+          <p class="stat-value">{{ progress.processed }} / {{ progress.total }}</p>
+        </div>
+        <div class="stat-card">
+          <p class="stat-title">成功写入</p>
+          <p class="stat-value">{{ progress.matched }}</p>
         </div>
         <div class="stat-card">
           <p class="stat-title">未匹配</p>
-          <p class="stat-value">{{ (result.unmatched || []).length }}</p>
+          <p class="stat-value">{{ progress.unmatched_count }}</p>
         </div>
         <div class="stat-card">
           <p class="stat-title">匹配但无边界数据</p>
-          <p class="stat-value">{{ (result.no_geometry || []).length }}</p>
+          <p class="stat-value">{{ progress.no_geometry_count }}</p>
         </div>
       </div>
 
-      <div class="top-space" v-if="(result.unmatched || []).length">
+      <el-alert
+        v-if="progress.status === 'failed'"
+        type="error"
+        :title="`导入失败：${progress.error_message || '未知错误'}`"
+        show-icon
+        class="top-space"
+      />
+
+      <div class="top-space" v-if="(progress.unmatched || []).length">
         <h4>未匹配文物点</h4>
-        <el-table :data="result.unmatched" stripe size="small" max-height="260">
+        <el-table :data="progress.unmatched" stripe size="small" max-height="260">
           <el-table-column prop="id" label="ID" width="90" />
           <el-table-column prop="name" label="文物名称" min-width="180" />
           <el-table-column label="候选名称" min-width="260">
@@ -76,9 +105,9 @@
         </el-table>
       </div>
 
-      <div class="top-space" v-if="(result.no_geometry || []).length">
+      <div class="top-space" v-if="(progress.no_geometry || []).length">
         <h4>匹配成功但四普未登记矢量图</h4>
-        <el-table :data="result.no_geometry" stripe size="small" max-height="260">
+        <el-table :data="progress.no_geometry" stripe size="small" max-height="260">
           <el-table-column prop="id" label="ID" width="90" />
           <el-table-column prop="name" label="文物名称" min-width="180" />
         </el-table>
@@ -88,45 +117,142 @@
 </template>
 
 <script setup>
-import { reactive, ref } from 'vue'
+import { computed, onUnmounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 
-import { runSipuBoundaryImport } from '../../../api/system/systemApi'
+import { fetchSipuBoundaryImportStatus, startSipuBoundaryImport } from '../../../api/system/systemApi'
 
+const starting = ref(false)
 const running = ref(false)
-const result = ref(null)
+let pollTimer = null
 
 const form = reactive({
   cookie: '',
   scope: 'missing',
   user_county: '',
+  page_size: 80,
+  max_workers: 8,
   limit: 0
 })
 
-async function runImport() {
+const progress = reactive({
+  job_id: '',
+  status: '',
+  total: 0,
+  processed: 0,
+  matched: 0,
+  unmatched_count: 0,
+  no_geometry_count: 0,
+  unmatched: [],
+  no_geometry: [],
+  error_message: ''
+})
+
+const progressPercentage = computed(() => {
+  if (!progress.total) return 0
+  return Math.min(100, Math.round((progress.processed / progress.total) * 100))
+})
+
+const progressBarStatus = computed(() => {
+  if (progress.status === 'success') return 'success'
+  if (progress.status === 'failed') return 'exception'
+  return ''
+})
+
+const statusLabel = computed(() => {
+  const map = { running: '进行中', success: '已完成', failed: '失败' }
+  return map[progress.status] || '-'
+})
+
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+
+function applyStatus(data) {
+  progress.job_id = data.job_id
+  progress.status = data.status
+  progress.total = data.total
+  progress.processed = data.processed
+  progress.matched = data.matched
+  progress.unmatched_count = data.unmatched_count
+  progress.no_geometry_count = data.no_geometry_count
+  progress.unmatched = data.unmatched || []
+  progress.no_geometry = data.no_geometry || []
+  progress.error_message = data.error_message
+}
+
+async function pollStatus(jobId) {
+  try {
+    const result = await fetchSipuBoundaryImportStatus(jobId)
+    if (!result.success) {
+      throw new Error(result.message || '查询进度失败')
+    }
+    applyStatus(result.data)
+    if (result.data.status !== 'running') {
+      running.value = false
+      stopPolling()
+      if (result.data.status === 'success') {
+        ElMessage.success(`导入完成，成功写入 ${result.data.matched} 条`)
+      } else {
+        ElMessage.error(`导入失败：${result.data.error_message || '未知错误'}`)
+      }
+    }
+  } catch (error) {
+    running.value = false
+    stopPolling()
+    ElMessage.error(error?.message || '查询进度失败')
+  }
+}
+
+async function startImport() {
   if (!form.cookie.trim()) {
     ElMessage.warning('请先填写四普系统 Cookie')
     return
   }
 
-  running.value = true
-  result.value = null
+  starting.value = true
   try {
-    const response = await runSipuBoundaryImport({
+    const response = await startSipuBoundaryImport({
       cookie: form.cookie.trim(),
       scope: form.scope,
       user_county: form.user_county.trim(),
+      page_size: form.page_size || 80,
+      max_workers: form.max_workers || 8,
       limit: form.limit || 0
     })
     if (!response.success) {
-      throw new Error(response.message || '导入失败')
+      throw new Error(response.message || '创建导入任务失败')
     }
-    result.value = response.data
-    ElMessage.success(`导入完成，成功写入 ${response.data?.matched ?? 0} 条`)
+
+    const jobId = response.data.job_id
+    Object.assign(progress, {
+      job_id: jobId,
+      status: 'running',
+      total: 0,
+      processed: 0,
+      matched: 0,
+      unmatched_count: 0,
+      no_geometry_count: 0,
+      unmatched: [],
+      no_geometry: [],
+      error_message: ''
+    })
+    running.value = true
+    ElMessage.success('导入任务已创建，正在后台执行')
+
+    stopPolling()
+    pollTimer = setInterval(() => pollStatus(jobId), 2000)
   } catch (error) {
-    ElMessage.error(error?.message || '导入失败')
+    ElMessage.error(error?.message || '创建导入任务失败')
   } finally {
-    running.value = false
+    starting.value = false
   }
 }
+
+onUnmounted(() => {
+  stopPolling()
+})
 </script>

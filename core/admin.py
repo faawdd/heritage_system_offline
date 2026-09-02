@@ -12,6 +12,7 @@ from .models import (
     KmlUploadRecord,
     ImmovableHeritage,
     HeritagePhoto,
+    SipuImportJob,
 )
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin, GroupAdmin as BaseGroupAdmin
@@ -712,6 +713,36 @@ class LandUseProjectOperationLogAdmin(admin.ModelAdmin):
         'status_before',
         'status_after',
         'created_at',
+    )
+
+@admin.register(SipuImportJob)
+class SipuImportJobAdmin(admin.ModelAdmin):
+    list_display = (
+        'id',
+        'status',
+        'total',
+        'processed',
+        'matched',
+        'unmatched_count',
+        'no_geometry_count',
+        'created_by',
+        'created_at',
+    )
+    list_filter = ('status', 'created_at')
+    readonly_fields = (
+        'id',
+        'status',
+        'total',
+        'processed',
+        'matched',
+        'unmatched_count',
+        'no_geometry_count',
+        'unmatched_items',
+        'no_geometry_items',
+        'error_message',
+        'created_by',
+        'created_at',
+        'updated_at',
     )
 
 @admin.register(Coordinate)

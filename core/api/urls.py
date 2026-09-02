@@ -27,7 +27,8 @@ from core.api.views import (
     InspectionStatsAPIView,
     KanerjingListAPIView,
     SystemVersionAPIView,
-    SipuBoundaryImportAPIView,
+    SipuBoundaryImportStartAPIView,
+    SipuBoundaryImportStatusAPIView,
 )
 from core import views as legacy_views
 
@@ -36,7 +37,8 @@ app_name = 'core_api'
 urlpatterns = [
     path('health/', HealthAPIView.as_view(), name='health'),
     path('system/version/', SystemVersionAPIView.as_view(), name='system_version'),
-    path('system/sipu-boundary-import/', SipuBoundaryImportAPIView.as_view(), name='sipu_boundary_import'),
+    path('system/sipu-boundary-import/start/', SipuBoundaryImportStartAPIView.as_view(), name='sipu_boundary_import_start'),
+    path('system/sipu-boundary-import/status/<uuid:job_id>/', SipuBoundaryImportStatusAPIView.as_view(), name='sipu_boundary_import_status'),
     path('dashboard/overview/', DashboardOverviewAPIView.as_view(), name='dashboard_overview'),
     path('heritage/map-points/', HeritageMapPointsAPIView.as_view(), name='heritage_map_points'),
     path('heritage/stats/meta/', HeritageStatsMetaAPIView.as_view(), name='heritage_stats_meta'),
