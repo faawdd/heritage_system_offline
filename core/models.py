@@ -308,6 +308,19 @@ class LandUseProjectApproval(models.Model):
     overlapped_relics_info = models.JSONField('涉事文物信息', default=list, blank=True)
     status = models.CharField('项目状态', max_length=32, choices=STATUS_CHOICES, default=STATUS_RECEIVED)
 
+    # 与独立的 KML 叠加检查共用同一条记录，核验结果双向可见。
+    kml_record = models.ForeignKey(
+        'KmlUploadRecord',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='land_projects',
+        verbose_name='关联KML叠加检查记录',
+    )
+    spatial_check_at = models.DateTimeField('空间核验时间', null=True, blank=True)
+    spatial_check_threshold_m = models.PositiveIntegerField('空间核验阈值(米)', default=50)
+    spatial_feature_count = models.PositiveIntegerField('KML要素数量', default=0)
+
     # 流程A字段
     field_check_date = models.DateField('现场勘查日期', null=True, blank=True)
     shanshan_request_num = models.CharField(

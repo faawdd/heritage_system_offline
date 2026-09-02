@@ -31,24 +31,35 @@
     </div>
 
     <div class="stats-row">
-      <el-card class="stat-item" shadow="hover">
-        <el-statistic title="项目总数" :value="stats.total" />
+      <el-card class="stat-item" shadow="hover" @click="applyStatusFilter('')">
+        <el-statistic title="项目总数" :value="summary.total" />
       </el-card>
       <el-card class="stat-item" shadow="hover">
-        <el-statistic title="待勘查" :value="stats.pendingSurvey" />
+        <el-statistic title="办理中" :value="summary.in_progress" />
+      </el-card>
+      <el-card class="stat-item stat-item--danger" shadow="hover" @click="applyStatusFilter('10_已收文')">
+        <el-statistic title="待初步核查" :value="summary.pending_precheck" />
       </el-card>
       <el-card class="stat-item" shadow="hover">
-        <el-statistic title="待审批" :value="stats.pendingApproval" />
+        <el-statistic title="涉及文物" :value="summary.overlap" />
       </el-card>
-      <el-card class="stat-item" shadow="hover">
-        <el-statistic title="待回复" :value="stats.pendingReply" />
-      </el-card>
-      <el-card class="stat-item" shadow="hover">
-        <el-statistic title="已办结" :value="stats.archived" />
+      <el-card class="stat-item" shadow="hover" @click="applyStatusFilter('60_已结案归档')">
+        <el-statistic title="已办结" :value="summary.archived" />
       </el-card>
       <el-card class="stat-item stat-item--danger" shadow="hover">
-        <el-statistic title="超期项目" :value="stats.overdue" />
+        <el-statistic title="超期未办结" :value="overdueCount" />
       </el-card>
+    </div>
+
+    <div class="card status-chips">
+      <el-tag
+        v-for="item in summary.status_counts || []"
+        :key="item.status"
+        :type="store.filters.status === item.status ? 'primary' : 'info'"
+        :effect="store.filters.status === item.status ? 'dark' : 'plain'"
+        class="status-chip"
+        @click="applyStatusFilter(item.status)"
+      >{{ item.label }} ({{ item.count }})</el-tag>
     </div>
 
     <div class="view-switch card">
@@ -65,8 +76,8 @@
 
         <div class="project-card-meta">
           <div><span>建设单位</span><strong>{{ row.company_name || '-' }}</strong></div>
-          <div><span>办理人员</span><strong>{{ row.owner_name || row.operator_name || '-' }}</strong></div>
-          <div><span>当前位置</span><strong>{{ row.location_name || row.address || '-' }}</strong></div>
+          <div><span>当前待办</span><strong>{{ todoHint(row) }}</strong></div>
+          <div><span>核验时间</span><strong>{{ row.spatial_check_at || '尚未核验' }}</strong></div>
           <div><span>更新时间</span><strong>{{ row.updated_at || row.receive_date || '-' }}</strong></div>
         </div>
 
@@ -80,7 +91,7 @@
 
         <div class="project-card-footer">
           <el-tag :type="row.is_overlap_artifact ? 'danger' : 'success'" effect="plain">
-            {{ row.is_overlap_artifact ? '涉及文物' : '不涉及文物' }}
+            {{ row.is_overlap_artifact ? `涉及文物 ${row.overlap_count}处` : '不涉及文物' }}
           </el-tag>
           <el-tag :type="row.workflow_path === 'ARCHAEOLOGY_FLOW' ? 'warning' : 'info'" effect="plain">
             {{ row.workflow_path === 'ARCHAEOLOGY_FLOW' ? '考古流程' : '直接复函流程' }}
@@ -105,11 +116,17 @@
           </template>
         </el-table-column>
         <el-table-column prop="receive_date" label="收文日期" width="130" />
-        <el-table-column prop="status_label" label="状态" min-width="160" />
-        <el-table-column prop="is_overlap_artifact" label="涉及文物" width="110">
+        <el-table-column label="当前待办" min-width="170">
+          <template #default="scope">
+            <span :class="{ 'todo-warn': !scope.row.spatial_check_at && !scope.row.is_archived }">
+              {{ todoHint(scope.row) }}
+            </span>
+          </template>
+        </el-table-column>
+        <el-table-column label="涉及文物" width="120">
           <template #default="scope">
             <el-tag :type="scope.row.is_overlap_artifact ? 'danger' : 'success'">
-              {{ scope.row.is_overlap_artifact ? '是' : '否' }}
+              {{ scope.row.is_overlap_artifact ? `是 (${scope.row.overlap_count})` : '否' }}
             </el-tag>
           </template>
         </el-table-column>
@@ -160,16 +177,25 @@ function progressByStatus(row) {
   return 15
 }
 
+const STEP_LABELS = {
+  receive: '收文登记',
+  precheck: '初步核查',
+  field_check: '联合实地勘查',
+  city_review: '上报市局与回复意见',
+  archaeology: '专项保护与逐级报审',
+  reply: '出具复函',
+  archive: '办结归档'
+}
+
 function currentFlowLabel(row) {
-  const status = statusRaw(row)
-  if (!status) return '接收请示'
-  if (status.includes('60_')) return '办结归档'
-  if (status.includes('50_')) return '复函待归档'
-  if (status.includes('45_')) return '后续流程'
-  if (status.includes('40_')) return '市局审批/上报'
-  if (status.includes('30_')) return '现场勘查'
-  if (status.includes('20_') || status.includes('21_')) return '涉及性与可行性判定'
-  return '接收请示'
+  return STEP_LABELS[row.current_step] || '收文登记'
+}
+
+function todoHint(row) {
+  if (row.is_archived) return '已办结'
+  if (!row.spatial_check_at) return '待执行叠加核验'
+  if (row.has_high_level_overlap) return '高等级文物，建议避让'
+  return currentFlowLabel(row)
 }
 
 function tagTypeByStatus(row) {
@@ -191,26 +217,14 @@ function isOverdue(row) {
   return diffDays > 30
 }
 
-const stats = computed(() => {
-  const rows = store.rows || []
-  return {
-    total: rows.length,
-    pendingSurvey: rows.filter((row) => {
-      const status = statusRaw(row)
-      return status.includes('10_') || status.includes('30_')
-    }).length,
-    pendingApproval: rows.filter((row) => {
-      const status = statusRaw(row)
-      return status.includes('40_') || (status.includes('21_') && row.workflow_path === 'ARCHAEOLOGY_FLOW')
-    }).length,
-    pendingReply: rows.filter((row) => {
-      const status = statusRaw(row)
-      return status.includes('50_') || status.includes('20_') || (status.includes('21_') && row.workflow_path !== 'ARCHAEOLOGY_FLOW')
-    }).length,
-    archived: rows.filter((row) => statusRaw(row).includes('60_')).length,
-    overdue: rows.filter((row) => isOverdue(row)).length,
-  }
-})
+const summary = computed(() => store.summary || {})
+
+const overdueCount = computed(() => (store.rows || []).filter((row) => isOverdue(row)).length)
+
+function applyStatusFilter(status) {
+  store.filters.status = store.filters.status === status ? '' : status
+  store.loadProjects()
+}
 
 function goCreate() {
   router.push('/projects/new')
@@ -239,6 +253,25 @@ onMounted(() => {
 
 .stat-item--danger :deep(.el-statistic__content-value) {
   color: #c81e1e;
+}
+
+.stat-item {
+  cursor: pointer;
+}
+
+.status-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.status-chip {
+  cursor: pointer;
+}
+
+.todo-warn {
+  color: #c81e1e;
+  font-weight: 600;
 }
 
 .view-switch {
