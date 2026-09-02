@@ -53,9 +53,12 @@ class HeritageSite(models.Model):
         verbose_name = "不可移动文物档案"
         verbose_name_plural = verbose_name
 
-    # 新增：两线坐标数据 (存储为 JSON 字符串，例如: "[[116.1, 39.1], [116.2, 39.1], ...]")
-    protection_zone = models.TextField("保护范围坐标集合", null=True,blank=True, help_text="请输入经纬度序列JSON")
-    control_zone = models.TextField("建控地带坐标集合", null=True, blank=True)
+    # 新增：两线坐标数据（存储为 JSON 字符串，格式统一为“环列表”：
+    # [[[lon,lat], [lon,lat], ...], [[lon,lat], ...], ...]，支持一个文物点存在多个分离区块。
+    protection_zone = models.TextField("保护范围坐标集合", null=True, blank=True, help_text="JSON 环列表：[[[lon,lat],...],...]")
+    control_zone = models.TextField("建控地带坐标集合", null=True, blank=True, help_text="JSON 环列表：[[[lon,lat],...],...]")
+    # 从四普系统“文物矢量图”导入的本体边界范围，格式同上，用于KML叠加检查替代单点坐标。
+    body_boundary = models.TextField("本体边界范围坐标集合", null=True, blank=True, help_text="JSON 环列表：[[[lon,lat],...],...]")
 
     @staticmethod
     def _point_in_polygon(lon, lat, polygon_points):
@@ -78,8 +81,8 @@ class HeritageSite(models.Model):
         return inside
 
     @staticmethod
-    def _load_polygon_points(zone_text):
-        """将 JSON 坐标解析为 [(lon, lat), ...]"""
+    def _load_polygon_rings(zone_text):
+        """将 JSON 环列表解析为 [[(lon, lat), ...], ...]，兼容旧版单环（扁平坐标数组）格式。"""
         if not zone_text:
             return []
 
@@ -88,25 +91,50 @@ class HeritageSite(models.Model):
         except Exception:
             return []
 
-        points = []
-        for item in parsed:
-            if isinstance(item, (list, tuple)) and len(item) >= 2:
-                try:
-                    points.append((float(item[0]), float(item[1])))
-                except (TypeError, ValueError):
-                    continue
-            elif isinstance(item, dict):
-                lon = item.get('lon', item.get('longitude'))
-                lat = item.get('lat', item.get('latitude'))
-                try:
-                    points.append((float(lon), float(lat)))
-                except (TypeError, ValueError):
-                    continue
+        if not isinstance(parsed, list) or not parsed:
+            return []
 
-        return points
+        def _parse_ring(raw_ring):
+            ring = []
+            for item in raw_ring:
+                if isinstance(item, (list, tuple)) and len(item) >= 2:
+                    try:
+                        ring.append((float(item[0]), float(item[1])))
+                    except (TypeError, ValueError):
+                        continue
+                elif isinstance(item, dict):
+                    lon = item.get('lon', item.get('longitude'))
+                    lat = item.get('lat', item.get('latitude'))
+                    try:
+                        ring.append((float(lon), float(lat)))
+                    except (TypeError, ValueError):
+                        continue
+            return ring
+
+        first_item = parsed[0]
+        # 旧版扁平单环格式：[[lon,lat], [lon,lat], ...]
+        if isinstance(first_item, (list, tuple)) and len(first_item) >= 2 and isinstance(first_item[0], (int, float, str)):
+            ring = _parse_ring(parsed)
+            return [ring] if ring else []
+
+        # 新版环列表格式：[[[lon,lat],...], [[lon,lat],...], ...]
+        rings = []
+        for raw_ring in parsed:
+            if not isinstance(raw_ring, list):
+                continue
+            ring = _parse_ring(raw_ring)
+            if ring:
+                rings.append(ring)
+        return rings
+
+    @classmethod
+    def _load_polygon_points(cls, zone_text):
+        """兼容旧调用：仅返回第一个环的坐标点。"""
+        rings = cls._load_polygon_rings(zone_text)
+        return rings[0] if rings else []
 
     def is_inside_zones(self, lon, lat):
-        """判断给定的点是否落入两线"""
+        """判断给定的点是否落入两线（任一分区块命中即算落入）"""
         results = {"in_protection": False, "in_control": False}
         try:
             point_lon = float(lon)
@@ -116,15 +144,17 @@ class HeritageSite(models.Model):
         
         # 检查保护范围
         if self.protection_zone:
-            protection_points = self._load_polygon_points(self.protection_zone)
-            if self._point_in_polygon(point_lon, point_lat, protection_points):
-                results["in_protection"] = True
+            for ring in self._load_polygon_rings(self.protection_zone):
+                if self._point_in_polygon(point_lon, point_lat, ring):
+                    results["in_protection"] = True
+                    break
         
         # 检查建控地带
         if self.control_zone:
-            control_points = self._load_polygon_points(self.control_zone)
-            if self._point_in_polygon(point_lon, point_lat, control_points):
-                results["in_control"] = True
+            for ring in self._load_polygon_rings(self.control_zone):
+                if self._point_in_polygon(point_lon, point_lat, ring):
+                    results["in_control"] = True
+                    break
                 
         return results
 

@@ -665,24 +665,63 @@ def _is_point_in_polygon(lon, lat, polygon_rings):
     return True
 
 
+def _parse_boundary_rings(zone_text):
+    """解析 HeritageSite 的环列表字段（body_boundary/protection_zone/control_zone）为 [[(lon,lat),...],...]。"""
+    if not zone_text:
+        return []
+    try:
+        parsed = json.loads(zone_text)
+    except Exception:
+        return []
+    if not isinstance(parsed, list):
+        return []
+
+    rings = []
+    for raw_ring in parsed:
+        if not isinstance(raw_ring, list):
+            continue
+        ring = []
+        for item in raw_ring:
+            if isinstance(item, (list, tuple)) and len(item) >= 2:
+                try:
+                    ring.append((float(item[0]), float(item[1])))
+                except (TypeError, ValueError):
+                    continue
+        if len(ring) >= 3:
+            rings.append(ring)
+    return rings
+
+
 def _load_conflict_site_points():
     rows = HeritageSite.objects.exclude(longitude__isnull=True).exclude(latitude__isnull=True).values(
-        'id', 'name', 'level', 'longitude', 'latitude'
+        'id', 'name', 'level', 'longitude', 'latitude', 'body_boundary'
     )
     site_points = []
     for row in rows:
         try:
-            site_points.append(
-                {
-                    'id': row['id'],
-                    'name': row['name'],
-                    'level': row['level'],
-                    'longitude': float(row['longitude']),
-                    'latitude': float(row['latitude']),
-                }
-            )
+            lon = float(row['longitude'])
+            lat = float(row['latitude'])
         except (TypeError, ValueError):
             continue
+
+        boundary_rings = _parse_boundary_rings(row['body_boundary'])
+        bbox = (lon, lat, lon, lat)
+        if boundary_rings:
+            lons = [pt[0] for ring in boundary_rings for pt in ring] + [lon]
+            lats = [pt[1] for ring in boundary_rings for pt in ring] + [lat]
+            bbox = (min(lons), min(lats), max(lons), max(lats))
+
+        site_points.append(
+            {
+                'id': row['id'],
+                'name': row['name'],
+                'level': row['level'],
+                'longitude': lon,
+                'latitude': lat,
+                'boundary_rings': boundary_rings,
+                'bbox': bbox,
+            }
+        )
     return site_points
 
 
@@ -712,8 +751,15 @@ def _build_site_spatial_index(site_points, cell_deg):
         lat = site.get('latitude')
         if lon is None or lat is None:
             continue
-        key = (int(math.floor(lon / cell_deg)), int(math.floor(lat / cell_deg)))
-        index.setdefault(key, []).append(site)
+        # 按文物边界（若有）的完整 bbox 入索引，避免大面积文物因只用点坐标索引而被逐排遗漏。
+        min_lon, min_lat, max_lon, max_lat = site.get('bbox') or (lon, lat, lon, lat)
+        min_x = int(math.floor(min_lon / cell_deg))
+        max_x = int(math.floor(max_lon / cell_deg))
+        min_y = int(math.floor(min_lat / cell_deg))
+        max_y = int(math.floor(max_lat / cell_deg))
+        for x in range(min_x, max_x + 1):
+            for y in range(min_y, max_y + 1):
+                index.setdefault((x, y), []).append(site)
     return index
 
 
@@ -732,11 +778,64 @@ def _query_candidate_sites(site_index, bbox, threshold_m, cell_deg):
     min_y = int(math.floor((min_lat - lat_pad) / cell_deg))
     max_y = int(math.floor((max_lat + lat_pad) / cell_deg))
 
+    seen_ids = set()
     rows = []
     for x in range(min_x, max_x + 1):
         for y in range(min_y, max_y + 1):
-            rows.extend(site_index.get((x, y), []))
+            for site in site_index.get((x, y), []):
+                if site['id'] in seen_ids:
+                    continue
+                seen_ids.add(site['id'])
+                rows.append(site)
     return rows
+
+
+def _point_in_any_ring(lon, lat, rings):
+    return any(_is_point_in_ring(lon, lat, ring) for ring in rings)
+
+
+def _distance_point_to_rings_m(lon, lat, rings):
+    best = float('inf')
+    for ring in rings:
+        best = min(best, _distance_to_polygon_boundary_m(lon, lat, [ring]))
+    return best
+
+
+def _distance_linestring_to_rings_m(line_coords, rings):
+    """近似计算折线与文物边界环之间的最短距离（基于顶点采样，兼容现有算法精度水平）。"""
+    if not line_coords or not rings:
+        return float('inf')
+
+    best = float('inf')
+    for lon, lat in line_coords:
+        best = min(best, _distance_point_to_rings_m(lon, lat, rings))
+    for ring in rings:
+        for lon, lat in ring:
+            best = min(best, _distance_to_linestring_m(lon, lat, line_coords))
+    return best
+
+
+def _distance_polygon_to_rings_m(polygon_coords, rings):
+    """近似计算 KML 面要素与文物边界环之间的最短距离（顶点采样）。"""
+    best = float('inf')
+    for ring in polygon_coords or []:
+        for lon, lat in ring:
+            best = min(best, _distance_point_to_rings_m(lon, lat, rings))
+    for ring in rings:
+        for lon, lat in ring:
+            best = min(best, _distance_to_polygon_boundary_m(lon, lat, polygon_coords or []))
+    return best
+
+
+def _polygon_intersects_rings(polygon_coords, rings):
+    """近似判断 KML 面要素是否与文物边界环重叠（互相包含顶点采样，非严格拓扑相交）。"""
+    outer_ring = (polygon_coords or [[]])[0]
+    if any(_point_in_any_ring(lon, lat, rings) for lon, lat in outer_ring):
+        return True
+    for ring in rings:
+        if ring and _is_point_in_polygon(ring[0][0], ring[0][1], polygon_coords or []):
+            return True
+    return False
 
 
 def _analyze_conflicts(features, threshold_m, site_points=None):
@@ -762,12 +861,47 @@ def _analyze_conflicts(features, threshold_m, site_points=None):
         for site in candidate_sites:
             site_lon = site['longitude']
             site_lat = site['latitude']
+            boundary_rings = site.get('boundary_rings') or []
 
             matched = False
             relation = ''
             distance_m = None
 
-            if feature_type == 'Point' and isinstance(coords, (list, tuple)) and len(coords) >= 2:
+            if boundary_rings:
+                # 文物点已导入本体边界范围：改用边界多边形而非单点坐标进行叠加判断。
+                if feature_type == 'Point' and isinstance(coords, (list, tuple)) and len(coords) >= 2:
+                    lon, lat = float(coords[0]), float(coords[1])
+                    inside = _point_in_any_ring(lon, lat, boundary_rings)
+                    distance_m = 0.0 if inside else _distance_point_to_rings_m(lon, lat, boundary_rings)
+                    matched = inside or (math.isfinite(distance_m) and distance_m <= threshold)
+                    relation = '点位于文物本体边界内' if inside else '点距文物本体边界最短距离'
+                elif feature_type == 'LineString':
+                    distance_m = _distance_linestring_to_rings_m(coords or [], boundary_rings)
+                    matched = math.isfinite(distance_m) and distance_m <= threshold
+                    relation = '线距文物本体边界最短距离'
+                elif feature_type == 'MultiLineString':
+                    min_distance = float('inf')
+                    for line_coords in (coords or []):
+                        min_distance = min(min_distance, _distance_linestring_to_rings_m(line_coords, boundary_rings))
+                    distance_m = min_distance
+                    matched = math.isfinite(distance_m) and distance_m <= threshold
+                    relation = '线距文物本体边界最短距离'
+                elif feature_type == 'Polygon':
+                    inside = _polygon_intersects_rings(coords or [], boundary_rings)
+                    boundary_distance = _distance_polygon_to_rings_m(coords or [], boundary_rings)
+                    distance_m = boundary_distance
+                    matched = inside or (math.isfinite(boundary_distance) and boundary_distance <= threshold)
+                    relation = '面与文物本体边界重叠' if inside else '面距文物本体边界最短距离'
+                elif feature_type == 'MultiPolygon':
+                    inside = any(_polygon_intersects_rings(polygon, boundary_rings) for polygon in (coords or []))
+                    boundary_distance = min(
+                        (_distance_polygon_to_rings_m(polygon, boundary_rings) for polygon in (coords or [])),
+                        default=float('inf'),
+                    )
+                    distance_m = boundary_distance
+                    matched = inside or (math.isfinite(boundary_distance) and boundary_distance <= threshold)
+                    relation = '面与文物本体边界重叠' if inside else '面距文物本体边界最短距离'
+            elif feature_type == 'Point' and isinstance(coords, (list, tuple)) and len(coords) >= 2:
                 lon, lat = float(coords[0]), float(coords[1])
                 distance_m = _haversine_m(site_lat, site_lon, lat, lon)
                 matched = distance_m <= threshold
@@ -1091,6 +1225,141 @@ def _sipu_fetch_boundary_points(cul_rid: str, cookie: str) -> list:
     if not boundary:
         boundary = [r for r in all_rows if str(r.get('measurePointType', '')) == '9']
     return boundary
+
+
+def _sipu_fetch_mapdata_rings(cul_rid: str, cookie: str) -> dict:
+    """通过四普系统"文物矢量图"接口，获取本体范围/保护范围/建控地带的多边形环列表。"""
+    import urllib.request
+    import urllib.parse
+
+    url = f'{_SIPU_BASE}/api/mapdata/list'
+    body = urllib.parse.urlencode({'id': cul_rid, 'table': '5'}).encode('utf-8')
+    req = urllib.request.Request(
+        url,
+        data=body,
+        method='POST',
+        headers={
+            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            'X-Requested-With': 'XMLHttpRequest',
+            'Accept': 'application/json, text/javascript, */*; q=0.01',
+            'Cookie': cookie,
+            'Host': _SIPU_HOST,
+            'Origin': _SIPU_BASE,
+            'Referer': f'{_SIPU_BASE}/tBBdataBasicController.do?viewDetail&id={urllib.parse.quote(cul_rid)}',
+            'User-Agent': 'Mozilla/5.0 (compatible; HeritageSystem/1.0)',
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            raw = resp.read()
+        payload = json.loads(raw.decode('utf-8', errors='replace'))
+    except Exception:
+        return {'body': [], 'protection': [], 'control': []}
+
+    items = ((payload.get('data') or {}).get('data')) or []
+    body_rings, protection_rings, control_rings = [], [], []
+
+    def _extract_rings(geojson_text):
+        try:
+            geom = json.loads(geojson_text)
+        except Exception:
+            return []
+        rings = []
+        geom_type = geom.get('type')
+        if geom_type == 'Polygon':
+            candidates = geom.get('coordinates') or []
+        elif geom_type == 'MultiPolygon':
+            candidates = [ring for polygon in (geom.get('coordinates') or []) for ring in polygon]
+        else:
+            candidates = []
+        for ring in candidates:
+            if isinstance(ring, list) and len(ring) >= 3:
+                rings.append([[round(float(pt[0]), 7), round(float(pt[1]), 7)] for pt in ring])
+        return rings
+
+    for item in items:
+        rings = _extract_rings(item.get('geojson'))
+        region_type = item.get('region_type') or ''
+        if '本体' in region_type:
+            body_rings.extend(rings)
+        elif '保护' in region_type:
+            protection_rings.extend(rings)
+        elif '建' in region_type or '控' in region_type:
+            control_rings.extend(rings)
+
+    return {'body': body_rings, 'protection': protection_rings, 'control': control_rings}
+
+
+def run_sipu_boundary_import(cookie: str, scope: str = 'missing', user_county: str = '', limit: int = 0):
+    """按名称逐条匹配四普系统文物点，抓取“文物矢量图”边界并调用可复用的导入命令写入数据库。
+
+    - scope='missing'：仅处理尚无本体边界数据的文物点；scope='all'：全部重新抓取覆盖。
+    - limit：>0 时仅处理前 N 条，便于先小范围试跑。
+    """
+    import tempfile
+    from django.core.management import call_command
+
+    queryset = HeritageSite.objects.all().order_by('id')
+    if scope != 'all':
+        queryset = queryset.filter(Q(body_boundary__isnull=True) | Q(body_boundary=''))
+    if limit and limit > 0:
+        queryset = queryset[:limit]
+
+    sites = list(queryset.values('id', 'name'))
+    matched_count = 0
+    unmatched_items = []
+    no_geometry_items = []
+
+    with tempfile.NamedTemporaryFile('w', suffix='.ndjson', delete=False, encoding='utf-8') as tmp_file:
+        tmp_path = tmp_file.name
+        for site in sites:
+            candidates = _sipu_search_culrid(site['name'], cookie, user_county)
+            matched = next((c for c in candidates if c.get('name') == site['name']), None)
+            if matched is None and len(candidates) == 1:
+                matched = candidates[0]
+
+            if not matched:
+                record = {
+                    'id': site['id'],
+                    'unmatched': True,
+                    'candidateCount': len(candidates),
+                    'candidateNames': [c.get('name') for c in candidates],
+                }
+                unmatched_items.append({'id': site['id'], 'name': site['name'], 'candidates': [c.get('name') for c in candidates]})
+                tmp_file.write(json.dumps(record, ensure_ascii=False) + '\n')
+                continue
+
+            rings = _sipu_fetch_mapdata_rings(matched['id'], cookie)
+            if not (rings['body'] or rings['protection'] or rings['control']):
+                no_geometry_items.append({'id': site['id'], 'name': site['name']})
+                tmp_file.write(json.dumps({'id': site['id'], 'noGeometry': True}, ensure_ascii=False) + '\n')
+                continue
+
+            record = {
+                'id': site['id'],
+                'culrid': matched['id'],
+                'matchedName': matched.get('name'),
+                'body': rings['body'],
+                'protection': rings['protection'],
+                'control': rings['control'],
+            }
+            matched_count += 1
+            tmp_file.write(json.dumps(record, ensure_ascii=False) + '\n')
+
+    try:
+        call_command('import_sipu_boundary', tmp_path)
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+
+    return {
+        'total': len(sites),
+        'matched': matched_count,
+        'unmatched': unmatched_items,
+        'no_geometry': no_geometry_items,
+    }
 
 
 def _build_boundary_points_csv(combined_conflicts, selected_records, cookie: str, user_county: str = '') -> HttpResponse:

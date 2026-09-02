@@ -5,6 +5,7 @@ import uuid
 import zipfile
 import csv
 import re
+import logging
 from datetime import timedelta, datetime
 
 from django.conf import settings
@@ -29,6 +30,8 @@ from core.services.heritage_service import (
 )
 from core.services.system_service import get_system_version_payload
 from core.ovkml_converter import build_csv_outputs, parse_kml_or_kmz
+
+logger = logging.getLogger(__name__)
 
 
 def _build_inspection_photo_url(photo_field) -> str:
@@ -58,6 +61,35 @@ class SystemVersionAPIView(APIView):
     def get(self, request):
         payload = get_system_version_payload()
         return Response({'success': True, 'data': payload})
+
+
+class SipuBoundaryImportAPIView(APIView):
+    """系统管理-数据管理：按用户手动提供的四普 Cookie，抓取文物矢量图边界并调用可复用导入命令。"""
+
+    permission_classes = [IsManagementAdmin]
+
+    def post(self, request):
+        cookie = (request.data.get('cookie') or '').strip()
+        if not cookie:
+            return Response({'success': False, 'message': '请先填写四普系统的 Cookie。'}, status=400)
+
+        scope = (request.data.get('scope') or 'missing').strip()
+        if scope not in {'missing', 'all'}:
+            scope = 'missing'
+        user_county = (request.data.get('user_county') or '').strip()
+
+        try:
+            limit = int(request.data.get('limit') or 0)
+        except (TypeError, ValueError):
+            limit = 0
+
+        try:
+            summary = legacy_views.run_sipu_boundary_import(cookie, scope=scope, user_county=user_county, limit=limit)
+        except Exception:
+            logger.exception('四普文物矢量图导入失败')
+            return Response({'success': False, 'message': '导入失败，请检查 Cookie 是否有效或稍后重试'}, status=500)
+
+        return Response({'success': True, 'data': summary})
 
 
 class DashboardOverviewAPIView(APIView):
