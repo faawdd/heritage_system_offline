@@ -96,3 +96,13 @@ export async function updateDeepSeekConfig(payload) {
   const response = await client.put('/api/v1/system/ai-config/deepseek/', payload)
   return response.data
 }
+
+export async function startSipuBoundaryImport(payload) {
+  const response = await client.post('/api/v1/system/sipu-boundary-import/start/', payload)
+  return response.data
+}
+
+export async function fetchSipuBoundaryImportStatus(jobId) {
+  const response = await client.get(`/api/v1/system/sipu-boundary-import/status/${jobId}/`)
+  return response.data
+}

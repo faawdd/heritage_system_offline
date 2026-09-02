@@ -6,6 +6,7 @@ import zipfile
 import csv
 import re
 import concurrent.futures
+import logging
 from types import SimpleNamespace
 from pathlib import Path
 from datetime import timedelta, datetime
@@ -40,6 +41,8 @@ from scripts.sipu_immovable_to_base_csv import (
     fetch_all_rows,
     write_csv,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _unwrap_legacy_view(view_func):
@@ -419,6 +422,56 @@ class SystemVersionAPIView(APIView):
         return Response({'success': True, 'data': payload})
 
 
+class SipuBoundaryImportStartAPIView(APIView):
+    """系统管理-数据管理：按用户手动提供的四普 Cookie，创建后台导入任务（立即返回，避免网关504超时）。"""
+
+    permission_classes = [IsManagementAdmin]
+
+    def post(self, request):
+        cookie = (request.data.get('cookie') or '').strip()
+        if not cookie:
+            return Response({'success': False, 'message': '请先填写四普系统的 Cookie。'}, status=400)
+
+        scope = (request.data.get('scope') or 'missing').strip()
+        if scope not in {'missing', 'all'}:
+            scope = 'missing'
+        user_county = (request.data.get('user_county') or '').strip()
+
+        def _parse_int(key, default, min_value, max_value):
+            try:
+                value = int(request.data.get(key) or default)
+            except (TypeError, ValueError):
+                value = default
+            return max(min_value, min(max_value, value))
+
+        limit = _parse_int('limit', 0, 0, 100000)
+        page_size = _parse_int('page_size', 80, 1, 500)
+        max_workers = _parse_int('max_workers', 8, 1, 32)
+
+        try:
+            job_id = legacy_views.start_sipu_boundary_import_job(
+                request.user, cookie, scope=scope, user_county=user_county,
+                limit=limit, page_size=page_size, max_workers=max_workers,
+            )
+        except Exception:
+            logger.exception('创建四普文物矢量图导入任务失败')
+            return Response({'success': False, 'message': '创建导入任务失败，请稍后重试'}, status=500)
+
+        return Response({'success': True, 'data': {'job_id': str(job_id)}})
+
+
+class SipuBoundaryImportStatusAPIView(APIView):
+    """查询四普边界导入任务进度，供前端轮询展示进度条。"""
+
+    permission_classes = [IsManagementAdmin]
+
+    def get(self, request, job_id):
+        status_payload = legacy_views.get_sipu_boundary_import_job_status(job_id)
+        if not status_payload:
+            return Response({'success': False, 'message': '任务不存在'}, status=404)
+        return Response({'success': True, 'data': status_payload})
+
+
 class DashboardOverviewAPIView(APIView):
     permission_classes = [IsManagementAdmin]
 
@@ -628,7 +681,7 @@ class HeritageSiteManageListAPIView(APIView):
             {
                 'id': item.id,
                 'name': item.name,
-                'preview_url': f'/mobile/collect/{item.id}/preview/?mode=view',
+                'preview_url': legacy_views.build_heritage_preview_entry_url(request.user, item.id),
                 'sip_code': item.sip_code,
                 'category': item.category,
                 'category_label': item.get_category_display(),
@@ -957,7 +1010,7 @@ class ImmovableHeritageListAPIView(APIView):
                 {
                     'id': item.id,
                     'name': item.name,
-                    'preview_url': f'/mobile/collect/{item.id}/preview/?mode=view',
+                    'preview_url': legacy_views.build_heritage_preview_entry_url(request.user, item.id),
                     'sip_code': item.survey_code,
                     'survey_code': item.survey_code,
                     'former_name': item.former_name,
@@ -2534,17 +2587,13 @@ class GisKmlManagementActionAPIView(APIView):
         if action == 'export_conflict_kml':
             return legacy_views._build_conflict_sites_kml(combined_conflicts, threshold, records)
 
-        cookie = (request.data.get('sipu_cookie') or '').strip()
-        if not cookie:
-            return Response({'success': False, 'message': '请先填写四普系统的 Cookie。'}, status=400)
         if not combined_conflicts:
             return Response({'success': False, 'message': '所选文件中未发现冲突文物点，无需导出边界。'}, status=400)
-        user_county = (request.data.get('sipu_county') or '').strip()
 
         if action == 'export_boundary_points':
-            return legacy_views._build_boundary_points_csv(combined_conflicts, records, cookie, user_county)
+            return legacy_views._build_boundary_points_csv(combined_conflicts, records)
         if action == 'export_boundary_kmz':
-            return legacy_views._build_boundary_points_kmz(combined_conflicts, records, cookie, user_county)
+            return legacy_views._build_boundary_points_kmz(combined_conflicts, records)
 
         return Response(
             {

@@ -53,9 +53,12 @@ class HeritageSite(models.Model):
         verbose_name = "不可移动文物档案"
         verbose_name_plural = verbose_name
 
-    # 新增：两线坐标数据 (存储为 JSON 字符串，例如: "[[116.1, 39.1], [116.2, 39.1], ...]")
-    protection_zone = models.TextField("保护范围坐标集合", null=True,blank=True, help_text="请输入经纬度序列JSON")
-    control_zone = models.TextField("建控地带坐标集合", null=True, blank=True)
+    # 新增：两线坐标数据（存储为 JSON 字符串，格式统一为“环列表”：
+    # [[[lon,lat], [lon,lat], ...], [[lon,lat], ...], ...]，支持一个文物点存在多个分离区块。
+    protection_zone = models.TextField("保护范围坐标集合", null=True, blank=True, help_text="JSON 环列表：[[[lon,lat],...],...]")
+    control_zone = models.TextField("建控地带坐标集合", null=True, blank=True, help_text="JSON 环列表：[[[lon,lat],...],...]")
+    # 从四普系统“文物矢量图”导入的本体边界范围，格式同上，用于KML叠加检查替代单点坐标。
+    body_boundary = models.TextField("本体边界范围坐标集合", null=True, blank=True, help_text="JSON 环列表：[[[lon,lat],...],...]")
 
     @staticmethod
     def _point_in_polygon(lon, lat, polygon_points):
@@ -78,8 +81,8 @@ class HeritageSite(models.Model):
         return inside
 
     @staticmethod
-    def _load_polygon_points(zone_text):
-        """将 JSON 坐标解析为 [(lon, lat), ...]"""
+    def _load_polygon_rings(zone_text):
+        """将 JSON 环列表解析为 [[(lon, lat), ...], ...]，兼容旧版单环（扁平坐标数组）格式。"""
         if not zone_text:
             return []
 
@@ -88,25 +91,50 @@ class HeritageSite(models.Model):
         except Exception:
             return []
 
-        points = []
-        for item in parsed:
-            if isinstance(item, (list, tuple)) and len(item) >= 2:
-                try:
-                    points.append((float(item[0]), float(item[1])))
-                except (TypeError, ValueError):
-                    continue
-            elif isinstance(item, dict):
-                lon = item.get('lon', item.get('longitude'))
-                lat = item.get('lat', item.get('latitude'))
-                try:
-                    points.append((float(lon), float(lat)))
-                except (TypeError, ValueError):
-                    continue
+        if not isinstance(parsed, list) or not parsed:
+            return []
 
-        return points
+        def _parse_ring(raw_ring):
+            ring = []
+            for item in raw_ring:
+                if isinstance(item, (list, tuple)) and len(item) >= 2:
+                    try:
+                        ring.append((float(item[0]), float(item[1])))
+                    except (TypeError, ValueError):
+                        continue
+                elif isinstance(item, dict):
+                    lon = item.get('lon', item.get('longitude'))
+                    lat = item.get('lat', item.get('latitude'))
+                    try:
+                        ring.append((float(lon), float(lat)))
+                    except (TypeError, ValueError):
+                        continue
+            return ring
+
+        first_item = parsed[0]
+        # 旧版扁平单环格式：[[lon,lat], [lon,lat], ...]
+        if isinstance(first_item, (list, tuple)) and len(first_item) >= 2 and isinstance(first_item[0], (int, float, str)):
+            ring = _parse_ring(parsed)
+            return [ring] if ring else []
+
+        # 新版环列表格式：[[[lon,lat],...], [[lon,lat],...], ...]
+        rings = []
+        for raw_ring in parsed:
+            if not isinstance(raw_ring, list):
+                continue
+            ring = _parse_ring(raw_ring)
+            if ring:
+                rings.append(ring)
+        return rings
+
+    @classmethod
+    def _load_polygon_points(cls, zone_text):
+        """兼容旧调用：仅返回第一个环的坐标点。"""
+        rings = cls._load_polygon_rings(zone_text)
+        return rings[0] if rings else []
 
     def is_inside_zones(self, lon, lat):
-        """判断给定的点是否落入两线"""
+        """判断给定的点是否落入两线（任一分区块命中即算落入）"""
         results = {"in_protection": False, "in_control": False}
         try:
             point_lon = float(lon)
@@ -116,15 +144,17 @@ class HeritageSite(models.Model):
         
         # 检查保护范围
         if self.protection_zone:
-            protection_points = self._load_polygon_points(self.protection_zone)
-            if self._point_in_polygon(point_lon, point_lat, protection_points):
-                results["in_protection"] = True
+            for ring in self._load_polygon_rings(self.protection_zone):
+                if self._point_in_polygon(point_lon, point_lat, ring):
+                    results["in_protection"] = True
+                    break
         
         # 检查建控地带
         if self.control_zone:
-            control_points = self._load_polygon_points(self.control_zone)
-            if self._point_in_polygon(point_lon, point_lat, control_points):
-                results["in_control"] = True
+            for ring in self._load_polygon_rings(self.control_zone):
+                if self._point_in_polygon(point_lon, point_lat, ring):
+                    results["in_control"] = True
+                    break
                 
         return results
 
@@ -300,8 +330,19 @@ class LandUseProjectApproval(models.Model):
     region_approval_num = models.CharField('自治区文物局批复文号', max_length=120, blank=True, default='')
     city_final_reply_num = models.CharField('市文物局最终复函号', max_length=120, blank=True, default='')
 
+    # 坎儿井保护加固与水利部门意见（涉及坎儿井时按流程要求编制方案并征求意见）
+    involves_kanerjing = models.BooleanField('是否涉及坎儿井', default=False)
+    kanerjing_protection_plan_path = models.CharField('坎儿井保护加固方案路径', max_length=500, blank=True, default='')
+    water_department_opinion = models.TextField('水利部门意见', blank=True, default='')
+
+    # 逐级报审：市级之外，依法需要时可报自治区/国务院文物行政部门
+    requires_state_council_approval = models.BooleanField('是否需报国务院文物行政部门', default=False)
+    state_council_approval_num = models.CharField('国务院文物行政部门批复文号', max_length=120, blank=True, default='')
+
     # 办结归档
     final_reply_to_company = models.CharField('给企业最终复函号', max_length=120, blank=True, default='')
+    protection_measures_note = models.TextField('保护措施落实情况说明', blank=True, default='')
+    protection_measures_confirmed = models.BooleanField('保护措施落实核实', default=False)
     created_at = models.DateTimeField('创建时间', auto_now_add=True)
     updated_at = models.DateTimeField('更新时间', auto_now=True)
 
@@ -389,6 +430,43 @@ class LandUseProjectOperationLog(models.Model):
             models.Index(fields=['project', '-created_at']),
             models.Index(fields=['action']),
         ]
+
+
+class SipuImportJob(models.Model):
+    """四普系统文物矢量图边界导入任务：记录后台线程的分页导入进度，供前端轮询展示进度条。"""
+
+    STATUS_RUNNING = 'running'
+    STATUS_SUCCESS = 'success'
+    STATUS_FAILED = 'failed'
+    STATUS_CHOICES = [
+        (STATUS_RUNNING, '进行中'),
+        (STATUS_SUCCESS, '已完成'),
+        (STATUS_FAILED, '失败'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    status = models.CharField('状态', max_length=20, choices=STATUS_CHOICES, default=STATUS_RUNNING)
+    total = models.IntegerField('总数', default=0)
+    processed = models.IntegerField('已处理数', default=0)
+    matched = models.IntegerField('成功写入数', default=0)
+    unmatched_count = models.IntegerField('未匹配数', default=0)
+    no_geometry_count = models.IntegerField('无矢量数据数', default=0)
+    unmatched_items = models.JSONField('未匹配明细', default=list, blank=True)
+    no_geometry_items = models.JSONField('无矢量数据明细', default=list, blank=True)
+    error_message = models.TextField('错误信息', blank=True, default='')
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name='sipu_import_jobs', verbose_name='发起人',
+    )
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+    updated_at = models.DateTimeField('更新时间', auto_now=True)
+
+    def __str__(self):
+        return f"SipuImportJob({self.id})-{self.status}"
+
+    class Meta:
+        verbose_name = '四普边界导入任务'
+        verbose_name_plural = verbose_name
+        ordering = ['-created_at']
 
 
 class Coordinate(models.Model):

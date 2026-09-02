@@ -14,8 +14,8 @@
     "file": "assets/vendor-ol-BtPuoxOl.css",
     "src": "_vendor-ol-!~{004}~.js"
   },
-  "_vendor-ol-Bg62gBCa.js": {
-    "file": "assets/vendor-ol-Bg62gBCa.js",
+  "_vendor-ol-DaxgQI9S.js": {
+    "file": "assets/vendor-ol-DaxgQI9S.js",
     "name": "vendor-ol",
     "imports": [
       "_vendor-misc-BJwlgrkc.js"
@@ -39,18 +39,25 @@
     ]
   },
   "index.html": {
-    "file": "assets/index-BZHQs0e8.js",
+    "file": "assets/index-DKnTQm01.js",
     "name": "index",
     "src": "index.html",
     "isEntry": true,
     "imports": [
       "_vendor-vue-D-vm0x62.js",
-      "_vendor-ol-Bg62gBCa.js",
+      "_vendor-ol-DaxgQI9S.js",
       "_vendor-misc-BJwlgrkc.js",
       "_vendor-echarts-kW7DVlUo.js"
     ],
     "css": [
-      "assets/index-CYOLgSvm.css"
+      "assets/index-_XG0WbS6.css"
+    ],
+    "assets": [
+      "assets/logo-CNVw97pt.png"
     ]
+  },
+  "src/assets/logo.png": {
+    "file": "assets/logo-CNVw97pt.png",
+    "src": "src/assets/logo.png"
   }
 }
