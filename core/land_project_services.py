@@ -9,7 +9,55 @@ from django.core.files.storage import default_storage
 from django.db import transaction
 from django.utils import timezone
 
-from .models import HeritageSite, KmlUploadRecord, LandUseProjectApproval
+from .models import HeritageSite, KmlUploadRecord, LandUseProjectApproval, LandUseProjectDocument
+
+
+ALLOWED_DOCUMENT_EXTENSIONS = ('.pdf', '.docx', '.doc')
+
+# 各流程动作必须先归档的公文类别：没有对应公文不允许流转。
+ACTION_REQUIRED_DOCUMENTS = {
+    'submit_city_request': [LandUseProjectDocument.CATEGORY_COUNTY_REQUEST],
+    'submit_archaeology_request': [LandUseProjectDocument.CATEGORY_ARCHAEOLOGY_REQUEST],
+    'record_archaeology_reply': [
+        LandUseProjectDocument.CATEGORY_REGION_APPROVAL,
+        LandUseProjectDocument.CATEGORY_CITY_FINAL_REPLY,
+    ],
+    'archive_case': [LandUseProjectDocument.CATEGORY_FINAL_REPLY],
+}
+
+# 公文类别与对应文号字段：上传后可自动回填，登记文号时也会校验一致性。
+DOCUMENT_NUM_FIELDS = {
+    LandUseProjectDocument.CATEGORY_COUNTY_REQUEST: 'shanshan_request_num',
+    LandUseProjectDocument.CATEGORY_CITY_REPLY: 'city_reply_num',
+    LandUseProjectDocument.CATEGORY_ARCHAEOLOGY_REQUEST: 'archaeology_request_num',
+    LandUseProjectDocument.CATEGORY_REGION_APPROVAL: 'region_approval_num',
+    LandUseProjectDocument.CATEGORY_CITY_FINAL_REPLY: 'city_final_reply_num',
+    LandUseProjectDocument.CATEGORY_STATE_COUNCIL_APPROVAL: 'state_council_approval_num',
+    LandUseProjectDocument.CATEGORY_FINAL_REPLY: 'final_reply_to_company',
+}
+
+DOCUMENT_CATEGORY_LABELS = dict(LandUseProjectDocument.CATEGORY_CHOICES)
+
+
+def has_project_document(project: LandUseProjectApproval, category: str) -> bool:
+    return project.documents.filter(category=category).exists()
+
+
+def missing_document_blockers(project: LandUseProjectApproval, action: str, extra_categories=None) -> List[str]:
+    """返回该动作缺失的公文提示，供待办禁用与流转校验共用。"""
+    categories = list(ACTION_REQUIRED_DOCUMENTS.get(action, []))
+    categories.extend(extra_categories or [])
+
+    blockers = []
+    for category in categories:
+        if not has_project_document(project, category):
+            blockers.append(f'请先上传并归档「{DOCUMENT_CATEGORY_LABELS.get(category, category)}」PDF/DOCX')
+    return blockers
+
+
+def latest_document_num(project: LandUseProjectApproval, category: str) -> str:
+    doc = project.documents.filter(category=category).exclude(doc_num='').first()
+    return doc.doc_num if doc else ''
 
 
 HIGH_PROTECTION_LEVEL_CODES = {'GB', 'SB'}
@@ -430,7 +478,26 @@ def get_status_controls(status: str, project: LandUseProjectApproval = None) -> 
 
 
 def apply_workflow_action(project: LandUseProjectApproval, action: str, payload: Dict):
-    """业务流转强控：校验当前状态与必填字段后再跳转。"""
+    """业务流转强控：校验当前状态、必传公文与必填字段后再跳转。"""
+    extra_required = []
+    if action == 'record_city_reply':
+        # 直接复函分支归档的是给项目方的复函，市局审批中分支归档的是市局来函。
+        extra_required = [
+            LandUseProjectDocument.CATEGORY_CITY_REPLY
+            if project.status == LandUseProjectApproval.STATUS_CITY_REVIEWING
+            else LandUseProjectDocument.CATEGORY_FINAL_REPLY
+        ]
+    if action == 'record_archaeology_reply' and (
+        payload.get('requires_state_council_approval')
+        if 'requires_state_council_approval' in payload
+        else project.requires_state_council_approval
+    ):
+        extra_required.append(LandUseProjectDocument.CATEGORY_STATE_COUNCIL_APPROVAL)
+
+    document_blockers = missing_document_blockers(project, action, extra_required)
+    if document_blockers:
+        raise ValueError(document_blockers[0])
+
     if action == 'complete_field_check':
         # 无论初审结果是否涉及文物，均需先完成市县联合实地勘查（流程文档步骤4）。
         if project.status not in {
@@ -694,6 +761,8 @@ def build_workflow_todos(project: LandUseProjectApproval, path: str) -> List[Dic
         })
 
         if path == PATH_DIRECT_REPLY:
+            reply_category = LandUseProjectDocument.CATEGORY_FINAL_REPLY
+            reply_blockers = missing_document_blockers(project, 'record_city_reply', [reply_category])
             todos.append({
                 'action': 'record_city_reply',
                 'kind': 'workflow',
@@ -703,40 +772,49 @@ def build_workflow_todos(project: LandUseProjectApproval, path: str) -> List[Dic
                     if not project.is_overlap_artifact
                     else '涉及高等级文物且无法避让，向项目方出具不予同意的复函。'
                 ),
-                'enabled': True,
-                'blockers': [],
+                'enabled': not reply_blockers,
+                'blockers': reply_blockers,
+                'required_documents': [reply_category],
                 'fields': [
-                    _field('final_reply_to_company', '给项目方复函号', value=project.final_reply_to_company),
+                    _field('final_reply_to_company', '给项目方复函号',
+                           value=project.final_reply_to_company or latest_document_num(project, reply_category)),
                 ],
             })
         return todos
 
     if status == LandUseProjectApproval.STATUS_FIELD_DONE:
+        county_blockers = missing_document_blockers(project, 'submit_city_request')
         todos.append({
             'action': 'submit_city_request',
             'kind': 'workflow',
             'label': '报送县局请示',
             'description': '登记县局请示文号并上报市文物行政部门，等待回复意见。',
-            'enabled': True,
-            'blockers': [],
+            'enabled': not county_blockers,
+            'blockers': county_blockers,
+            'required_documents': ACTION_REQUIRED_DOCUMENTS['submit_city_request'],
             'fields': [
                 _field('shanshan_request_num', '县局请示文号',
-                       value=project.shanshan_request_num,
+                       value=(project.shanshan_request_num
+                              or latest_document_num(project, LandUseProjectDocument.CATEGORY_COUNTY_REQUEST)),
                        placeholder=LandUseProjectApproval.suggest_next_shanshan_num(),
                        hint='格式：鄯文旅字-2026-xx号'),
             ],
         })
 
     if status == LandUseProjectApproval.STATUS_CITY_REVIEWING:
+        city_category = LandUseProjectDocument.CATEGORY_CITY_REPLY
+        city_blockers = missing_document_blockers(project, 'record_city_reply', [city_category])
         todos.append({
             'action': 'record_city_reply',
             'kind': 'workflow',
             'label': '录入市局回复意见',
             'description': '登记市文物行政部门的复函文号，据此向项目方出具复函。',
-            'enabled': True,
-            'blockers': [],
+            'enabled': not city_blockers,
+            'blockers': city_blockers,
+            'required_documents': [city_category],
             'fields': [
-                _field('city_reply_num', '市局复函文号', value=project.city_reply_num),
+                _field('city_reply_num', '市局复函文号',
+                       value=project.city_reply_num or latest_document_num(project, city_category)),
             ],
         })
 
@@ -750,6 +828,7 @@ def build_workflow_todos(project: LandUseProjectApproval, path: str) -> List[Dic
                 blockers.append('涉及坎儿井：请先上传坎儿井保护加固方案PDF')
             if not project.water_department_opinion.strip():
                 blockers.append('涉及坎儿井：请先录入水利部门意见')
+        blockers.extend(missing_document_blockers(project, 'submit_archaeology_request'))
         todos.append({
             'action': 'submit_archaeology_request',
             'kind': 'workflow',
@@ -757,13 +836,24 @@ def build_workflow_todos(project: LandUseProjectApproval, path: str) -> List[Dic
             'description': '无法避让时，依法开展考古调查勘探、文物影响评估与保护方案编制。',
             'enabled': not blockers,
             'blockers': blockers,
+            'required_documents': ACTION_REQUIRED_DOCUMENTS['submit_archaeology_request'],
             'fields': [
-                _field('archaeology_request_num', '考古请示文号', value=project.archaeology_request_num),
+                _field('archaeology_request_num', '考古请示文号',
+                       value=(project.archaeology_request_num
+                              or latest_document_num(project, LandUseProjectDocument.CATEGORY_ARCHAEOLOGY_REQUEST))),
             ],
         })
 
     if status == LandUseProjectApproval.STATUS_ARCHAEOLOGY:
         blockers = [] if project.archaeology_report_path else ['请先上传自治区考古研究所调查报告PDF']
+        required_docs = list(ACTION_REQUIRED_DOCUMENTS['record_archaeology_reply'])
+        extra_docs = (
+            [LandUseProjectDocument.CATEGORY_STATE_COUNCIL_APPROVAL]
+            if project.requires_state_council_approval
+            else []
+        )
+        required_docs.extend(extra_docs)
+        blockers.extend(missing_document_blockers(project, 'record_archaeology_reply', extra_docs))
         todos.append({
             'action': 'record_archaeology_reply',
             'kind': 'workflow',
@@ -771,13 +861,19 @@ def build_workflow_todos(project: LandUseProjectApproval, path: str) -> List[Dic
             'description': '登记自治区文物局批复与市文物局最终复函；依法需报国务院的一并登记。',
             'enabled': not blockers,
             'blockers': blockers,
+            'required_documents': required_docs,
             'fields': [
-                _field('region_approval_num', '自治区文物局批复文号', value=project.region_approval_num),
-                _field('city_final_reply_num', '市文物局最终复函号', value=project.city_final_reply_num),
+                _field('region_approval_num', '自治区文物局批复文号',
+                       value=(project.region_approval_num
+                              or latest_document_num(project, LandUseProjectDocument.CATEGORY_REGION_APPROVAL))),
+                _field('city_final_reply_num', '市文物局最终复函号',
+                       value=(project.city_final_reply_num
+                              or latest_document_num(project, LandUseProjectDocument.CATEGORY_CITY_FINAL_REPLY))),
                 _field('requires_state_council_approval', '需报国务院文物行政部门', 'checkbox',
                        required=False, value=project.requires_state_council_approval),
                 _field('state_council_approval_num', '国务院批复文号', required=False,
-                       value=project.state_council_approval_num,
+                       value=(project.state_council_approval_num
+                              or latest_document_num(project, LandUseProjectDocument.CATEGORY_STATE_COUNCIL_APPROVAL)),
                        hint='仅在勾选“需报国务院文物行政部门”时必填'),
             ],
         })
@@ -786,6 +882,7 @@ def build_workflow_todos(project: LandUseProjectApproval, path: str) -> List[Dic
         blockers = []
         if project.is_overlap_artifact and not project.protection_measures_confirmed:
             blockers.append('涉及文物：请先在下方登记并确认保护措施落实情况')
+        blockers.extend(missing_document_blockers(project, 'archive_case'))
         todos.append({
             'action': 'archive_case',
             'kind': 'workflow',
@@ -793,8 +890,11 @@ def build_workflow_todos(project: LandUseProjectApproval, path: str) -> List[Dic
             'description': '核实保护措施落实到位后，向项目方出具最终涉及文物保护工作意见并结案。',
             'enabled': not blockers,
             'blockers': blockers,
+            'required_documents': ACTION_REQUIRED_DOCUMENTS['archive_case'],
             'fields': [
-                _field('final_reply_to_company', '给项目方最终复函号', value=project.final_reply_to_company),
+                _field('final_reply_to_company', '给项目方最终复函号',
+                       value=(project.final_reply_to_company
+                              or latest_document_num(project, LandUseProjectDocument.CATEGORY_FINAL_REPLY))),
             ],
         })
 
@@ -826,6 +926,28 @@ def build_extra_info_form(project: LandUseProjectApproval) -> Dict:
     }
 
 
+def build_document_overview(project: LandUseProjectApproval) -> Dict:
+    """公文归档概览：可选类别、必备类别与已归档状态。"""
+    required_now = set()
+    for todo in build_workflow_todos(project, resolve_workflow_path(project)[0]):
+        required_now.update(todo.get('required_documents') or [])
+
+    categories = []
+    for code, label in LandUseProjectDocument.CATEGORY_CHOICES:
+        categories.append({
+            'value': code,
+            'label': label,
+            'archived': has_project_document(project, code),
+            'required_now': code in required_now,
+            'num_field': DOCUMENT_NUM_FIELDS.get(code, ''),
+        })
+
+    return {
+        'categories': categories,
+        'allowed_extensions': list(ALLOWED_DOCUMENT_EXTENSIONS),
+    }
+
+
 def build_workflow_guide(project: LandUseProjectApproval) -> Dict:
     path, advice = resolve_workflow_path(project)
     return {
@@ -840,5 +962,6 @@ def build_workflow_guide(project: LandUseProjectApproval) -> Dict:
         'steps': _step_states(project, path),
         'todos': build_workflow_todos(project, path),
         'extra_info_form': build_extra_info_form(project),
+        'documents': build_document_overview(project),
         'is_archived': project.status == LandUseProjectApproval.STATUS_ARCHIVED,
     }
