@@ -65,11 +65,11 @@
       </div>
       <div class="legend-item">
         <span class="legend-dot dot-heritage"></span>
-        <span>文物点</span>
+        <span>文物点（放大后渲染本体边界范围）</span>
       </div>
       <div class="legend-item">
         <span class="legend-dot dot-conflict"></span>
-        <span>冲突点</span>
+        <span>冲突点（放大后渲染本体边界范围）</span>
       </div>
       <div class="legend-item">
         <span class="legend-dot dot-bubble"></span>
@@ -154,14 +154,18 @@ const conflictGroupOptions = ref([])
 
 const kmlSource = new VectorSource()
 const heritageSource = new VectorSource()
+const heritageBoundarySource = new VectorSource()
 const conflictSource = new VectorSource()
+const conflictBoundarySource = new VectorSource()
 const overlapSource = new VectorSource()
 const elementBubbleSource = new VectorSource()
 const measureSource = new VectorSource()
 const mapRef = ref(null)
 const kmlLayerRef = ref(null)
 const heritageLayerRef = ref(null)
+const heritageBoundaryLayerRef = ref(null)
 const conflictLayerRef = ref(null)
+const conflictBoundaryLayerRef = ref(null)
 const overlapLayerRef = ref(null)
 const elementBubbleLayerRef = ref(null)
 const measureLayerRef = ref(null)
@@ -172,6 +176,10 @@ let measurePoints = []
 let loadToken = 0
 let overlapToken = 0
 const overlapEntries = ref([])
+// 放大到该级别及以上时，文物点/冲突点改为渲染实际本体边界范围多边形。
+const BOUNDARY_ZOOM_THRESHOLD = 16
+// site_id -> [[[lon,lat],...],...]，供冲突点图层复用同一份边界数据，避免重复请求。
+const siteBoundaryRingsMap = new Map()
 const kmlStyleCache = new Map()
 const elementBubbleStyleCache = new Map()
 const kmlTextCache = new Map()
@@ -315,6 +323,23 @@ function conflictActiveStyle() {
       fill: new Fill({ color: '#f59e0b' }),
       stroke: new Stroke({ color: '#ffffff', width: 2 })
     })
+  })
+}
+
+function heritageBoundaryStyle() {
+  return new Style({
+    stroke: new Stroke({ color: '#2563eb', width: 2 }),
+    fill: new Fill({ color: 'rgba(37, 99, 235, 0.16)' })
+  })
+}
+
+function conflictBoundaryStyleByGroup(groupName) {
+  const selected = activeConflictGroup.value
+  const active = selected === 'ALL' || selected === groupName
+  const color = active ? '#dc2626' : '#94a3b8'
+  return new Style({
+    stroke: new Stroke({ color, width: 2.4 }),
+    fill: new Fill({ color: active ? 'rgba(220, 38, 38, 0.2)' : 'rgba(148, 163, 184, 0.2)' })
   })
 }
 
@@ -796,6 +821,7 @@ async function runWithConcurrency(items, limit, worker) {
 
 function reloadConflictLayer() {
   conflictSource.clear()
+  conflictBoundarySource.clear()
   const groups = new Set()
   const activeRows = []
   ;(props.conflictRows || []).forEach((row) => {
@@ -823,17 +849,38 @@ function reloadConflictLayer() {
       return
     }
     const sourceName = String(row?.feature_source || '未知来源')
+    const siteId = String(row?.site_id || '')
     const feature = new Feature({ geometry: new Point(fromLonLat([lon, lat])) })
-    feature.set('site_id', String(row?.site_id || ''))
+    feature.set('site_id', siteId)
     feature.set('site_name', String(row?.site_name || ''))
     feature.set('relation', String(row?.relation || ''))
     feature.set('distance_m', row?.distance_m)
     feature.set('sourceName', sourceName)
     feature.setStyle(conflictStyleByGroup(sourceName))
     conflictSource.addFeature(feature)
+
+    // 放大到边界可视级别时，冲突点改为渲染该文物点的实际本体边界范围。
+    const rings = siteBoundaryRingsMap.get(siteId)
+    if (rings) {
+      rings.forEach((ring) => {
+        if (!Array.isArray(ring) || ring.length < 3) {
+          return
+        }
+        const coords = ring.map((pt) => fromLonLat([Number(pt[0]), Number(pt[1])]))
+        const polygonFeature = new Feature({ geometry: new Polygon([coords]) })
+        polygonFeature.set('site_id', siteId)
+        polygonFeature.set('site_name', String(row?.site_name || ''))
+        polygonFeature.set('relation', String(row?.relation || ''))
+        polygonFeature.set('distance_m', row?.distance_m)
+        polygonFeature.set('sourceName', sourceName)
+        polygonFeature.setStyle(conflictBoundaryStyleByGroup(sourceName))
+        conflictBoundarySource.addFeature(polygonFeature)
+      })
+    }
   })
   applyFocusConflictStyle()
   applyKmlHighlightStates()
+  updateBoundaryZoomVisibility()
   fitAll()
 }
 
@@ -1089,16 +1136,12 @@ function toggleKmlLayer() {
 
 function toggleHeritageLayer() {
   showHeritageLayer.value = !showHeritageLayer.value
-  if (heritageLayerRef.value) {
-    heritageLayerRef.value.setVisible(showHeritageLayer.value)
-  }
+  updateBoundaryZoomVisibility()
 }
 
 function toggleConflictLayer() {
   showConflictLayer.value = !showConflictLayer.value
-  if (conflictLayerRef.value) {
-    conflictLayerRef.value.setVisible(showConflictLayer.value)
-  }
+  updateBoundaryZoomVisibility()
 }
 
 function toggleOverlapLayer() {
@@ -1115,11 +1158,31 @@ function toggleOverlapLayer() {
   }
 }
 
+function updateBoundaryZoomVisibility() {
+  const zoom = mapRef.value?.getView()?.getZoom()
+  const showBoundary = Number.isFinite(zoom) && zoom >= BOUNDARY_ZOOM_THRESHOLD
+
+  if (heritageLayerRef.value) {
+    heritageLayerRef.value.setVisible(showHeritageLayer.value && !showBoundary)
+  }
+  if (heritageBoundaryLayerRef.value) {
+    heritageBoundaryLayerRef.value.setVisible(showHeritageLayer.value && showBoundary)
+  }
+  if (conflictLayerRef.value) {
+    conflictLayerRef.value.setVisible(showConflictLayer.value && !showBoundary)
+  }
+  if (conflictBoundaryLayerRef.value) {
+    conflictBoundaryLayerRef.value.setVisible(showConflictLayer.value && showBoundary)
+  }
+}
+
 async function loadHeritageLayer() {
   try {
     const result = await fetchHeritageMapPoints()
     const rows = result?.rows || []
     heritageSource.clear()
+    heritageBoundarySource.clear()
+    siteBoundaryRingsMap.clear()
 
     rows.forEach((row) => {
       const lon = Number(row?.longitude ?? row?.lng)
@@ -1128,14 +1191,38 @@ async function loadHeritageLayer() {
         return
       }
 
+      const siteId = String(row?.id || '')
+      const siteName = String(row?.name || '')
+      const siteLevel = String(row?.level || '')
+
       const feature = new Feature({ geometry: new Point(fromLonLat([lon, lat])) })
       feature.set('isHeritage', true)
-      feature.set('site_id', String(row?.id || ''))
-      feature.set('site_name', String(row?.name || ''))
-      feature.set('site_level', String(row?.level || ''))
+      feature.set('site_id', siteId)
+      feature.set('site_name', siteName)
+      feature.set('site_level', siteLevel)
       feature.setStyle(heritagePointStyle())
       heritageSource.addFeature(feature)
+
+      const rings = Array.isArray(row?.body_boundary) ? row.body_boundary : []
+      if (rings.length > 0) {
+        siteBoundaryRingsMap.set(siteId, rings)
+      }
+      rings.forEach((ring) => {
+        if (!Array.isArray(ring) || ring.length < 3) {
+          return
+        }
+        const coords = ring.map((pt) => fromLonLat([Number(pt[0]), Number(pt[1])]))
+        const polygonFeature = new Feature({ geometry: new Polygon([coords]) })
+        polygonFeature.set('isHeritage', true)
+        polygonFeature.set('site_id', siteId)
+        polygonFeature.set('site_name', siteName)
+        polygonFeature.set('site_level', siteLevel)
+        polygonFeature.setStyle(heritageBoundaryStyle())
+        heritageBoundarySource.addFeature(polygonFeature)
+      })
     })
+
+    updateBoundaryZoomVisibility()
   } catch (error) {
     tips.value.push('文物点图层加载失败，已跳过显示')
   }
@@ -1399,7 +1486,9 @@ onMounted(() => {
     style: (feature) => kmlStyleByFeature(feature)
   })
   const heritageLayer = new VectorLayer({ source: heritageSource })
+  const heritageBoundaryLayer = new VectorLayer({ source: heritageBoundarySource })
   const conflictLayer = new VectorLayer({ source: conflictSource })
+  const conflictBoundaryLayer = new VectorLayer({ source: conflictBoundarySource })
   const overlapLayer = new VectorLayer({ source: overlapSource })
   const elementBubbleLayer = new VectorLayer({ source: elementBubbleSource })
   const measureLayer = new VectorLayer({ source: measureSource })
@@ -1425,7 +1514,9 @@ onMounted(() => {
       ...terLayers,
       kmlLayer,
       heritageLayer,
+      heritageBoundaryLayer,
       conflictLayer,
+      conflictBoundaryLayer,
       overlapLayer,
       elementBubbleLayer,
       measureLayer
@@ -1491,7 +1582,9 @@ onMounted(() => {
   mapRef.value = map
   kmlLayerRef.value = kmlLayer
   heritageLayerRef.value = heritageLayer
+  heritageBoundaryLayerRef.value = heritageBoundaryLayer
   conflictLayerRef.value = conflictLayer
+  conflictBoundaryLayerRef.value = conflictBoundaryLayer
   overlapLayerRef.value = overlapLayer
   elementBubbleLayerRef.value = elementBubbleLayer
   measureLayerRef.value = measureLayer
@@ -1504,10 +1597,13 @@ onMounted(() => {
 
   // 初始化时按开关状态显式设置，避免图层状态与按钮状态不一致。
   kmlLayer.setVisible(showKmlLayer.value)
-  heritageLayer.setVisible(showHeritageLayer.value)
-  conflictLayer.setVisible(showConflictLayer.value)
+  heritageBoundaryLayer.setVisible(false)
+  conflictBoundaryLayer.setVisible(false)
   overlapLayer.setVisible(showOverlapLayer.value)
   elementBubbleLayer.setVisible(showOverlapLayer.value)
+
+  // 监听缩放变化：放大到 BOUNDARY_ZOOM_THRESHOLD 级别以上时，文物点/冲突点改为渲染实际边界范围多边形。
+  map.getView().on('change:resolution', updateBoundaryZoomVisibility)
 
   loadHeritageLayer()
 })

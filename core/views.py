@@ -1411,6 +1411,17 @@ def _run_sipu_boundary_import_job(job_id, cookie: str, scope: str, user_county: 
                     ])
 
             matched_records = [r for r in page_records if r['kind'] == 'matched']
+
+            # 首页若全部未匹配，很可能是 Cookie 失效或“行政区划代码”填写有误（错误取值会导致检索永远返回0条），
+            # 而非真的 622 条都对不上；这里做一次去掉 user_county 的复检，尽早给出明确失败原因而非跑完全量才发现。
+            if page_number == 1 and user_county and matched_records == [] and page_sites:
+                probe_site = page_sites[0]
+                probe_candidates = _sipu_search_culrid(probe_site['name'], cookie, '')
+                if any(c.get('name') == probe_site['name'] for c in probe_candidates):
+                    raise RuntimeError(
+                        f'“行政区划代码”（{user_county}）填写有误导致检索始终返回0条结果，请清空该字段后重试'
+                    )
+
             if matched_records:
                 with tempfile.NamedTemporaryFile('w', suffix='.ndjson', delete=False, encoding='utf-8') as tmp_file:
                     tmp_path = tmp_file.name

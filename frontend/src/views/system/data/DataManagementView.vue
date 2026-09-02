@@ -31,7 +31,8 @@
         </el-form-item>
 
         <el-form-item label="行政区划代码">
-          <el-input v-model="form.user_county" placeholder="可选，四普系统搜索接口的 userCounty 参数" style="max-width: 320px" :disabled="running" />
+          <el-input v-model="form.user_county" placeholder="通常无需填写，留空即可" style="max-width: 320px" :disabled="running" />
+          <div class="hint">留空按名称精确检索即可，多数情况下无需填写；填写错误的代码会导致检索始终返回0条，进而全部未匹配。</div>
         </el-form-item>
 
         <el-form-item label="每页数量">
