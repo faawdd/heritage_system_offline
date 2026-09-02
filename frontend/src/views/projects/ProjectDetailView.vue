@@ -199,6 +199,88 @@
 
         <div class="card">
           <div class="card-title">
+            <h3>公文档案</h3>
+            <el-button
+              v-if="(detail.documents || []).length"
+              link
+              type="primary"
+              :loading="archiving"
+              @click="downloadDocumentsArchive"
+            >打包下载全部公文</el-button>
+          </div>
+
+          <el-alert
+            v-if="requiredDocCategories.length"
+            :title="`当前环节需先归档：${requiredDocCategories.map((item) => item.label).join('、')}`"
+            type="warning"
+            :closable="false"
+            show-icon
+            class="blocker"
+          />
+
+          <div class="doc-upload">
+            <el-select v-model="docUpload.category" placeholder="公文类别" style="width: 200px">
+              <el-option
+                v-for="item in docCategories"
+                :key="item.value"
+                :value="item.value"
+                :label="item.required_now ? `${item.label}（本环节必需）` : item.label"
+              />
+            </el-select>
+            <el-input v-model="docUpload.doc_num" placeholder="公文文号" style="width: 200px" />
+            <el-date-picker
+              v-model="docUpload.issued_date"
+              type="date"
+              value-format="YYYY-MM-DD"
+              placeholder="成文日期"
+              style="width: 160px"
+            />
+            <el-input v-model="docUpload.title" placeholder="公文标题（可选）" style="width: 220px" />
+            <input ref="docInputRef" type="file" accept=".pdf,.docx,.doc" @change="onDocFileChange" />
+            <el-button type="primary" :loading="docUploading" @click="submitDocumentUpload">上传归档</el-button>
+          </div>
+          <p class="hint">仅支持 PDF / DOCX / DOC；上传后文号会自动回填到对应流程字段。</p>
+
+          <div class="doc-status">
+            <el-tag
+              v-for="item in docCategories"
+              :key="item.value"
+              size="small"
+              :type="item.archived ? 'success' : (item.required_now ? 'danger' : 'info')"
+              effect="plain"
+            >{{ item.label }}{{ item.archived ? ' ✓' : '' }}</el-tag>
+          </div>
+
+          <el-table
+            v-if="(detail.documents || []).length"
+            :data="detail.documents"
+            size="small"
+            border
+            max-height="300"
+            class="doc-table"
+          >
+            <el-table-column prop="category_label" label="类别" min-width="150" />
+            <el-table-column prop="doc_num" label="文号" min-width="140" />
+            <el-table-column prop="issued_date" label="成文日期" width="110" />
+            <el-table-column prop="file_name" label="文件" min-width="160" />
+            <el-table-column prop="uploaded_at" label="上传时间" width="140" />
+            <el-table-column label="操作" width="130">
+              <template #default="{ row }">
+                <el-button link type="primary" @click="downloadDocument(row)">下载</el-button>
+                <el-button
+                  link
+                  type="danger"
+                  :disabled="guide.is_archived"
+                  @click="removeDocument(row)"
+                >删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <el-empty v-else description="尚未归档任何公文" :image-size="60" />
+        </div>
+
+        <div class="card">
+          <div class="card-title">
             <h3>补充信息</h3>
             <el-button :loading="processing" @click="saveExtraInfo">保存补充信息</el-button>
           </div>
@@ -276,6 +358,8 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 
 import {
+  deleteProjectDocument,
+  downloadProjectDocumentsArchive,
   fetchProjectDetail,
   linkProjectKmlRecord,
   runProjectWorkflowAction,
@@ -302,6 +386,12 @@ const formState = reactive({})
 const extraState = reactive({})
 const upload = reactive({ file_type: 'kml', note: '' })
 
+const docUploading = ref(false)
+const archiving = ref(false)
+const docInputRef = ref(null)
+const selectedDocFile = ref(null)
+const docUpload = reactive({ category: '', doc_num: '', issued_date: '', title: '' })
+
 const linkDialogVisible = ref(false)
 const kmlRecords = ref([])
 const selectedKmlRecord = ref(null)
@@ -310,6 +400,9 @@ const todos = computed(() => guide.todos || [])
 const extraFields = computed(() => guide.extra_info_form?.fields || [])
 const overlapRows = computed(() => detail.overlapped_relics_info || [])
 const timelineEvents = computed(() => detail.operation_logs || [])
+
+const docCategories = computed(() => guide.documents?.categories || [])
+const requiredDocCategories = computed(() => docCategories.value.filter((item) => item.required_now && !item.archived))
 
 const mapRecords = computed(() => (
   detail.kml_record_id
@@ -511,6 +604,96 @@ async function submitUpload() {
 function downloadMiscZip() {
   if (detail.misc_zip_url) {
     window.open(detail.misc_zip_url, '_blank')
+  }
+}
+
+function onDocFileChange(event) {
+  selectedDocFile.value = event.target.files?.[0] || null
+}
+
+async function submitDocumentUpload() {
+  if (!docUpload.category) {
+    ElMessage.warning('请选择公文类别')
+    return
+  }
+  if (!selectedDocFile.value) {
+    ElMessage.warning('请选择要上传的 PDF / DOCX 文件')
+    return
+  }
+
+  const formData = new FormData()
+  formData.append('file', selectedDocFile.value)
+  formData.append('file_type', 'official_doc')
+  formData.append('category', docUpload.category)
+  formData.append('doc_num', docUpload.doc_num || '')
+  formData.append('issued_date', docUpload.issued_date || '')
+  formData.append('title', docUpload.title || '')
+
+  docUploading.value = true
+  try {
+    const result = await uploadProjectFile(projectId, formData)
+    if (!result.success) {
+      throw new Error(result.message || '公文上传失败')
+    }
+    ElMessage.success('公文已归档')
+    selectedDocFile.value = null
+    if (docInputRef.value) {
+      docInputRef.value.value = ''
+    }
+    docUpload.doc_num = ''
+    docUpload.issued_date = ''
+    docUpload.title = ''
+    await loadDetail()
+  } catch (error) {
+    ElMessage.error(error?.message || '公文上传失败')
+  } finally {
+    docUploading.value = false
+  }
+}
+
+function downloadDocument(row) {
+  window.open(row.download_url, '_blank')
+}
+
+async function removeDocument(row) {
+  try {
+    await ElMessageBox.confirm(
+      `确认删除「${row.category_label}${row.doc_num ? ' ' + row.doc_num : ''}」？`,
+      '删除确认',
+      { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch {
+    return
+  }
+
+  try {
+    const result = await deleteProjectDocument(projectId, row.id)
+    if (!result.success) {
+      throw new Error(result.message || '删除失败')
+    }
+    ElMessage.success('已删除')
+    await loadDetail()
+  } catch (error) {
+    ElMessage.error(error?.message || '删除失败')
+  }
+}
+
+async function downloadDocumentsArchive() {
+  archiving.value = true
+  try {
+    const response = await downloadProjectDocumentsArchive(projectId)
+    const blob = new Blob([response.data], { type: 'application/zip' })
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = `${detail.project_name || '项目'}-公文档案.zip`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(link.href)
+  } catch (error) {
+    ElMessage.error(error?.message || '打包下载失败')
+  } finally {
+    archiving.value = false
   }
 }
 
@@ -736,6 +919,24 @@ loadDetail()
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 12px;
+}
+
+.doc-upload {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.doc-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.doc-table {
+  margin-top: 8px;
 }
 
 .photo-grid {

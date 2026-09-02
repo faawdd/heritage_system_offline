@@ -9,6 +9,7 @@ from .models import (
     Coordinate,
     KmlUploadRecord,
     LandUseProjectApproval,
+    LandUseProjectDocument,
     LandUseProjectFieldPhoto,
     LandUseProjectOperationLog,
 )
@@ -23,6 +24,8 @@ from .land_project_services import (
     link_project_kml_record,
     resolve_workflow_path,
     sync_project_kml_record,
+    ALLOWED_DOCUMENT_EXTENSIONS,
+    DOCUMENT_NUM_FIELDS,
 )
 import base64
 import hashlib
@@ -2003,6 +2006,24 @@ def land_project_detail_api(request, project_id):
         for item in project.operation_logs.select_related('operator').all()[:200]
     ]
 
+    document_rows = [
+        {
+            'id': document.id,
+            'category': document.category,
+            'category_label': document.get_category_display(),
+            'doc_num': document.doc_num,
+            'title': document.title,
+            'issued_date': document.issued_date.isoformat() if document.issued_date else '',
+            'file_name': document.file_name,
+            'file_size': document.file_size,
+            'note': document.note,
+            'uploaded_by': document.uploaded_by.username if document.uploaded_by else '系统',
+            'uploaded_at': document.uploaded_at.strftime('%Y-%m-%d %H:%M'),
+            'download_url': f'/api/v1/projects/{project.id}/documents/{document.id}/download/',
+        }
+        for document in project.documents.select_related('uploaded_by').all()
+    ]
+
     overlap_rows = project.overlapped_relics_info if isinstance(project.overlapped_relics_info, list) else []
     has_high_level_overlap = any((row or {}).get('site_level') in {'GB', 'SB'} for row in overlap_rows)
     is_feasible_by_level = not has_high_level_overlap
@@ -2069,6 +2090,8 @@ def land_project_detail_api(request, project_id):
             'protection_measures_confirmed': project.protection_measures_confirmed,
             'controls': get_status_controls(project.status, project),
             'field_photos': photo_rows,
+            'documents': document_rows,
+            'documents_archive_url': f'/api/v1/projects/{project.id}/documents/archive/' if document_rows else '',
             'operation_logs': operation_logs,
             'created_at': project.created_at.strftime('%Y-%m-%d %H:%M'),
             'updated_at': project.updated_at.strftime('%Y-%m-%d %H:%M'),
@@ -2307,6 +2330,62 @@ def land_project_upload_api(request, project_id):
         )
         return JsonResponse({'success': True, 'file_path': saved_path})
 
+    if file_type == 'official_doc':
+        category = (request.POST.get('category') or '').strip()
+        valid_categories = {code for code, _label in LandUseProjectDocument.CATEGORY_CHOICES}
+        if category not in valid_categories:
+            return JsonResponse({'success': False, 'message': '请选择正确的公文类别'}, status=400)
+        if not filename.lower().endswith(ALLOWED_DOCUMENT_EXTENSIONS):
+            return JsonResponse({'success': False, 'message': '公文仅支持 PDF / DOCX / DOC 格式'}, status=400)
+
+        issued_date_text = (request.POST.get('issued_date') or '').strip()
+        issued_date = None
+        if issued_date_text:
+            try:
+                issued_date = datetime.strptime(issued_date_text, '%Y-%m-%d').date()
+            except ValueError:
+                return JsonResponse({'success': False, 'message': '成文日期格式应为 YYYY-MM-DD'}, status=400)
+
+        status_before = project.status
+        relative_path = build_project_media_path(project, os.path.join('documents', category), filename)
+        saved_path = default_storage.save(relative_path, upload_file)
+
+        document = LandUseProjectDocument.objects.create(
+            project=project,
+            category=category,
+            doc_num=(request.POST.get('doc_num') or '').strip(),
+            title=(request.POST.get('title') or '').strip(),
+            issued_date=issued_date,
+            file_path=saved_path,
+            file_name=filename,
+            file_size=upload_file.size or 0,
+            note=(request.POST.get('note') or '').strip(),
+            uploaded_by=request.user if request.user.is_authenticated else None,
+        )
+
+        # 有文号且项目对应字段为空时自动回填，避免重复录入。
+        num_field = DOCUMENT_NUM_FIELDS.get(category)
+        if num_field and document.doc_num and not getattr(project, num_field, ''):
+            setattr(project, num_field, document.doc_num)
+            project.save(update_fields=[num_field, 'updated_at'])
+
+        _record_land_project_operation(
+            project=project,
+            user=request.user,
+            action='upload_official_doc',
+            payload={
+                'file_type': file_type,
+                'category': category,
+                'category_label': document.get_category_display(),
+                'doc_num': document.doc_num,
+                'original_filename': filename,
+                'saved_path': saved_path,
+            },
+            status_before=status_before,
+            status_after=project.status,
+        )
+        return JsonResponse({'success': True, 'document_id': document.id, 'file_path': saved_path})
+
     if file_type == 'archaeology_report':
         if not filename.lower().endswith('.pdf'):
             return JsonResponse({'success': False, 'message': '考古调查报告仅支持PDF'}, status=400)
@@ -2351,7 +2430,109 @@ def land_project_upload_api(request, project_id):
         )
         return JsonResponse({'success': True, 'file_path': saved_path})
 
-    return JsonResponse({'success': False, 'message': 'file_type 必须为 kml/misc_zip/field_photo/archaeology_report/kanerjing_plan'}, status=400)
+    return JsonResponse({'success': False, 'message': 'file_type 必须为 kml/misc_zip/field_photo/archaeology_report/kanerjing_plan/official_doc'}, status=400)
+
+
+@staff_member_required
+def land_project_document_download_api(request, project_id, document_id):
+    """下载单份归档公文。"""
+    if not is_management_admin(request.user):
+        return JsonResponse({'success': False, 'message': '无权限'}, status=403)
+
+    document = LandUseProjectDocument.objects.filter(id=document_id, project_id=project_id).first()
+    if not document:
+        return JsonResponse({'success': False, 'message': '公文不存在'}, status=404)
+    if not default_storage.exists(document.file_path):
+        return JsonResponse({'success': False, 'message': '公文文件不存在或已被移除'}, status=404)
+
+    try:
+        file_handler = default_storage.open(document.file_path, 'rb')
+    except Exception:
+        logger.exception('打开公文失败: document_id=%s', document_id)
+        return JsonResponse({'success': False, 'message': '文件读取失败'}, status=500)
+
+    download_name = document.file_name or os.path.basename(document.file_path)
+    return FileResponse(file_handler, as_attachment=True, filename=download_name)
+
+
+@csrf_exempt
+@require_POST
+@staff_member_required
+def land_project_document_delete_api(request, project_id, document_id):
+    """删除归档公文（已归档结案的项目不允许删除）。"""
+    if not is_management_admin(request.user):
+        return JsonResponse({'success': False, 'message': '无权限'}, status=403)
+
+    document = LandUseProjectDocument.objects.filter(id=document_id, project_id=project_id).first()
+    if not document:
+        return JsonResponse({'success': False, 'message': '公文不存在'}, status=404)
+    if document.project.status == LandUseProjectApproval.STATUS_ARCHIVED:
+        return JsonResponse({'success': False, 'message': '项目已结案归档，公文档案不可删除'}, status=400)
+
+    project = document.project
+    payload = {
+        'category': document.category,
+        'category_label': document.get_category_display(),
+        'doc_num': document.doc_num,
+        'file_name': document.file_name,
+    }
+    if default_storage.exists(document.file_path):
+        default_storage.delete(document.file_path)
+    document.delete()
+
+    _record_land_project_operation(
+        project=project,
+        user=request.user,
+        action='delete_official_doc',
+        payload=payload,
+        status_before=project.status,
+        status_after=project.status,
+    )
+    return JsonResponse({'success': True})
+
+
+@staff_member_required
+def land_project_documents_archive_api(request, project_id):
+    """把项目全部归档公文打包为 ZIP 下载。"""
+    if not is_management_admin(request.user):
+        return JsonResponse({'success': False, 'message': '无权限'}, status=403)
+
+    project = LandUseProjectApproval.objects.filter(id=project_id).first()
+    if not project:
+        return JsonResponse({'success': False, 'message': '项目不存在'}, status=404)
+
+    documents = list(project.documents.all().order_by('category', 'uploaded_at'))
+    if not documents:
+        return JsonResponse({'success': False, 'message': '当前项目尚无归档公文'}, status=404)
+
+    buffer = io.BytesIO()
+    manifest_lines = [f'项目名称：{project.project_name}', f'项目单位：{project.company_name}', '']
+    with zipfile.ZipFile(buffer, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+        used_names = set()
+        for index, document in enumerate(documents, start=1):
+            if not default_storage.exists(document.file_path):
+                continue
+            extension = os.path.splitext(document.file_name or document.file_path)[1] or '.pdf'
+            label = document.get_category_display()
+            parts = [f'{index:02d}', label]
+            if document.doc_num:
+                parts.append(document.doc_num)
+            member_name = re.sub(r'[\\/:*?"<>|]+', '_', '-'.join(parts)) + extension
+            while member_name in used_names:
+                member_name = f'{os.path.splitext(member_name)[0]}_1{extension}'
+            used_names.add(member_name)
+
+            with default_storage.open(document.file_path, 'rb') as fp:
+                archive.writestr(member_name, fp.read())
+            manifest_lines.append(
+                f'{member_name}\t文号：{document.doc_num or "-"}\t成文日期：{document.issued_date or "-"}'
+            )
+        archive.writestr('公文清单.txt', '\n'.join(manifest_lines))
+
+    zip_name = f'{project.project_name}-公文档案.zip'
+    response = HttpResponse(buffer.getvalue(), content_type='application/zip')
+    response['Content-Disposition'] = f"attachment; filename*=UTF-8''{quote(zip_name, safe='')}"
+    return response
 
 
 @staff_member_required

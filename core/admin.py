@@ -4,6 +4,7 @@ from .models import (
     InspectionRecord,
     ProjectAudit,
     LandUseProjectApproval,
+    LandUseProjectDocument,
     LandUseProjectFieldPhoto,
     LandUseProjectOperationLog,
     Coordinate,
@@ -632,6 +633,13 @@ class LandUseProjectFieldPhotoInline(admin.TabularInline):
     readonly_fields = ('uploaded_at',)
 
 
+class LandUseProjectDocumentInline(admin.TabularInline):
+    model = LandUseProjectDocument
+    extra = 0
+    fields = ('category', 'doc_num', 'title', 'issued_date', 'file_name', 'uploaded_at')
+    readonly_fields = ('uploaded_at',)
+
+
 @admin.register(LandUseProjectApproval)
 class LandUseProjectApprovalAdmin(admin.ModelAdmin):
     list_display = (
@@ -647,7 +655,7 @@ class LandUseProjectApprovalAdmin(admin.ModelAdmin):
     search_fields = ('project_name', 'company_name', 'final_reply_to_company')
     readonly_fields = ('created_at', 'updated_at', 'overlapped_relics_info')
     date_hierarchy = 'receive_date'
-    inlines = [LandUseProjectFieldPhotoInline]
+    inlines = [LandUseProjectFieldPhotoInline, LandUseProjectDocumentInline]
 
     fieldsets = (
         ('收文登记', {

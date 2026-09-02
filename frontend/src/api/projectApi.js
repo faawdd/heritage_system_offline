@@ -43,6 +43,17 @@ export async function linkProjectKmlRecord(projectId, kmlRecordId) {
   return response.data
 }
 
+export async function deleteProjectDocument(projectId, documentId) {
+  const response = await client.post(`/api/v1/projects/${projectId}/documents/${documentId}/delete/`)
+  return response.data
+}
+
+export async function downloadProjectDocumentsArchive(projectId) {
+  return client.get(`/api/v1/projects/${projectId}/documents/archive/`, {
+    responseType: 'blob'
+  })
+}
+
 export async function runProjectWorkflowAction(projectId, payload) {
   const response = await client.post(`/api/v1/projects/${projectId}/workflow-action/`, payload)
   return response.data
