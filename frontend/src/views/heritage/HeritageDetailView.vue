@@ -8,7 +8,7 @@
     <div class="toolbar card">
       <el-button @click="goMap">返回地图</el-button>
       <el-button type="primary" :loading="loading" @click="loadDetail">刷新</el-button>
-      <el-button type="success" @click="exportDialogVisible = true">导出四普边界</el-button>
+      <el-button type="success" @click="exportDialogVisible = true">导出范围坐标</el-button>
     </div>
 
     <div class="dashboard-grid">
@@ -50,14 +50,8 @@
       </el-table>
     </div>
 
-    <el-dialog v-model="exportDialogVisible" title="导出四普边界范围" width="560px">
+    <el-dialog v-model="exportDialogVisible" title="导出文物范围坐标" width="560px">
       <el-form label-width="130px">
-        <el-form-item label="四普登录凭证">
-          <el-input v-model="exportForm.sipu_cookie" type="textarea" :rows="4" placeholder="请粘贴 Cookie，例如 JSESSIONID=XXXX..." />
-        </el-form-item>
-        <el-form-item label="行政区划代码">
-          <el-input v-model="exportForm.sipu_county" placeholder="如 650421（可选）" />
-        </el-form-item>
         <el-form-item label="导出类型">
           <el-radio-group v-model="exportForm.action">
             <el-radio value="export_single_boundary_csv">边界坐标（CSV）</el-radio>
@@ -96,8 +90,6 @@ const detail = reactive({
 })
 
 const exportForm = reactive({
-  sipu_cookie: '',
-  sipu_county: '',
   action: 'export_single_boundary_csv'
 })
 
@@ -127,16 +119,9 @@ async function loadDetail() {
 }
 
 async function submitExport() {
-  if (!exportForm.sipu_cookie) {
-    ElMessage.warning('请填写四普 Cookie')
-    return
-  }
-
   exporting.value = true
   try {
     const payload = new URLSearchParams()
-    payload.set('sipu_cookie', exportForm.sipu_cookie)
-    payload.set('sipu_county', exportForm.sipu_county)
     payload.set('action', exportForm.action)
 
     const response = await exportHeritageBoundary(siteId, payload)
