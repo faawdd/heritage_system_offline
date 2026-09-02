@@ -261,6 +261,7 @@ const staticMenuGroups = [
       { label: '用户管理', to: '/system/users' },
       { label: '角色管理', to: '/system/roles' },
       { label: 'DeepSeek配置', to: '/system/ai-config' },
+      { label: '数据管理', to: '/system/data-management' },
       { label: '后台管理', to: DJANGO_ADMIN_URL },
       { label: '菜单管理', to: '/system/menus' }
     ]
@@ -301,7 +302,8 @@ function ensureHeritageEntries(groups = []) {
   ]
   const requiredSystemItems = [
     { label: '后台管理', to: DJANGO_ADMIN_URL },
-    { label: 'DeepSeek配置', to: '/system/ai-config' }
+    { label: 'DeepSeek配置', to: '/system/ai-config' },
+    { label: '数据管理', to: '/system/data-management' }
   ]
   if (isSuperAdminUser()) {
     requiredSystemItems.push({ label: '菜单管理', to: '/system/menus' })

@@ -96,3 +96,9 @@ export async function updateDeepSeekConfig(payload) {
   const response = await client.put('/api/v1/system/ai-config/deepseek/', payload)
   return response.data
 }
+
+export async function runSipuBoundaryImport(payload) {
+  // 全量抓取涉及大量四普系统请求，耗时可能达到数分钟，需要放宽默认超时时间。
+  const response = await client.post('/api/v1/system/sipu-boundary-import/', payload, { timeout: 15 * 60 * 1000 })
+  return response.data
+}
