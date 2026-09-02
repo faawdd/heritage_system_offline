@@ -97,8 +97,12 @@ export async function updateDeepSeekConfig(payload) {
   return response.data
 }
 
-export async function runSipuBoundaryImport(payload) {
-  // 全量抓取涉及大量四普系统请求，耗时可能达到数分钟，需要放宽默认超时时间。
-  const response = await client.post('/api/v1/system/sipu-boundary-import/', payload, { timeout: 15 * 60 * 1000 })
+export async function startSipuBoundaryImport(payload) {
+  const response = await client.post('/api/v1/system/sipu-boundary-import/start/', payload)
+  return response.data
+}
+
+export async function fetchSipuBoundaryImportStatus(jobId) {
+  const response = await client.get(`/api/v1/system/sipu-boundary-import/status/${jobId}/`)
   return response.data
 }

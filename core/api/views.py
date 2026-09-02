@@ -63,8 +63,8 @@ class SystemVersionAPIView(APIView):
         return Response({'success': True, 'data': payload})
 
 
-class SipuBoundaryImportAPIView(APIView):
-    """系统管理-数据管理：按用户手动提供的四普 Cookie，抓取文物矢量图边界并调用可复用导入命令。"""
+class SipuBoundaryImportStartAPIView(APIView):
+    """系统管理-数据管理：按用户手动提供的四普 Cookie，创建后台导入任务（立即返回，避免网关504超时）。"""
 
     permission_classes = [IsManagementAdmin]
 
@@ -78,18 +78,39 @@ class SipuBoundaryImportAPIView(APIView):
             scope = 'missing'
         user_county = (request.data.get('user_county') or '').strip()
 
-        try:
-            limit = int(request.data.get('limit') or 0)
-        except (TypeError, ValueError):
-            limit = 0
+        def _parse_int(key, default, min_value, max_value):
+            try:
+                value = int(request.data.get(key) or default)
+            except (TypeError, ValueError):
+                value = default
+            return max(min_value, min(max_value, value))
+
+        limit = _parse_int('limit', 0, 0, 100000)
+        page_size = _parse_int('page_size', 80, 1, 500)
+        max_workers = _parse_int('max_workers', 8, 1, 32)
 
         try:
-            summary = legacy_views.run_sipu_boundary_import(cookie, scope=scope, user_county=user_county, limit=limit)
+            job_id = legacy_views.start_sipu_boundary_import_job(
+                request.user, cookie, scope=scope, user_county=user_county,
+                limit=limit, page_size=page_size, max_workers=max_workers,
+            )
         except Exception:
-            logger.exception('四普文物矢量图导入失败')
-            return Response({'success': False, 'message': '导入失败，请检查 Cookie 是否有效或稍后重试'}, status=500)
+            logger.exception('创建四普文物矢量图导入任务失败')
+            return Response({'success': False, 'message': '创建导入任务失败，请稍后重试'}, status=500)
 
-        return Response({'success': True, 'data': summary})
+        return Response({'success': True, 'data': {'job_id': str(job_id)}})
+
+
+class SipuBoundaryImportStatusAPIView(APIView):
+    """查询四普边界导入任务进度，供前端轮询展示进度条。"""
+
+    permission_classes = [IsManagementAdmin]
+
+    def get(self, request, job_id):
+        status_payload = legacy_views.get_sipu_boundary_import_job_status(job_id)
+        if not status_payload:
+            return Response({'success': False, 'message': '任务不存在'}, status=404)
+        return Response({'success': True, 'data': status_payload})
 
 
 class DashboardOverviewAPIView(APIView):

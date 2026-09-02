@@ -1290,76 +1290,156 @@ def _sipu_fetch_mapdata_rings(cul_rid: str, cookie: str) -> dict:
     return {'body': body_rings, 'protection': protection_rings, 'control': control_rings}
 
 
-def run_sipu_boundary_import(cookie: str, scope: str = 'missing', user_county: str = '', limit: int = 0):
-    """按名称逐条匹配四普系统文物点，抓取“文物矢量图”边界并调用可复用的导入命令写入数据库。
+def start_sipu_boundary_import_job(user, cookie: str, scope: str = 'missing', user_county: str = '', limit: int = 0,
+                                    page_size: int = 80, max_workers: int = 8):
+    """创建导入任务记录并在后台线程中执行，立即返回 job_id 避免网关504超时。"""
+    import threading
+    from core.models import SipuImportJob
 
-    - scope='missing'：仅处理尚无本体边界数据的文物点；scope='all'：全部重新抓取覆盖。
-    - limit：>0 时仅处理前 N 条，便于先小范围试跑。
-    """
+    job = SipuImportJob.objects.create(created_by=user if getattr(user, 'is_authenticated', False) else None)
+    thread = threading.Thread(
+        target=_run_sipu_boundary_import_job,
+        args=(job.id, cookie, scope, user_county, limit, page_size, max_workers),
+        daemon=True,
+    )
+    thread.start()
+    return job.id
+
+
+def get_sipu_boundary_import_job_status(job_id):
+    from core.models import SipuImportJob
+
+    job = SipuImportJob.objects.filter(id=job_id).first()
+    if not job:
+        return None
+    return {
+        'job_id': str(job.id),
+        'status': job.status,
+        'total': job.total,
+        'processed': job.processed,
+        'matched': job.matched,
+        'unmatched_count': job.unmatched_count,
+        'no_geometry_count': job.no_geometry_count,
+        'unmatched': job.unmatched_items,
+        'no_geometry': job.no_geometry_items,
+        'error_message': job.error_message,
+    }
+
+
+def _run_sipu_boundary_import_job(job_id, cookie: str, scope: str, user_county: str, limit: int,
+                                   page_size: int, max_workers: int):
+    """后台线程实体：按页（默认80条/页）分页拉取文物点，页内并发调用四普接口，逐页写入。"""
     import tempfile
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     from django.core.management import call_command
+    from django.core.paginator import Paginator
+    from django.db import connections
+    from core.models import SipuImportJob
 
-    queryset = HeritageSite.objects.all().order_by('id')
-    if scope != 'all':
-        queryset = queryset.filter(Q(body_boundary__isnull=True) | Q(body_boundary=''))
-    if limit and limit > 0:
-        queryset = queryset[:limit]
+    job = SipuImportJob.objects.get(id=job_id)
 
-    sites = list(queryset.values('id', 'name'))
-    matched_count = 0
-    unmatched_items = []
-    no_geometry_items = []
+    def _process_site(site):
+        candidates = _sipu_search_culrid(site['name'], cookie, user_county)
+        matched = next((c for c in candidates if c.get('name') == site['name']), None)
+        if matched is None and len(candidates) == 1:
+            matched = candidates[0]
 
-    with tempfile.NamedTemporaryFile('w', suffix='.ndjson', delete=False, encoding='utf-8') as tmp_file:
-        tmp_path = tmp_file.name
-        for site in sites:
-            candidates = _sipu_search_culrid(site['name'], cookie, user_county)
-            matched = next((c for c in candidates if c.get('name') == site['name']), None)
-            if matched is None and len(candidates) == 1:
-                matched = candidates[0]
-
-            if not matched:
-                record = {
-                    'id': site['id'],
-                    'unmatched': True,
-                    'candidateCount': len(candidates),
-                    'candidateNames': [c.get('name') for c in candidates],
-                }
-                unmatched_items.append({'id': site['id'], 'name': site['name'], 'candidates': [c.get('name') for c in candidates]})
-                tmp_file.write(json.dumps(record, ensure_ascii=False) + '\n')
-                continue
-
-            rings = _sipu_fetch_mapdata_rings(matched['id'], cookie)
-            if not (rings['body'] or rings['protection'] or rings['control']):
-                no_geometry_items.append({'id': site['id'], 'name': site['name']})
-                tmp_file.write(json.dumps({'id': site['id'], 'noGeometry': True}, ensure_ascii=False) + '\n')
-                continue
-
-            record = {
+        if not matched:
+            return {
+                'kind': 'unmatched',
                 'id': site['id'],
-                'culrid': matched['id'],
-                'matchedName': matched.get('name'),
-                'body': rings['body'],
-                'protection': rings['protection'],
-                'control': rings['control'],
+                'name': site['name'],
+                'candidates': [c.get('name') for c in candidates],
             }
-            matched_count += 1
-            tmp_file.write(json.dumps(record, ensure_ascii=False) + '\n')
+
+        rings = _sipu_fetch_mapdata_rings(matched['id'], cookie)
+        if not (rings['body'] or rings['protection'] or rings['control']):
+            return {'kind': 'no_geometry', 'id': site['id'], 'name': site['name']}
+
+        return {
+            'kind': 'matched',
+            'id': site['id'],
+            'culrid': matched['id'],
+            'matchedName': matched.get('name'),
+            **rings,
+        }
 
     try:
-        call_command('import_sipu_boundary', tmp_path)
-    finally:
-        try:
-            os.remove(tmp_path)
-        except OSError:
-            pass
+        queryset = HeritageSite.objects.all().order_by('id')
+        if scope != 'all':
+            queryset = queryset.filter(Q(body_boundary__isnull=True) | Q(body_boundary=''))
+        if limit and limit > 0:
+            queryset = queryset[:limit]
 
-    return {
-        'total': len(sites),
-        'matched': matched_count,
-        'unmatched': unmatched_items,
-        'no_geometry': no_geometry_items,
-    }
+        site_rows = list(queryset.values('id', 'name'))
+        job.total = len(site_rows)
+        job.save(update_fields=['total', 'updated_at'])
+
+        processed = 0
+        matched_count = 0
+        unmatched_items = []
+        no_geometry_items = []
+
+        # 自动翻页：每页固定 page_size 条，页内多线程并发请求四普接口，避免一次性长耗时导入触发网关504。
+        paginator = Paginator(site_rows, page_size)
+        for page_number in paginator.page_range:
+            page_sites = paginator.page(page_number).object_list
+            page_records = []
+
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = [executor.submit(_process_site, site) for site in page_sites]
+                for future in as_completed(futures):
+                    result = future.result()
+                    page_records.append(result)
+                    processed += 1
+                    if result['kind'] == 'matched':
+                        matched_count += 1
+                    elif result['kind'] == 'unmatched':
+                        unmatched_items.append({'id': result['id'], 'name': result['name'], 'candidates': result['candidates']})
+                    else:
+                        no_geometry_items.append({'id': result['id'], 'name': result['name']})
+
+                    job.processed = processed
+                    job.matched = matched_count
+                    job.unmatched_count = len(unmatched_items)
+                    job.no_geometry_count = len(no_geometry_items)
+                    job.unmatched_items = unmatched_items
+                    job.no_geometry_items = no_geometry_items
+                    job.save(update_fields=[
+                        'processed', 'matched', 'unmatched_count', 'no_geometry_count',
+                        'unmatched_items', 'no_geometry_items', 'updated_at',
+                    ])
+
+            matched_records = [r for r in page_records if r['kind'] == 'matched']
+            if matched_records:
+                with tempfile.NamedTemporaryFile('w', suffix='.ndjson', delete=False, encoding='utf-8') as tmp_file:
+                    tmp_path = tmp_file.name
+                    for r in matched_records:
+                        tmp_file.write(json.dumps({
+                            'id': r['id'],
+                            'culrid': r['culrid'],
+                            'matchedName': r['matchedName'],
+                            'body': r['body'],
+                            'protection': r['protection'],
+                            'control': r['control'],
+                        }, ensure_ascii=False) + '\n')
+                try:
+                    call_command('import_sipu_boundary', tmp_path)
+                finally:
+                    try:
+                        os.remove(tmp_path)
+                    except OSError:
+                        pass
+
+        job.status = SipuImportJob.STATUS_SUCCESS
+        job.save(update_fields=['status', 'updated_at'])
+    except Exception as exc:
+        logging.getLogger(__name__).exception('四普边界导入任务失败: job_id=%s', job_id)
+        job.status = SipuImportJob.STATUS_FAILED
+        job.error_message = str(exc)
+        job.save(update_fields=['status', 'error_message', 'updated_at'])
+    finally:
+        connections.close_all()
 
 
 def _build_boundary_points_csv(combined_conflicts, selected_records, cookie: str, user_county: str = '') -> HttpResponse:
