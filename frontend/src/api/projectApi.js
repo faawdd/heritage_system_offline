@@ -30,9 +30,28 @@ export async function uploadProjectFile(projectId, formData) {
   return response.data
 }
 
-export async function verifyProjectSpatialSafety(projectId) {
-  const response = await client.post(`/api/v1/projects/${projectId}/verify-spatial-safety/`)
+export async function verifyProjectSpatialSafety(projectId, thresholdM) {
+  const params = thresholdM ? { threshold_m: thresholdM } : {}
+  const response = await client.post(`/api/v1/projects/${projectId}/verify-spatial-safety/`, null, { params })
   return response.data
+}
+
+export async function linkProjectKmlRecord(projectId, kmlRecordId) {
+  const response = await client.post(`/api/v1/projects/${projectId}/link-kml-record/`, {
+    kml_record_id: kmlRecordId
+  })
+  return response.data
+}
+
+export async function deleteProjectDocument(projectId, documentId) {
+  const response = await client.post(`/api/v1/projects/${projectId}/documents/${documentId}/delete/`)
+  return response.data
+}
+
+export async function downloadProjectDocumentsArchive(projectId) {
+  return client.get(`/api/v1/projects/${projectId}/documents/archive/`, {
+    responseType: 'blob'
+  })
 }
 
 export async function runProjectWorkflowAction(projectId, payload) {

@@ -9,6 +9,7 @@ from .models import (
     Coordinate,
     KmlUploadRecord,
     LandUseProjectApproval,
+    LandUseProjectDocument,
     LandUseProjectFieldPhoto,
     LandUseProjectOperationLog,
 )
@@ -16,8 +17,15 @@ from .ovkml_converter import parse_ovkml, build_csv_outputs
 from .land_project_services import (
     verify_project_spatial_safety,
     build_project_media_path,
+    build_workflow_guide,
+    get_current_step_key,
     get_status_controls,
     apply_workflow_action,
+    link_project_kml_record,
+    resolve_workflow_path,
+    sync_project_kml_record,
+    ALLOWED_DOCUMENT_EXTENSIONS,
+    DOCUMENT_NUM_FIELDS,
 )
 import base64
 import hashlib
@@ -1916,15 +1924,7 @@ def land_project_list_api(request):
         overlap_rows = item.overlapped_relics_info if isinstance(item.overlapped_relics_info, list) else []
         has_high_level_overlap = any((row or {}).get('site_level') in {'GB', 'SB'} for row in overlap_rows)
         is_feasible_by_level = not has_high_level_overlap
-        if not item.is_overlap_artifact:
-            workflow_path = 'DIRECT_REPLY'
-            workflow_advice = '未涉及文物，走标准复函流程。'
-        elif is_feasible_by_level:
-            workflow_path = 'ARCHAEOLOGY_FLOW'
-            workflow_advice = '涉及文物且可行，走市局上报与考古调查流程。'
-        else:
-            workflow_path = 'DIRECT_REPLY'
-            workflow_advice = '涉及高等级文物，不可行，走不予同意复函流程。'
+        item_path, item_advice = resolve_workflow_path(item)
 
         rows.append({
             'id': str(item.id),
@@ -1934,15 +1934,41 @@ def land_project_list_api(request):
             'receive_date': item.receive_date.isoformat() if item.receive_date else '',
             'status': item.status,
             'status_label': item.get_status_display(),
+            'current_step': get_current_step_key(item),
             'is_overlap_artifact': item.is_overlap_artifact,
+            'overlap_count': len(overlap_rows),
             'has_high_level_overlap': has_high_level_overlap,
             'is_feasible_by_level': is_feasible_by_level,
-            'workflow_path': workflow_path,
-            'workflow_advice': workflow_advice,
+            'spatial_check_at': item.spatial_check_at.strftime('%Y-%m-%d %H:%M') if item.spatial_check_at else '',
+            'kml_record_id': item.kml_record_id,
+            'workflow_path': item_path,
+            'workflow_advice': item_advice,
+            'is_archived': item.status == LandUseProjectApproval.STATUS_ARCHIVED,
             'updated_at': item.updated_at.strftime('%Y-%m-%d %H:%M') if item.updated_at else '',
         })
 
-    return JsonResponse({'success': True, 'rows': rows})
+    summary_source = LandUseProjectApproval.objects.all()
+    status_counts = {
+        code: summary_source.filter(status=code).count()
+        for code, _label in LandUseProjectApproval.STATUS_CHOICES
+    }
+    total = summary_source.count()
+    archived = status_counts.get(LandUseProjectApproval.STATUS_ARCHIVED, 0)
+    summary = {
+        'total': total,
+        'in_progress': total - archived,
+        'archived': archived,
+        'pending_precheck': status_counts.get(LandUseProjectApproval.STATUS_RECEIVED, 0),
+        'overlap': summary_source.filter(is_overlap_artifact=True).exclude(
+            status=LandUseProjectApproval.STATUS_ARCHIVED
+        ).count(),
+        'status_counts': [
+            {'status': code, 'label': label, 'count': status_counts.get(code, 0)}
+            for code, label in LandUseProjectApproval.STATUS_CHOICES
+        ],
+    }
+
+    return JsonResponse({'success': True, 'rows': rows, 'summary': summary})
 
 
 @staff_member_required
@@ -1980,15 +2006,47 @@ def land_project_detail_api(request, project_id):
         for item in project.operation_logs.select_related('operator').all()[:200]
     ]
 
+    document_rows = [
+        {
+            'id': document.id,
+            'category': document.category,
+            'category_label': document.get_category_display(),
+            'doc_num': document.doc_num,
+            'title': document.title,
+            'issued_date': document.issued_date.isoformat() if document.issued_date else '',
+            'file_name': document.file_name,
+            'file_size': document.file_size,
+            'note': document.note,
+            'uploaded_by': document.uploaded_by.username if document.uploaded_by else '系统',
+            'uploaded_at': document.uploaded_at.strftime('%Y-%m-%d %H:%M'),
+            'download_url': f'/api/v1/projects/{project.id}/documents/{document.id}/download/',
+        }
+        for document in project.documents.select_related('uploaded_by').all()
+    ]
+
     overlap_rows = project.overlapped_relics_info if isinstance(project.overlapped_relics_info, list) else []
     has_high_level_overlap = any((row or {}).get('site_level') in {'GB', 'SB'} for row in overlap_rows)
     is_feasible_by_level = not has_high_level_overlap
-    if not project.is_overlap_artifact:
-        workflow_advice = '未涉及文物，可直接向项目方出具不涉及文物标准复函。'
-    elif is_feasible_by_level:
-        workflow_advice = '涉及文物但未触及自治区及以上级别，可按流程上报市局并进入考古调查。'
-    else:
-        workflow_advice = '涉及自治区及以上级别文物，项目不可行，应直接向项目方出具不予同意复函。'
+    guide = build_workflow_guide(project)
+
+    kml_record = project.kml_record
+    kml_record_payload = None
+    map_conflicts = []
+    if kml_record is not None:
+        kml_record_payload = {
+            'id': kml_record.id,
+            'title': kml_record.title,
+            'threshold_m': kml_record.threshold_m,
+            'feature_count': kml_record.feature_count,
+            'conflict_count': kml_record.conflict_count,
+            'updated_at': kml_record.updated_at.strftime('%Y-%m-%d %H:%M') if kml_record.updated_at else '',
+        }
+        # 原始冲突明细供地图图层复用（与 KML 叠加检查页字段一致）。
+        try:
+            report = json.loads(kml_record.report_json) if kml_record.report_json else {}
+            map_conflicts = report.get('conflicts') or []
+        except (ValueError, TypeError):
+            map_conflicts = []
 
     return JsonResponse({
         'success': True,
@@ -1999,13 +2057,20 @@ def land_project_detail_api(request, project_id):
             'incoming_doc_date': project.incoming_doc_date.isoformat() if project.incoming_doc_date else '',
             'receive_date': project.receive_date.isoformat() if project.receive_date else '',
             'kml_file_path': project.kml_file_path,
+            'kml_record': kml_record_payload,
+            'kml_record_id': kml_record.id if kml_record else None,
+            'map_conflicts': map_conflicts,
+            'spatial_check_at': project.spatial_check_at.strftime('%Y-%m-%d %H:%M') if project.spatial_check_at else '',
+            'spatial_check_threshold_m': project.spatial_check_threshold_m,
+            'spatial_feature_count': project.spatial_feature_count,
             'misc_zip_path': project.misc_zip_path,
             'misc_zip_url': f"/api/land-projects/{project.id}/download-misc-zip/" if project.misc_zip_path else '',
             'is_overlap_artifact': project.is_overlap_artifact,
             'overlapped_relics_info': project.overlapped_relics_info,
             'is_feasible_by_level': is_feasible_by_level,
             'has_high_level_overlap': has_high_level_overlap,
-            'workflow_advice': workflow_advice,
+            'workflow_advice': guide['advice'],
+            'guide': guide,
             'status': project.status,
             'status_label': project.get_status_display(),
             'field_check_date': project.field_check_date.isoformat() if project.field_check_date else '',
@@ -2025,6 +2090,8 @@ def land_project_detail_api(request, project_id):
             'protection_measures_confirmed': project.protection_measures_confirmed,
             'controls': get_status_controls(project.status, project),
             'field_photos': photo_rows,
+            'documents': document_rows,
+            'documents_archive_url': f'/api/v1/projects/{project.id}/documents/archive/' if document_rows else '',
             'operation_logs': operation_logs,
             'created_at': project.created_at.strftime('%Y-%m-%d %H:%M'),
             'updated_at': project.updated_at.strftime('%Y-%m-%d %H:%M'),
@@ -2195,6 +2262,13 @@ def land_project_upload_api(request, project_id):
         saved_path = default_storage.save(relative_path, upload_file)
         project.kml_file_path = saved_path
         project.save(update_fields=['kml_file_path', 'updated_at'])
+
+        kml_record_id = None
+        try:
+            kml_record_id = sync_project_kml_record(project, user=request.user).id
+        except Exception:
+            logger.exception('项目KML同步为叠加检查记录失败: project_id=%s', project.id)
+
         _record_land_project_operation(
             project=project,
             user=request.user,
@@ -2203,11 +2277,12 @@ def land_project_upload_api(request, project_id):
                 'file_type': file_type,
                 'original_filename': filename,
                 'saved_path': saved_path,
+                'kml_record_id': kml_record_id,
             },
             status_before=status_before,
             status_after=project.status,
         )
-        return JsonResponse({'success': True, 'file_path': saved_path})
+        return JsonResponse({'success': True, 'file_path': saved_path, 'kml_record_id': kml_record_id})
 
     if file_type == 'field_photo':
         status_before = project.status
@@ -2255,6 +2330,62 @@ def land_project_upload_api(request, project_id):
         )
         return JsonResponse({'success': True, 'file_path': saved_path})
 
+    if file_type == 'official_doc':
+        category = (request.POST.get('category') or '').strip()
+        valid_categories = {code for code, _label in LandUseProjectDocument.CATEGORY_CHOICES}
+        if category not in valid_categories:
+            return JsonResponse({'success': False, 'message': '请选择正确的公文类别'}, status=400)
+        if not filename.lower().endswith(ALLOWED_DOCUMENT_EXTENSIONS):
+            return JsonResponse({'success': False, 'message': '公文仅支持 PDF / DOCX / DOC 格式'}, status=400)
+
+        issued_date_text = (request.POST.get('issued_date') or '').strip()
+        issued_date = None
+        if issued_date_text:
+            try:
+                issued_date = datetime.strptime(issued_date_text, '%Y-%m-%d').date()
+            except ValueError:
+                return JsonResponse({'success': False, 'message': '成文日期格式应为 YYYY-MM-DD'}, status=400)
+
+        status_before = project.status
+        relative_path = build_project_media_path(project, os.path.join('documents', category), filename)
+        saved_path = default_storage.save(relative_path, upload_file)
+
+        document = LandUseProjectDocument.objects.create(
+            project=project,
+            category=category,
+            doc_num=(request.POST.get('doc_num') or '').strip(),
+            title=(request.POST.get('title') or '').strip(),
+            issued_date=issued_date,
+            file_path=saved_path,
+            file_name=filename,
+            file_size=upload_file.size or 0,
+            note=(request.POST.get('note') or '').strip(),
+            uploaded_by=request.user if request.user.is_authenticated else None,
+        )
+
+        # 有文号且项目对应字段为空时自动回填，避免重复录入。
+        num_field = DOCUMENT_NUM_FIELDS.get(category)
+        if num_field and document.doc_num and not getattr(project, num_field, ''):
+            setattr(project, num_field, document.doc_num)
+            project.save(update_fields=[num_field, 'updated_at'])
+
+        _record_land_project_operation(
+            project=project,
+            user=request.user,
+            action='upload_official_doc',
+            payload={
+                'file_type': file_type,
+                'category': category,
+                'category_label': document.get_category_display(),
+                'doc_num': document.doc_num,
+                'original_filename': filename,
+                'saved_path': saved_path,
+            },
+            status_before=status_before,
+            status_after=project.status,
+        )
+        return JsonResponse({'success': True, 'document_id': document.id, 'file_path': saved_path})
+
     if file_type == 'archaeology_report':
         if not filename.lower().endswith('.pdf'):
             return JsonResponse({'success': False, 'message': '考古调查报告仅支持PDF'}, status=400)
@@ -2299,7 +2430,109 @@ def land_project_upload_api(request, project_id):
         )
         return JsonResponse({'success': True, 'file_path': saved_path})
 
-    return JsonResponse({'success': False, 'message': 'file_type 必须为 kml/misc_zip/field_photo/archaeology_report/kanerjing_plan'}, status=400)
+    return JsonResponse({'success': False, 'message': 'file_type 必须为 kml/misc_zip/field_photo/archaeology_report/kanerjing_plan/official_doc'}, status=400)
+
+
+@staff_member_required
+def land_project_document_download_api(request, project_id, document_id):
+    """下载单份归档公文。"""
+    if not is_management_admin(request.user):
+        return JsonResponse({'success': False, 'message': '无权限'}, status=403)
+
+    document = LandUseProjectDocument.objects.filter(id=document_id, project_id=project_id).first()
+    if not document:
+        return JsonResponse({'success': False, 'message': '公文不存在'}, status=404)
+    if not default_storage.exists(document.file_path):
+        return JsonResponse({'success': False, 'message': '公文文件不存在或已被移除'}, status=404)
+
+    try:
+        file_handler = default_storage.open(document.file_path, 'rb')
+    except Exception:
+        logger.exception('打开公文失败: document_id=%s', document_id)
+        return JsonResponse({'success': False, 'message': '文件读取失败'}, status=500)
+
+    download_name = document.file_name or os.path.basename(document.file_path)
+    return FileResponse(file_handler, as_attachment=True, filename=download_name)
+
+
+@csrf_exempt
+@require_POST
+@staff_member_required
+def land_project_document_delete_api(request, project_id, document_id):
+    """删除归档公文（已归档结案的项目不允许删除）。"""
+    if not is_management_admin(request.user):
+        return JsonResponse({'success': False, 'message': '无权限'}, status=403)
+
+    document = LandUseProjectDocument.objects.filter(id=document_id, project_id=project_id).first()
+    if not document:
+        return JsonResponse({'success': False, 'message': '公文不存在'}, status=404)
+    if document.project.status == LandUseProjectApproval.STATUS_ARCHIVED:
+        return JsonResponse({'success': False, 'message': '项目已结案归档，公文档案不可删除'}, status=400)
+
+    project = document.project
+    payload = {
+        'category': document.category,
+        'category_label': document.get_category_display(),
+        'doc_num': document.doc_num,
+        'file_name': document.file_name,
+    }
+    if default_storage.exists(document.file_path):
+        default_storage.delete(document.file_path)
+    document.delete()
+
+    _record_land_project_operation(
+        project=project,
+        user=request.user,
+        action='delete_official_doc',
+        payload=payload,
+        status_before=project.status,
+        status_after=project.status,
+    )
+    return JsonResponse({'success': True})
+
+
+@staff_member_required
+def land_project_documents_archive_api(request, project_id):
+    """把项目全部归档公文打包为 ZIP 下载。"""
+    if not is_management_admin(request.user):
+        return JsonResponse({'success': False, 'message': '无权限'}, status=403)
+
+    project = LandUseProjectApproval.objects.filter(id=project_id).first()
+    if not project:
+        return JsonResponse({'success': False, 'message': '项目不存在'}, status=404)
+
+    documents = list(project.documents.all().order_by('category', 'uploaded_at'))
+    if not documents:
+        return JsonResponse({'success': False, 'message': '当前项目尚无归档公文'}, status=404)
+
+    buffer = io.BytesIO()
+    manifest_lines = [f'项目名称：{project.project_name}', f'项目单位：{project.company_name}', '']
+    with zipfile.ZipFile(buffer, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+        used_names = set()
+        for index, document in enumerate(documents, start=1):
+            if not default_storage.exists(document.file_path):
+                continue
+            extension = os.path.splitext(document.file_name or document.file_path)[1] or '.pdf'
+            label = document.get_category_display()
+            parts = [f'{index:02d}', label]
+            if document.doc_num:
+                parts.append(document.doc_num)
+            member_name = re.sub(r'[\\/:*?"<>|]+', '_', '-'.join(parts)) + extension
+            while member_name in used_names:
+                member_name = f'{os.path.splitext(member_name)[0]}_1{extension}'
+            used_names.add(member_name)
+
+            with default_storage.open(document.file_path, 'rb') as fp:
+                archive.writestr(member_name, fp.read())
+            manifest_lines.append(
+                f'{member_name}\t文号：{document.doc_num or "-"}\t成文日期：{document.issued_date or "-"}'
+            )
+        archive.writestr('公文清单.txt', '\n'.join(manifest_lines))
+
+    zip_name = f'{project.project_name}-公文档案.zip'
+    response = HttpResponse(buffer.getvalue(), content_type='application/zip')
+    response['Content-Disposition'] = f"attachment; filename*=UTF-8''{quote(zip_name, safe='')}"
+    return response
 
 
 @staff_member_required
@@ -2340,8 +2573,14 @@ def verify_project_spatial_safety_api(request, project_id):
 
     status_before = project.status
 
+    raw_threshold = request.GET.get('threshold_m') or request.POST.get('threshold_m')
     try:
-        result = verify_project_spatial_safety(project_id)
+        threshold_m = int(raw_threshold) if raw_threshold else None
+    except (TypeError, ValueError):
+        threshold_m = None
+
+    try:
+        result = verify_project_spatial_safety(project_id, threshold_m=threshold_m, user=request.user)
         _record_land_project_operation(
             project=project,
             user=request.user,
@@ -2349,6 +2588,8 @@ def verify_project_spatial_safety_api(request, project_id):
             payload={
                 'is_overlap_artifact': result.get('is_overlap_artifact', False),
                 'overlapped_count': len(result.get('overlapped_relics_info') or []),
+                'threshold_m': result.get('threshold_m'),
+                'feature_count': result.get('feature_count'),
             },
             status_before=status_before,
             status_after=result.get('status', project.status),
@@ -2360,6 +2601,45 @@ def verify_project_spatial_safety_api(request, project_id):
         return JsonResponse({'success': False, 'message': '空间核验失败，请检查KML与空间数据'}, status=500)
 
     return JsonResponse({'success': True, 'data': result})
+
+
+@csrf_exempt
+@require_POST
+@staff_member_required
+def land_project_link_kml_record_api(request, project_id):
+    """把已有的 KML 叠加检查记录关联到项目，实现两处功能共用同一份选址数据。"""
+    if not is_management_admin(request.user):
+        return JsonResponse({'success': False, 'message': '无权限'}, status=403)
+
+    project = LandUseProjectApproval.objects.filter(id=project_id).first()
+    if not project:
+        return JsonResponse({'success': False, 'message': '项目不存在'}, status=404)
+
+    try:
+        payload = _load_json_payload(request)
+    except ValueError as exc:
+        return JsonResponse({'success': False, 'message': str(exc)}, status=400)
+
+    record_id = payload.get('kml_record_id')
+    record = KmlUploadRecord.objects.filter(id=record_id).first() if record_id else None
+    if not record:
+        return JsonResponse({'success': False, 'message': '指定的KML叠加检查记录不存在'}, status=404)
+
+    status_before = project.status
+    try:
+        link_project_kml_record(project, record)
+    except ValueError as exc:
+        return JsonResponse({'success': False, 'message': str(exc)}, status=400)
+
+    _record_land_project_operation(
+        project=project,
+        user=request.user,
+        action='link_kml_record',
+        payload={'kml_record_id': record.id, 'kml_record_title': record.title},
+        status_before=status_before,
+        status_after=project.status,
+    )
+    return JsonResponse({'success': True, 'data': {'kml_record_id': record.id, 'kml_file_path': project.kml_file_path}})
 
 
 @staff_member_required

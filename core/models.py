@@ -308,6 +308,19 @@ class LandUseProjectApproval(models.Model):
     overlapped_relics_info = models.JSONField('涉事文物信息', default=list, blank=True)
     status = models.CharField('项目状态', max_length=32, choices=STATUS_CHOICES, default=STATUS_RECEIVED)
 
+    # 与独立的 KML 叠加检查共用同一条记录，核验结果双向可见。
+    kml_record = models.ForeignKey(
+        'KmlUploadRecord',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='land_projects',
+        verbose_name='关联KML叠加检查记录',
+    )
+    spatial_check_at = models.DateTimeField('空间核验时间', null=True, blank=True)
+    spatial_check_threshold_m = models.PositiveIntegerField('空间核验阈值(米)', default=50)
+    spatial_feature_count = models.PositiveIntegerField('KML要素数量', default=0)
+
     # 流程A字段
     field_check_date = models.DateField('现场勘查日期', null=True, blank=True)
     shanshan_request_num = models.CharField(
@@ -393,6 +406,67 @@ class LandUseProjectFieldPhoto(models.Model):
         verbose_name = '用地项目现场照片'
         verbose_name_plural = verbose_name
         ordering = ['-uploaded_at']
+
+
+class LandUseProjectDocument(models.Model):
+    """用地项目公文档案：上行文、复函、批复等正式文件的上传归档。"""
+
+    CATEGORY_INCOMING_REQUEST = 'incoming_request'
+    CATEGORY_COUNTY_REQUEST = 'county_request'
+    CATEGORY_CITY_REPLY = 'city_reply'
+    CATEGORY_ARCHAEOLOGY_REQUEST = 'archaeology_request'
+    CATEGORY_REGION_APPROVAL = 'region_approval'
+    CATEGORY_CITY_FINAL_REPLY = 'city_final_reply'
+    CATEGORY_STATE_COUNCIL_APPROVAL = 'state_council_approval'
+    CATEGORY_FINAL_REPLY = 'final_reply'
+    CATEGORY_OTHER = 'other'
+
+    CATEGORY_CHOICES = [
+        (CATEGORY_INCOMING_REQUEST, '项目方查询函'),
+        (CATEGORY_COUNTY_REQUEST, '县局请示（上行文）'),
+        (CATEGORY_CITY_REPLY, '市局来函/回复意见'),
+        (CATEGORY_ARCHAEOLOGY_REQUEST, '考古请示'),
+        (CATEGORY_REGION_APPROVAL, '自治区文物局批复'),
+        (CATEGORY_CITY_FINAL_REPLY, '市文物局最终复函'),
+        (CATEGORY_STATE_COUNCIL_APPROVAL, '国务院文物行政部门批复'),
+        (CATEGORY_FINAL_REPLY, '给项目方复函'),
+        (CATEGORY_OTHER, '其他公文'),
+    ]
+
+    project = models.ForeignKey(
+        LandUseProjectApproval,
+        on_delete=models.CASCADE,
+        related_name='documents',
+        verbose_name='所属项目',
+    )
+    category = models.CharField('公文类别', max_length=32, choices=CATEGORY_CHOICES)
+    doc_num = models.CharField('公文文号', max_length=120, blank=True, default='')
+    title = models.CharField('公文标题', max_length=255, blank=True, default='')
+    issued_date = models.DateField('成文日期', null=True, blank=True)
+    file_path = models.CharField('文件路径', max_length=500)
+    file_name = models.CharField('原始文件名', max_length=255, blank=True, default='')
+    file_size = models.PositiveIntegerField('文件大小(字节)', default=0)
+    note = models.CharField('备注', max_length=200, blank=True, default='')
+    uploaded_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='land_project_documents',
+        verbose_name='上传人',
+    )
+    uploaded_at = models.DateTimeField('上传时间', auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.project.project_name}-{self.get_category_display()}"
+
+    class Meta:
+        verbose_name = '用地项目公文档案'
+        verbose_name_plural = verbose_name
+        ordering = ['-uploaded_at']
+        indexes = [
+            models.Index(fields=['project', 'category']),
+        ]
 
 
 class LandUseProjectOperationLog(models.Model):

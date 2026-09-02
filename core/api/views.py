@@ -395,6 +395,34 @@ class ProjectVerifySpatialSafetyAPIView(APIView):
         return _call_legacy_view(legacy_views.verify_project_spatial_safety_api, request, project_id)
 
 
+class ProjectLinkKmlRecordAPIView(APIView):
+    permission_classes = [IsManagementAdmin]
+
+    def post(self, request, project_id):
+        return _call_legacy_view(legacy_views.land_project_link_kml_record_api, request, project_id)
+
+
+class ProjectDocumentsArchiveAPIView(APIView):
+    permission_classes = [IsManagementAdmin]
+
+    def get(self, request, project_id):
+        return _call_legacy_view(legacy_views.land_project_documents_archive_api, request, project_id)
+
+
+class ProjectDocumentDownloadAPIView(APIView):
+    permission_classes = [IsManagementAdmin]
+
+    def get(self, request, project_id, document_id):
+        return _call_legacy_view(legacy_views.land_project_document_download_api, request, project_id, document_id)
+
+
+class ProjectDocumentDeleteAPIView(APIView):
+    permission_classes = [IsManagementAdmin]
+
+    def post(self, request, project_id, document_id):
+        return _call_legacy_view(legacy_views.land_project_document_delete_api, request, project_id, document_id)
+
+
 class ProjectNextDocNumAPIView(APIView):
     permission_classes = [IsManagementAdmin]
 

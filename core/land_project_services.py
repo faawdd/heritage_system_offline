@@ -4,11 +4,60 @@ import re
 import xml.etree.ElementTree as ET
 from typing import Dict, List, Tuple
 
+from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.db import transaction
 from django.utils import timezone
 
-from .models import HeritageSite, LandUseProjectApproval
+from .models import HeritageSite, KmlUploadRecord, LandUseProjectApproval, LandUseProjectDocument
+
+
+ALLOWED_DOCUMENT_EXTENSIONS = ('.pdf', '.docx', '.doc')
+
+# 各流程动作必须先归档的公文类别：没有对应公文不允许流转。
+ACTION_REQUIRED_DOCUMENTS = {
+    'submit_city_request': [LandUseProjectDocument.CATEGORY_COUNTY_REQUEST],
+    'submit_archaeology_request': [LandUseProjectDocument.CATEGORY_ARCHAEOLOGY_REQUEST],
+    'record_archaeology_reply': [
+        LandUseProjectDocument.CATEGORY_REGION_APPROVAL,
+        LandUseProjectDocument.CATEGORY_CITY_FINAL_REPLY,
+    ],
+    'archive_case': [LandUseProjectDocument.CATEGORY_FINAL_REPLY],
+}
+
+# 公文类别与对应文号字段：上传后可自动回填，登记文号时也会校验一致性。
+DOCUMENT_NUM_FIELDS = {
+    LandUseProjectDocument.CATEGORY_COUNTY_REQUEST: 'shanshan_request_num',
+    LandUseProjectDocument.CATEGORY_CITY_REPLY: 'city_reply_num',
+    LandUseProjectDocument.CATEGORY_ARCHAEOLOGY_REQUEST: 'archaeology_request_num',
+    LandUseProjectDocument.CATEGORY_REGION_APPROVAL: 'region_approval_num',
+    LandUseProjectDocument.CATEGORY_CITY_FINAL_REPLY: 'city_final_reply_num',
+    LandUseProjectDocument.CATEGORY_STATE_COUNCIL_APPROVAL: 'state_council_approval_num',
+    LandUseProjectDocument.CATEGORY_FINAL_REPLY: 'final_reply_to_company',
+}
+
+DOCUMENT_CATEGORY_LABELS = dict(LandUseProjectDocument.CATEGORY_CHOICES)
+
+
+def has_project_document(project: LandUseProjectApproval, category: str) -> bool:
+    return project.documents.filter(category=category).exists()
+
+
+def missing_document_blockers(project: LandUseProjectApproval, action: str, extra_categories=None) -> List[str]:
+    """返回该动作缺失的公文提示，供待办禁用与流转校验共用。"""
+    categories = list(ACTION_REQUIRED_DOCUMENTS.get(action, []))
+    categories.extend(extra_categories or [])
+
+    blockers = []
+    for category in categories:
+        if not has_project_document(project, category):
+            blockers.append(f'请先上传并归档「{DOCUMENT_CATEGORY_LABELS.get(category, category)}」PDF/DOCX')
+    return blockers
+
+
+def latest_document_num(project: LandUseProjectApproval, category: str) -> str:
+    doc = project.documents.filter(category=category).exclude(doc_num='').first()
+    return doc.doc_num if doc else ''
 
 
 HIGH_PROTECTION_LEVEL_CODES = {'GB', 'SB'}
@@ -197,12 +246,95 @@ def _parse_zone_rings(zone_text: str) -> List[List[Tuple[float, float]]]:
     return rings
 
 
-def verify_project_spatial_safety(project_id):
+DEFAULT_SPATIAL_THRESHOLD_M = 50
+
+
+def sync_project_kml_record(project: LandUseProjectApproval, user=None) -> KmlUploadRecord:
+    """把项目 KML 同步为一条 KML 叠加检查记录，使项目与独立叠加检查共用同一份数据。"""
+    if not project.kml_file_path or not default_storage.exists(project.kml_file_path):
+        raise ValueError('项目尚未上传KML文件')
+
+    with default_storage.open(project.kml_file_path, 'rb') as fp:
+        content = fp.read()
+
+    filename = os.path.basename(project.kml_file_path)
+    title = f'【项目】{project.project_name}'
+
+    record = project.kml_record
+    if record is None:
+        record = KmlUploadRecord(
+            title=title,
+            uploaded_by=user if getattr(user, 'is_authenticated', False) else None,
+            threshold_m=project.spatial_check_threshold_m or DEFAULT_SPATIAL_THRESHOLD_M,
+        )
+    else:
+        record.title = title
+        if record.source_file:
+            record.source_file.delete(save=False)
+
+    record.source_file.save(filename, ContentFile(content), save=False)
+    record.save()
+
+    if project.kml_record_id != record.id:
+        project.kml_record = record
+        project.save(update_fields=['kml_record', 'updated_at'])
+
+    return record
+
+
+def link_project_kml_record(project: LandUseProjectApproval, record: KmlUploadRecord) -> None:
+    """把已有的 KML 叠加检查记录关联到项目，并同步项目侧 KML 路径。"""
+    if not record.source_file:
+        raise ValueError('该叠加检查记录没有可用的KML文件')
+
+    changed_source = project.kml_record_id != record.id
+    project.kml_record = record
+    project.kml_file_path = record.source_file.name
+    update_fields = ['kml_record', 'kml_file_path', 'updated_at']
+
+    # 换了选址范围且流程尚未越过初步核查时，清空旧结论并退回待核验状态。
+    if changed_source and project.status in {
+        LandUseProjectApproval.STATUS_RECEIVED,
+        LandUseProjectApproval.STATUS_PRELIM_SAFE,
+        LandUseProjectApproval.STATUS_CHECK_OVERLAP,
+    }:
+        project.is_overlap_artifact = False
+        project.overlapped_relics_info = []
+        project.spatial_check_at = None
+        project.spatial_feature_count = 0
+        project.status = LandUseProjectApproval.STATUS_RECEIVED
+        update_fields += [
+            'is_overlap_artifact', 'overlapped_relics_info',
+            'spatial_check_at', 'spatial_feature_count', 'status',
+        ]
+
+    project.save(update_fields=update_fields)
+
+
+def _write_back_kml_record(record: KmlUploadRecord, threshold_m: int, features, conflicts) -> None:
+    """把核验结果写回叠加检查记录，让 KML 管理页看到同一份结论。"""
+    record.threshold_m = threshold_m
+    record.feature_count = len(features)
+    record.conflict_count = len(conflicts)
+    record.report_json = json.dumps(
+        {
+            'threshold_m': threshold_m,
+            'feature_count': len(features),
+            'conflict_count': len(conflicts),
+            'generated_at': timezone.now().isoformat(),
+            'conflicts': conflicts,
+        },
+        ensure_ascii=False,
+    )
+    record.save(update_fields=['threshold_m', 'feature_count', 'conflict_count', 'report_json', 'updated_at'])
+
+
+def verify_project_spatial_safety(project_id, threshold_m: int = None, user=None):
     """
     核心空间核验函数：
-    - 读取项目已上传KML文件
+    - 读取项目已上传KML文件（并同步为 KML 叠加检查记录）
     - 直接调用 KML 叠加检查后端（特征解析 + 冲突分析）
-    - 自动回写状态、重叠标记与重叠清单
+    - 自动回写状态、重叠标记、重叠清单，以及叠加检查记录的冲突报告
     """
     project = LandUseProjectApproval.objects.filter(id=project_id).first()
     if not project:
@@ -214,6 +346,16 @@ def verify_project_spatial_safety(project_id):
 
     from . import views as legacy_views
 
+    try:
+        threshold = int(threshold_m or project.spatial_check_threshold_m or DEFAULT_SPATIAL_THRESHOLD_M)
+    except (TypeError, ValueError):
+        threshold = DEFAULT_SPATIAL_THRESHOLD_M
+    threshold = max(1, min(5000, threshold))
+
+    record = project.kml_record
+    if record is None:
+        record = sync_project_kml_record(project, user=user)
+
     with default_storage.open(project.kml_file_path, 'rb') as fp:
         content = fp.read()
 
@@ -221,9 +363,7 @@ def verify_project_spatial_safety(project_id):
     if not features:
         raise ValueError('KML未识别到有效要素，请检查文件格式与坐标内容')
 
-    # 与 KML 管理页保持一致：默认 50 米阈值叠加核验。
-    threshold_m = 50
-    conflicts = legacy_views._analyze_conflicts(features, threshold_m)
+    conflicts = legacy_views._analyze_conflicts(features, threshold)
 
     level_label_map = {code: label for code, label in HeritageSite.LEVEL_CHOICES}
     overlaps = []
@@ -256,18 +396,29 @@ def verify_project_spatial_safety(project_id):
     with transaction.atomic():
         project.is_overlap_artifact = bool(unique)
         project.overlapped_relics_info = unique
+        project.spatial_check_at = timezone.now()
+        project.spatial_check_threshold_m = threshold
+        project.spatial_feature_count = len(features)
         project.status = (
             LandUseProjectApproval.STATUS_CHECK_OVERLAP
             if unique
             else LandUseProjectApproval.STATUS_PRELIM_SAFE
         )
-        project.save(update_fields=['is_overlap_artifact', 'overlapped_relics_info', 'status', 'updated_at'])
+        project.save(update_fields=[
+            'is_overlap_artifact', 'overlapped_relics_info', 'status',
+            'spatial_check_at', 'spatial_check_threshold_m', 'spatial_feature_count', 'updated_at',
+        ])
+        _write_back_kml_record(record, threshold, features, conflicts)
 
     return {
         'project_id': str(project.id),
         'is_overlap_artifact': bool(unique),
         'is_feasible_by_level': is_feasible_by_level,
         'status': project.status,
+        'kml_record_id': record.id,
+        'threshold_m': threshold,
+        'feature_count': len(features),
+        'conflict_count': len(conflicts),
         'overlapped_relics_info': unique,
     }
 
@@ -327,7 +478,26 @@ def get_status_controls(status: str, project: LandUseProjectApproval = None) -> 
 
 
 def apply_workflow_action(project: LandUseProjectApproval, action: str, payload: Dict):
-    """业务流转强控：校验当前状态与必填字段后再跳转。"""
+    """业务流转强控：校验当前状态、必传公文与必填字段后再跳转。"""
+    extra_required = []
+    if action == 'record_city_reply':
+        # 直接复函分支归档的是给项目方的复函，市局审批中分支归档的是市局来函。
+        extra_required = [
+            LandUseProjectDocument.CATEGORY_CITY_REPLY
+            if project.status == LandUseProjectApproval.STATUS_CITY_REVIEWING
+            else LandUseProjectDocument.CATEGORY_FINAL_REPLY
+        ]
+    if action == 'record_archaeology_reply' and (
+        payload.get('requires_state_council_approval')
+        if 'requires_state_council_approval' in payload
+        else project.requires_state_council_approval
+    ):
+        extra_required.append(LandUseProjectDocument.CATEGORY_STATE_COUNCIL_APPROVAL)
+
+    document_blockers = missing_document_blockers(project, action, extra_required)
+    if document_blockers:
+        raise ValueError(document_blockers[0])
+
     if action == 'complete_field_check':
         # 无论初审结果是否涉及文物，均需先完成市县联合实地勘查（流程文档步骤4）。
         if project.status not in {
@@ -459,4 +629,339 @@ def apply_workflow_action(project: LandUseProjectApproval, action: str, payload:
         'project_id': str(project.id),
         'status': project.status,
         'status_label': project.get_status_display(),
+    }
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 流程向导：把状态机翻译成「当前在哪一步、现在能做什么、还缺什么」
+# ──────────────────────────────────────────────────────────────────────────────
+
+PATH_PENDING = 'PENDING'
+PATH_DIRECT_REPLY = 'DIRECT_REPLY'
+PATH_ARCHAEOLOGY = 'ARCHAEOLOGY_FLOW'
+
+WORKFLOW_STEPS = [
+    ('receive', '收文登记', '接收项目方查询函，登记项目名称、建设内容与选址范围资料'),
+    ('precheck', '初步核查', '将项目选址范围与不可移动文物、保护范围、建控地带矢量数据叠加比对'),
+    ('field_check', '联合实地勘查', '市、县文物行政部门赴现场核实选址与文物实际位置及影响'),
+    ('city_review', '上报市局与回复意见', '报送县局请示，等待市文物行政部门反馈勘查意见'),
+    ('archaeology', '专项保护与逐级报审', '考古调查勘探、影响评估、保护方案编制，并按权限逐级报审'),
+    ('reply', '出具复函', '依据市级回复向项目方出具《涉及文物保护工作意见的复函》'),
+    ('archive', '办结归档', '核实保护措施落实情况，出具最终意见并归档'),
+]
+
+_STATUS_TO_STEP = {
+    LandUseProjectApproval.STATUS_RECEIVED: 'receive',
+    LandUseProjectApproval.STATUS_PRELIM_SAFE: 'field_check',
+    LandUseProjectApproval.STATUS_CHECK_OVERLAP: 'field_check',
+    LandUseProjectApproval.STATUS_FIELD_DONE: 'city_review',
+    LandUseProjectApproval.STATUS_CITY_REVIEWING: 'city_review',
+    LandUseProjectApproval.STATUS_ARCHAEOLOGY: 'archaeology',
+    LandUseProjectApproval.STATUS_REPLY_RECEIVED: 'archive',
+    LandUseProjectApproval.STATUS_ARCHIVED: 'archive',
+}
+
+
+def get_current_step_key(project: LandUseProjectApproval) -> str:
+    return _STATUS_TO_STEP.get(project.status, 'receive')
+
+
+def _field(name, label, field_type='text', required=True, value=None, placeholder='', hint=''):
+    return {
+        'name': name,
+        'label': label,
+        'type': field_type,
+        'required': required,
+        'value': value if value is not None else ('' if field_type != 'checkbox' else False),
+        'placeholder': placeholder,
+        'hint': hint,
+    }
+
+
+def resolve_workflow_path(project: LandUseProjectApproval) -> Tuple[str, str]:
+    """返回 (分支编码, 分支说明)。"""
+    if project.spatial_check_at is None and not project.is_overlap_artifact:
+        return PATH_PENDING, '尚未完成初步核查，请先上传选址KML并执行叠加核验。'
+    if not project.is_overlap_artifact:
+        return PATH_DIRECT_REPLY, '初步核查未涉及已登记文物：报送上行文申请联合现场勘查，之后直接出具复函。'
+    if _is_feasible_for_overlap(project):
+        return PATH_ARCHAEOLOGY, '涉及文物但未触及自治区及以上级别：先提出避让或优化方案意见，无法避让的进入专项保护程序。'
+    return PATH_DIRECT_REPLY, '涉及自治区及以上级别文物：应优先要求避让或调整选址，据此出具不予同意的复函。'
+
+
+def _step_states(project: LandUseProjectApproval, path: str) -> List[Dict]:
+    current_key = get_current_step_key(project)
+    skip_archaeology = path != PATH_ARCHAEOLOGY
+
+    keys = [key for key, _label, _desc in WORKFLOW_STEPS]
+    current_index = keys.index(current_key) if current_key in keys else 0
+
+    steps = []
+    for index, (key, title, desc) in enumerate(WORKFLOW_STEPS):
+        if key == 'archaeology' and skip_archaeology:
+            state = 'skipped'
+        elif project.status == LandUseProjectApproval.STATUS_ARCHIVED:
+            state = 'done'
+        elif index < current_index:
+            state = 'done'
+        elif index == current_index:
+            state = 'current'
+        else:
+            state = 'pending'
+        steps.append({'key': key, 'title': title, 'description': desc, 'state': state})
+    return steps
+
+
+def _spatial_todos(project: LandUseProjectApproval) -> List[Dict]:
+    blockers = []
+    if not project.kml_file_path:
+        blockers.append('请先在「附件与文档」上传项目选址KML/KMZ文件')
+
+    return [{
+        'action': 'verify_spatial_safety',
+        'kind': 'spatial',
+        'label': '执行叠加核验',
+        'description': '把项目选址范围与文物本体、保护范围、建控地带做叠加比对，自动判定是否涉及文物。',
+        'enabled': not blockers,
+        'blockers': blockers,
+        'fields': [
+            _field('threshold_m', '缓冲阈值(米)', 'number', required=False,
+                   value=project.spatial_check_threshold_m or DEFAULT_SPATIAL_THRESHOLD_M,
+                   hint='项目要素与文物点距离小于该值即计入冲突'),
+        ],
+    }]
+
+
+def build_workflow_todos(project: LandUseProjectApproval, path: str) -> List[Dict]:
+    """按当前状态输出可执行动作，含禁用原因与所需填写字段。"""
+    status = project.status
+    todos = []
+
+    if status == LandUseProjectApproval.STATUS_RECEIVED:
+        return _spatial_todos(project)
+
+    if status in {LandUseProjectApproval.STATUS_PRELIM_SAFE, LandUseProjectApproval.STATUS_CHECK_OVERLAP}:
+        todos.extend(_spatial_todos(project))
+        for item in todos:
+            item['label'] = '重新执行叠加核验'
+            item['description'] = '选址范围或阈值调整后，可重新核验并刷新涉及文物清单。'
+
+        photo_blockers = [] if project.field_photos.count() else ['请先上传至少一张现场勘查照片']
+        todos.append({
+            'action': 'complete_field_check',
+            'kind': 'workflow',
+            'label': '提交联合实地勘查完成',
+            'description': '市、县联合现场勘查完成后登记勘查日期，进入上报市局环节。',
+            'enabled': not photo_blockers,
+            'blockers': photo_blockers,
+            'fields': [
+                _field('field_check_date', '现场勘查日期', 'date',
+                       value=project.field_check_date.isoformat() if project.field_check_date else ''),
+            ],
+        })
+
+        if path == PATH_DIRECT_REPLY:
+            reply_category = LandUseProjectDocument.CATEGORY_FINAL_REPLY
+            reply_blockers = missing_document_blockers(project, 'record_city_reply', [reply_category])
+            todos.append({
+                'action': 'record_city_reply',
+                'kind': 'workflow',
+                'label': '直接出具复函',
+                'description': (
+                    '未涉及文物，可直接向项目方出具标准复函。'
+                    if not project.is_overlap_artifact
+                    else '涉及高等级文物且无法避让，向项目方出具不予同意的复函。'
+                ),
+                'enabled': not reply_blockers,
+                'blockers': reply_blockers,
+                'required_documents': [reply_category],
+                'fields': [
+                    _field('final_reply_to_company', '给项目方复函号',
+                           value=project.final_reply_to_company or latest_document_num(project, reply_category)),
+                ],
+            })
+        return todos
+
+    if status == LandUseProjectApproval.STATUS_FIELD_DONE:
+        county_blockers = missing_document_blockers(project, 'submit_city_request')
+        todos.append({
+            'action': 'submit_city_request',
+            'kind': 'workflow',
+            'label': '报送县局请示',
+            'description': '登记县局请示文号并上报市文物行政部门，等待回复意见。',
+            'enabled': not county_blockers,
+            'blockers': county_blockers,
+            'required_documents': ACTION_REQUIRED_DOCUMENTS['submit_city_request'],
+            'fields': [
+                _field('shanshan_request_num', '县局请示文号',
+                       value=(project.shanshan_request_num
+                              or latest_document_num(project, LandUseProjectDocument.CATEGORY_COUNTY_REQUEST)),
+                       placeholder=LandUseProjectApproval.suggest_next_shanshan_num(),
+                       hint='格式：鄯文旅字-2026-xx号'),
+            ],
+        })
+
+    if status == LandUseProjectApproval.STATUS_CITY_REVIEWING:
+        city_category = LandUseProjectDocument.CATEGORY_CITY_REPLY
+        city_blockers = missing_document_blockers(project, 'record_city_reply', [city_category])
+        todos.append({
+            'action': 'record_city_reply',
+            'kind': 'workflow',
+            'label': '录入市局回复意见',
+            'description': '登记市文物行政部门的复函文号，据此向项目方出具复函。',
+            'enabled': not city_blockers,
+            'blockers': city_blockers,
+            'required_documents': [city_category],
+            'fields': [
+                _field('city_reply_num', '市局复函文号',
+                       value=project.city_reply_num or latest_document_num(project, city_category)),
+            ],
+        })
+
+    if status in {
+        LandUseProjectApproval.STATUS_FIELD_DONE,
+        LandUseProjectApproval.STATUS_CITY_REVIEWING,
+    } and path == PATH_ARCHAEOLOGY:
+        blockers = []
+        if project.involves_kanerjing:
+            if not project.kanerjing_protection_plan_path:
+                blockers.append('涉及坎儿井：请先上传坎儿井保护加固方案PDF')
+            if not project.water_department_opinion.strip():
+                blockers.append('涉及坎儿井：请先录入水利部门意见')
+        blockers.extend(missing_document_blockers(project, 'submit_archaeology_request'))
+        todos.append({
+            'action': 'submit_archaeology_request',
+            'kind': 'workflow',
+            'label': '发起专项保护程序',
+            'description': '无法避让时，依法开展考古调查勘探、文物影响评估与保护方案编制。',
+            'enabled': not blockers,
+            'blockers': blockers,
+            'required_documents': ACTION_REQUIRED_DOCUMENTS['submit_archaeology_request'],
+            'fields': [
+                _field('archaeology_request_num', '考古请示文号',
+                       value=(project.archaeology_request_num
+                              or latest_document_num(project, LandUseProjectDocument.CATEGORY_ARCHAEOLOGY_REQUEST))),
+            ],
+        })
+
+    if status == LandUseProjectApproval.STATUS_ARCHAEOLOGY:
+        blockers = [] if project.archaeology_report_path else ['请先上传自治区考古研究所调查报告PDF']
+        required_docs = list(ACTION_REQUIRED_DOCUMENTS['record_archaeology_reply'])
+        extra_docs = (
+            [LandUseProjectDocument.CATEGORY_STATE_COUNCIL_APPROVAL]
+            if project.requires_state_council_approval
+            else []
+        )
+        required_docs.extend(extra_docs)
+        blockers.extend(missing_document_blockers(project, 'record_archaeology_reply', extra_docs))
+        todos.append({
+            'action': 'record_archaeology_reply',
+            'kind': 'workflow',
+            'label': '录入考古与逐级报审结果',
+            'description': '登记自治区文物局批复与市文物局最终复函；依法需报国务院的一并登记。',
+            'enabled': not blockers,
+            'blockers': blockers,
+            'required_documents': required_docs,
+            'fields': [
+                _field('region_approval_num', '自治区文物局批复文号',
+                       value=(project.region_approval_num
+                              or latest_document_num(project, LandUseProjectDocument.CATEGORY_REGION_APPROVAL))),
+                _field('city_final_reply_num', '市文物局最终复函号',
+                       value=(project.city_final_reply_num
+                              or latest_document_num(project, LandUseProjectDocument.CATEGORY_CITY_FINAL_REPLY))),
+                _field('requires_state_council_approval', '需报国务院文物行政部门', 'checkbox',
+                       required=False, value=project.requires_state_council_approval),
+                _field('state_council_approval_num', '国务院批复文号', required=False,
+                       value=(project.state_council_approval_num
+                              or latest_document_num(project, LandUseProjectDocument.CATEGORY_STATE_COUNCIL_APPROVAL)),
+                       hint='仅在勾选“需报国务院文物行政部门”时必填'),
+            ],
+        })
+
+    if status == LandUseProjectApproval.STATUS_REPLY_RECEIVED:
+        blockers = []
+        if project.is_overlap_artifact and not project.protection_measures_confirmed:
+            blockers.append('涉及文物：请先在下方登记并确认保护措施落实情况')
+        blockers.extend(missing_document_blockers(project, 'archive_case'))
+        todos.append({
+            'action': 'archive_case',
+            'kind': 'workflow',
+            'label': '出具最终意见并归档',
+            'description': '核实保护措施落实到位后，向项目方出具最终涉及文物保护工作意见并结案。',
+            'enabled': not blockers,
+            'blockers': blockers,
+            'required_documents': ACTION_REQUIRED_DOCUMENTS['archive_case'],
+            'fields': [
+                _field('final_reply_to_company', '给项目方最终复函号',
+                       value=(project.final_reply_to_company
+                              or latest_document_num(project, LandUseProjectDocument.CATEGORY_FINAL_REPLY))),
+            ],
+        })
+
+    return todos
+
+
+def build_extra_info_form(project: LandUseProjectApproval) -> Dict:
+    """随时可编辑的辅助信息：坎儿井专项、逐级报审、保护措施落实。"""
+    return {
+        'action': 'update_extra_info',
+        'kind': 'workflow',
+        'label': '保存补充信息',
+        'fields': [
+            _field('involves_kanerjing', '涉及坎儿井', 'checkbox', required=False,
+                   value=project.involves_kanerjing,
+                   hint='涉及坎儿井需编制保护加固方案并征求水利部门意见'),
+            _field('water_department_opinion', '水利部门意见', 'textarea', required=False,
+                   value=project.water_department_opinion),
+            _field('requires_state_council_approval', '需报国务院文物行政部门', 'checkbox',
+                   required=False, value=project.requires_state_council_approval),
+            _field('state_council_approval_num', '国务院批复文号', required=False,
+                   value=project.state_council_approval_num),
+            _field('protection_measures_note', '保护措施落实情况说明', 'textarea', required=False,
+                   value=project.protection_measures_note,
+                   hint='原址保护 / 迁移保护 / 考古调查勘探 / 坎儿井加固等'),
+            _field('protection_measures_confirmed', '保护措施已核实落实', 'checkbox',
+                   required=False, value=project.protection_measures_confirmed),
+        ],
+    }
+
+
+def build_document_overview(project: LandUseProjectApproval) -> Dict:
+    """公文归档概览：可选类别、必备类别与已归档状态。"""
+    required_now = set()
+    for todo in build_workflow_todos(project, resolve_workflow_path(project)[0]):
+        required_now.update(todo.get('required_documents') or [])
+
+    categories = []
+    for code, label in LandUseProjectDocument.CATEGORY_CHOICES:
+        categories.append({
+            'value': code,
+            'label': label,
+            'archived': has_project_document(project, code),
+            'required_now': code in required_now,
+            'num_field': DOCUMENT_NUM_FIELDS.get(code, ''),
+        })
+
+    return {
+        'categories': categories,
+        'allowed_extensions': list(ALLOWED_DOCUMENT_EXTENSIONS),
+    }
+
+
+def build_workflow_guide(project: LandUseProjectApproval) -> Dict:
+    path, advice = resolve_workflow_path(project)
+    return {
+        'path': path,
+        'path_label': {
+            PATH_PENDING: '待核查',
+            PATH_DIRECT_REPLY: '直接复函',
+            PATH_ARCHAEOLOGY: '专项保护流程',
+        }.get(path, path),
+        'advice': advice,
+        'current_step': get_current_step_key(project),
+        'steps': _step_states(project, path),
+        'todos': build_workflow_todos(project, path),
+        'extra_info_form': build_extra_info_form(project),
+        'documents': build_document_overview(project),
+        'is_archived': project.status == LandUseProjectApproval.STATUS_ARCHIVED,
     }
