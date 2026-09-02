@@ -106,3 +106,60 @@ export async function fetchSipuBoundaryImportStatus(jobId) {
   const response = await client.get(`/api/v1/system/sipu-boundary-import/status/${jobId}/`)
   return response.data
 }
+
+function extractFilenameFromDisposition(disposition) {
+  if (!disposition) return ''
+  const utfMatch = disposition.match(/filename\*=UTF-8''([^;]+)/i)
+  if (utfMatch?.[1]) {
+    try {
+      return decodeURIComponent(utfMatch[1])
+    } catch (_error) {
+      return utfMatch[1]
+    }
+  }
+  const normalMatch = disposition.match(/filename="?([^";]+)"?/i)
+  return normalMatch?.[1] || ''
+}
+
+export async function fetchDataSyncOptions() {
+  const response = await client.get('/api/v1/system/data-sync/options/')
+  return response.data
+}
+
+export async function exportDataSyncPackage({ datasets = [], includeMedia = true } = {}) {
+  const formData = new FormData()
+  datasets.forEach((item) => formData.append('datasets', item))
+  formData.set('include_media', includeMedia ? '1' : '0')
+
+  const response = await client.post('/api/v1/system/data-sync/export/', formData, {
+    responseType: 'blob',
+    timeout: 30 * 60 * 1000
+  })
+
+  const contentType = response.headers['content-type'] || ''
+  if (contentType.includes('application/json')) {
+    return JSON.parse(await response.data.text())
+  }
+
+  return {
+    success: true,
+    download: {
+      blob: response.data,
+      filename: extractFilenameFromDisposition(response.headers['content-disposition']) || 'heritage-sync.zip'
+    }
+  }
+}
+
+export async function importDataSyncPackage({ file, datasets = [], mode = 'merge', importMedia = true }) {
+  const formData = new FormData()
+  formData.set('package', file)
+  datasets.forEach((item) => formData.append('datasets', item))
+  formData.set('mode', mode)
+  formData.set('import_media', importMedia ? '1' : '0')
+
+  const response = await client.post('/api/v1/system/data-sync/import/', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 30 * 60 * 1000
+  })
+  return response.data
+}

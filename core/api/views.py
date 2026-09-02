@@ -7,6 +7,7 @@ import csv
 import re
 import logging
 from datetime import timedelta, datetime
+from urllib.parse import quote
 
 from django.conf import settings
 from django.core.cache import cache
@@ -23,6 +24,7 @@ from core import views as legacy_views
 from core.models import HeritagePhoto, HeritageSite, ImmovableHeritage, InspectionRecord, KmlUploadRecord, LandUseProjectApproval, ProjectAudit
 from core.permission_decorators import can_modify_core_data
 from core.permissions.api_permissions import IsManagementAdmin
+from core.services import data_sync
 from core.services.heritage_service import (
     get_heritage_detail_payload,
     get_heritage_map_points,
@@ -111,6 +113,77 @@ class SipuBoundaryImportStatusAPIView(APIView):
         if not status_payload:
             return Response({'success': False, 'message': '任务不存在'}, status=404)
         return Response({'success': True, 'data': status_payload})
+
+
+class DataSyncOptionsAPIView(APIView):
+    """在线/离线数据同步：返回可同步数据集及当前记录数。"""
+
+    permission_classes = [IsManagementAdmin]
+
+    def get(self, request):
+        return Response({
+            'success': True,
+            'data': {
+                'datasets': data_sync.get_dataset_overview(),
+                'default_datasets': data_sync.DEFAULT_DATASETS,
+                'package_version': data_sync.PACKAGE_VERSION,
+                'system_version': get_system_version_payload().get('version', ''),
+            },
+        })
+
+
+class DataSyncExportAPIView(APIView):
+    """在线/离线数据同步：导出 ZIP 数据包。"""
+
+    permission_classes = [IsManagementAdmin]
+
+    def post(self, request):
+        datasets = request.data.getlist('datasets') if hasattr(request.data, 'getlist') else request.data.get('datasets')
+        include_media = str(request.data.get('include_media', '1')).lower() not in {'0', 'false', 'no', 'off'}
+
+        try:
+            filename, content = data_sync.build_export_package(datasets, include_media=include_media)
+        except data_sync.DataSyncError as exc:
+            return Response({'success': False, 'message': str(exc)}, status=400)
+        except Exception:
+            logger.exception('导出同步数据包失败')
+            return Response({'success': False, 'message': '导出数据包失败，请稍后重试'}, status=500)
+
+        response = HttpResponse(content, content_type='application/zip')
+        response['Content-Disposition'] = f"attachment; filename*=UTF-8''{quote(filename, safe='')}"
+        return response
+
+
+class DataSyncImportAPIView(APIView):
+    """在线/离线数据同步：导入 ZIP 数据包。"""
+
+    permission_classes = [IsManagementAdmin]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        upload = request.FILES.get('package')
+        if not upload:
+            return Response({'success': False, 'message': '请先选择要导入的 ZIP 数据包。'}, status=400)
+        if not (upload.name or '').lower().endswith('.zip'):
+            return Response({'success': False, 'message': '仅支持导入 .zip 格式的同步数据包。'}, status=400)
+
+        datasets = request.data.getlist('datasets') if hasattr(request.data, 'getlist') else request.data.get('datasets')
+        mode = (request.data.get('mode') or data_sync.IMPORT_MODE_MERGE).strip()
+        import_media = str(request.data.get('import_media', '1')).lower() not in {'0', 'false', 'no', 'off'}
+
+        try:
+            report = data_sync.apply_import_package(upload, datasets=datasets, mode=mode, import_media=import_media)
+        except data_sync.DataSyncError as exc:
+            return Response({'success': False, 'message': str(exc)}, status=400)
+        except Exception:
+            logger.exception('导入同步数据包失败')
+            return Response({'success': False, 'message': '导入数据包失败，请检查数据包是否完整'}, status=500)
+
+        message = (
+            f"导入完成：写入 {report['imported_count']} 条记录"
+            f"，跳过 {report['skipped_count']} 条，附件 {report['media_count']} 个。"
+        )
+        return Response({'success': True, 'message': message, 'data': report})
 
 
 class DashboardOverviewAPIView(APIView):

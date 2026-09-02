@@ -2,8 +2,10 @@
   <section>
     <header class="page-header">
       <h1>数据管理</h1>
-      <p>从四普系统抓取"文物矢量图"边界坐标，替换KML叠加检查使用的单点坐标</p>
+      <p>在线版与离线版数据同步，以及从四普系统抓取“文物矢量图”边界坐标</p>
     </header>
+
+    <DataSyncPanel class="card top-space" />
 
     <div class="card top-space">
       <h3>四普系统文物边界导入</h3>
@@ -122,6 +124,7 @@ import { computed, onUnmounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 
 import { fetchSipuBoundaryImportStatus, startSipuBoundaryImport } from '../../../api/system/systemApi'
+import DataSyncPanel from '../../../components/system/DataSyncPanel.vue'
 
 const starting = ref(false)
 const running = ref(false)
