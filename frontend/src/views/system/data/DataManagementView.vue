@@ -2,7 +2,7 @@
   <section class="data-management card">
     <header class="header-block">
       <h1>数据管理</h1>
-      <p>支持基础文物数据 CSV 导入，以及用户数据一键备份/恢复。</p>
+      <p>支持基础文物数据 CSV 导入、在线/离线数据同步，以及用户数据一键备份/恢复。</p>
       <el-alert
         v-if="fromSetup"
         title="首次启动提示：建议先导入基础文物数据，再开展巡查与管理业务。"
@@ -62,6 +62,8 @@
         <p v-if="lastBackupPath" class="path-note">最近备份：{{ lastBackupPath }}</p>
         <p v-if="!desktopAvailable" class="warn">当前非桌面环境，备份/恢复功能不可用。</p>
       </article>
+
+      <DataSyncPanel class="pane-wide" />
     </div>
   </section>
 </template>
@@ -71,6 +73,7 @@ import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { importImmovableHeritage } from '../../../api/heritageApi'
+import DataSyncPanel from '../../../components/system/DataSyncPanel.vue'
 
 const route = useRoute()
 const importing = ref(false)
@@ -278,6 +281,10 @@ async function restoreBackup() {
 .pane h2 {
   margin: 0;
   font-size: 18px;
+}
+
+.pane-wide {
+  grid-column: 1 / -1;
 }
 
 .hint {
