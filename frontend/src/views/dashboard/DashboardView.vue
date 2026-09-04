@@ -1,5 +1,5 @@
 <template>
-  <section class="dashboard-page">
+  <section ref="dashboardPageEl" class="dashboard-page">
     <header class="page-header">
       <h1>综合看板</h1>
       <p>面向审批、巡查、文保风险和地图联动的统一首页</p>
@@ -108,7 +108,7 @@
 
 <script setup>
 import * as echarts from 'echarts'
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
 
@@ -119,6 +119,7 @@ import HeritageMapCanvas from '../../components/heritage/HeritageMapCanvas.vue'
 import StatCard from '../../components/StatCard.vue'
 
 const router = useRouter()
+const dashboardPageEl = ref(null)
 
 const versionText = ref('-')
 const overview = ref({
@@ -154,6 +155,7 @@ let levelChartRef = null
 let inspectionChartRef = null
 let trendChartRef = null
 let funnelChartRef = null
+let dashboardResizeObserver = null
 
 const inspectionRateText = computed(() => {
   const total = Number(inspectionStats.total_count)
@@ -449,6 +451,7 @@ async function loadDashboardData() {
 
 onMounted(async () => {
   await loadDashboardData()
+  await nextTick()
 
   levelChartRef = echarts.init(levelChartEl.value)
   inspectionChartRef = echarts.init(inspectionChartEl.value)
@@ -459,10 +462,17 @@ onMounted(async () => {
   renderTrendChart()
   renderFunnelChart()
   window.addEventListener('resize', resizeCharts)
+
+  if (typeof ResizeObserver !== 'undefined' && dashboardPageEl.value) {
+    dashboardResizeObserver = new ResizeObserver(() => resizeCharts())
+    dashboardResizeObserver.observe(dashboardPageEl.value)
+  }
 })
 
 onUnmounted(() => {
   window.removeEventListener('resize', resizeCharts)
+  dashboardResizeObserver?.disconnect()
+  dashboardResizeObserver = null
   if (levelChartRef) {
     levelChartRef.dispose()
     levelChartRef = null
@@ -508,11 +518,12 @@ watch(
 
 <style scoped>
 .dashboard-page {
-  height: calc(100vh - 48px);
+  min-height: 100%;
+  height: auto;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto;
   gap: 10px;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .page-header p {
@@ -541,7 +552,7 @@ watch(
 
 .dashboard-grid-rich {
   margin-top: 0;
-  grid-template-columns: 1.15fr 1.35fr;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1.35fr);
   align-items: stretch;
   min-height: 0;
 }
@@ -591,7 +602,7 @@ watch(
 }
 
 .dashboard-chart {
-  height: 190px;
+  height: clamp(160px, 21vh, 190px);
   min-height: 0;
 }
 
@@ -600,6 +611,7 @@ watch(
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-width: 0;
 }
 
 .map-toolbar-row {
@@ -632,14 +644,14 @@ watch(
 
 .selected-site-box {
   margin-top: 8px;
-  border: 1px solid #dbe5ef;
-  background: #f8fafc;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface) 84%, var(--bg));
   border-radius: 10px;
   padding: 8px 10px;
 }
 
 .selected-site-title {
-  color: #0f172a;
+  color: var(--text);
   font-weight: 600;
   font-size: 13px;
 }
@@ -649,7 +661,7 @@ watch(
   display: grid;
   grid-template-columns: 1fr;
   gap: 2px;
-  color: #334155;
+  color: var(--muted);
   font-size: 12px;
 }
 
@@ -659,11 +671,11 @@ watch(
   }
 
   .dashboard-chart {
-    height: 180px;
+    height: clamp(150px, 19vh, 180px);
   }
 }
 
-@media (max-width: 1024px) {
+@media (max-width: 1200px) {
   .dashboard-page {
     height: auto;
     overflow: visible;
@@ -686,7 +698,7 @@ watch(
   }
 
   .dashboard-chart {
-    height: 260px;
+    height: clamp(190px, 24vh, 260px);
   }
 
   .map-toolbar-row {

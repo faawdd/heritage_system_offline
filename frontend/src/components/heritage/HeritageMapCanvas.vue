@@ -3,7 +3,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref, watch } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Feature from 'ol/Feature'
 import Map from 'ol/Map'
 import View from 'ol/View'
@@ -51,6 +51,8 @@ const abnormalSource = new VectorSource()
 const abnormalHeatSource = new VectorSource()
 const abnormalLayerRef = ref(null)
 const abnormalHeatLayerRef = ref(null)
+let mapResizeObserver = null
+let mapResizeFrame = 0
 
 const levelColors = {
   GB: '#e63946',
@@ -162,6 +164,21 @@ onMounted(() => {
   abnormalHeatLayerRef.value = abnormalHeatLayer
   applyPoints()
   applyAbnormalPoints()
+
+  if (typeof ResizeObserver !== 'undefined' && mapEl.value) {
+    mapResizeObserver = new ResizeObserver(() => {
+      cancelAnimationFrame(mapResizeFrame)
+      mapResizeFrame = requestAnimationFrame(() => map.updateSize())
+    })
+    mapResizeObserver.observe(mapEl.value)
+  }
+  requestAnimationFrame(() => map.updateSize())
+})
+
+onBeforeUnmount(() => {
+  mapResizeObserver?.disconnect()
+  cancelAnimationFrame(mapResizeFrame)
+  mapRef.value?.setTarget(undefined)
 })
 
 watch(
