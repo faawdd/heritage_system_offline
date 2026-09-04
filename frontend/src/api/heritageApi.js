@@ -72,6 +72,11 @@ export async function patchImmovableHeritage(siteId, payload) {
   return response.data
 }
 
+export async function deleteImmovableHeritage(siteId) {
+  const response = await client.delete(`/api/v1/heritage/immovable/${siteId}/`)
+  return response.data
+}
+
 export async function importImmovableHeritage(file) {
   const formData = new FormData()
   formData.append('file', file)

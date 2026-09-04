@@ -53,9 +53,10 @@
             {{ scope.row.longitude }}, {{ scope.row.latitude }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="90" fixed="right">
+        <el-table-column label="操作" width="140" fixed="right">
           <template #default="scope">
             <el-button link type="primary" @click="openEdit(scope.row)">编辑</el-button>
+            <el-button v-if="isSuperAdmin" link type="danger" @click="removeRecord(scope.row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -319,15 +320,20 @@
 </template>
 
 <script setup>
-import { reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { computed, reactive, ref } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { useAuthStore } from '../../stores/system/authStore'
 
 import {
   exportImmovableHeritage,
   fetchImmovableHeritageList,
   importImmovableHeritage,
+  deleteImmovableHeritage,
   patchImmovableHeritage
 } from '../../api/heritageApi'
+
+const authStore = useAuthStore()
+const isSuperAdmin = computed(() => Boolean(authStore.user?.is_superuser))
 
 const loading = ref(false)
 const importing = ref(false)
@@ -435,6 +441,29 @@ function handleSearch() {
 function onPageChange(page) {
   pagination.page = page
   loadRows()
+}
+
+async function removeRecord(row) {
+  try {
+    await ElMessageBox.confirm(
+      `删除后「${row.name || '该采集记录'}」及其照片将不可恢复，是否继续？`,
+      '删除采集记录',
+      { confirmButtonText: '确认删除', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch {
+    return
+  }
+
+  try {
+    const result = await deleteImmovableHeritage(row.id)
+    if (!result.success) {
+      throw new Error(result.message || '删除失败')
+    }
+    ElMessage.success(result.message || '采集记录已删除')
+    await loadRows()
+  } catch (error) {
+    ElMessage.error(error?.message || '删除失败')
+  }
 }
 
 function openEdit(row) {
