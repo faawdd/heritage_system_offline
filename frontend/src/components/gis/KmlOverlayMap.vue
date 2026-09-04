@@ -83,7 +83,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref, watch } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { getCenter, intersects as intersectsExtent } from 'ol/extent'
 import Feature from 'ol/Feature'
 import OlMap from 'ol/Map'
@@ -172,6 +172,8 @@ const measureLayerRef = ref(null)
 const baseLayersRef = ref({ img: [], vec: [], ter: [] })
 const featurePopupEl = ref(null)
 const popupOverlayRef = ref(null)
+let mapResizeObserver = null
+let mapResizeFrame = 0
 let measurePoints = []
 let loadToken = 0
 let overlapToken = 0
@@ -1119,6 +1121,16 @@ function fitAll() {
   })
 }
 
+function syncMapSizeAndView() {
+  if (!mapRef.value) {
+    return
+  }
+  mapRef.value.updateSize()
+  if (kmlSource.getFeatures().length > 0 || conflictSource.getFeatures().length > 0) {
+    fitAll()
+  }
+}
+
 function switchBase(mode) {
   baseMode.value = mode
   const groups = baseLayersRef.value
@@ -1607,6 +1619,24 @@ onMounted(() => {
 
   loadHeritageLayer()
   reloadKmlLayers()
+
+  if (typeof ResizeObserver !== 'undefined' && mapEl.value) {
+    mapResizeObserver = new ResizeObserver(() => {
+      cancelAnimationFrame(mapResizeFrame)
+      mapResizeFrame = requestAnimationFrame(syncMapSizeAndView)
+    })
+    mapResizeObserver.observe(mapEl.value)
+  }
+  requestAnimationFrame(() => {
+    syncMapSizeAndView()
+    requestAnimationFrame(syncMapSizeAndView)
+  })
+})
+
+onBeforeUnmount(() => {
+  mapResizeObserver?.disconnect()
+  cancelAnimationFrame(mapResizeFrame)
+  mapRef.value?.setTarget(undefined)
 })
 
 watch(
