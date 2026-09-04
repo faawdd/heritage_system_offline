@@ -11,6 +11,7 @@ from urllib.parse import quote
 
 from django.conf import settings
 from django.core.cache import cache
+from django.core.files.storage import default_storage
 from django.db.models import Q, Count
 from django.http import HttpResponse
 from django.contrib.auth.models import User
@@ -862,6 +863,44 @@ class ImmovableHeritageDetailAPIView(APIView):
             return Response({'success': False, 'message': f'保存失败: {exc}'}, status=400)
 
         return Response({'success': True, 'message': '文物档案已更新'})
+
+    def delete(self, request, site_id):
+        if not request.user.is_superuser:
+            return Response({'success': False, 'message': '仅超级管理员可以删除采集记录'}, status=403)
+
+        heritage = ImmovableHeritage.objects.filter(id=site_id).first()
+        if not heritage:
+            return Response({'success': False, 'message': '文物档案不存在'}, status=404)
+
+        photo_paths = list(heritage.photos.exclude(image='').values_list('image', flat=True))
+        record_name = heritage.name
+        try:
+            heritage.delete()
+        except Exception:
+            logger.exception('删除采集记录失败: site_id=%s', site_id)
+            return Response({'success': False, 'message': '删除失败，请查看服务端日志'}, status=500)
+
+        removed_files = 0
+        for path in photo_paths:
+            try:
+                if default_storage.exists(path):
+                    default_storage.delete(path)
+                    removed_files += 1
+            except Exception:
+                logger.warning('删除采集记录照片失败: %s', path)
+
+        logger.warning(
+            '超级管理员 %s 删除采集记录 %s(%s)，清理照片 %s 张',
+            request.user.username,
+            record_name,
+            site_id,
+            removed_files,
+        )
+        return Response({
+            'success': True,
+            'message': f'采集记录「{record_name}」已删除',
+            'data': {'id': site_id, 'removed_files': removed_files},
+        })
 
 
 class ImmovableHeritageCollectAPIView(APIView):
