@@ -836,8 +836,8 @@ loadDetail()
 }
 
 .card {
-  background: #fff;
-  border: 1px solid #e2e8f0;
+  background: var(--surface);
+  border: 1px solid var(--line);
   border-radius: 12px;
   padding: 16px;
 }
@@ -861,7 +861,7 @@ loadDetail()
 }
 
 .advice {
-  color: #64748b;
+  color: var(--muted);
   font-size: 13px;
 }
 
@@ -880,11 +880,11 @@ loadDetail()
 }
 
 .todo-card {
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--line);
   border-radius: 10px;
   padding: 14px;
   margin-bottom: 12px;
-  background: #f8fafc;
+  background: color-mix(in srgb, var(--surface) 82%, var(--bg));
 }
 
 .todo-head {
@@ -896,7 +896,7 @@ loadDetail()
 
 .todo-desc {
   margin: 6px 0 10px;
-  color: #64748b;
+  color: var(--muted);
   font-size: 13px;
 }
 
@@ -918,7 +918,7 @@ loadDetail()
 
 .field-item label {
   font-size: 13px;
-  color: #334155;
+  color: var(--text);
 }
 
 .required {
@@ -927,7 +927,7 @@ loadDetail()
 
 .hint {
   font-size: 12px;
-  color: #94a3b8;
+  color: var(--muted);
 }
 
 .stats-row {
@@ -942,7 +942,7 @@ loadDetail()
   flex-direction: column;
   gap: 4px;
   padding: 10px 12px;
-  background: #f8fafc;
+  background: color-mix(in srgb, var(--surface) 82%, var(--bg));
   border-radius: 8px;
 }
 

@@ -702,8 +702,15 @@ onMounted(() => {
   background:
     radial-gradient(circle at 6% 8%, rgba(14, 165, 233, 0.22) 0, rgba(14, 165, 233, 0) 36%),
     radial-gradient(circle at 92% 12%, rgba(59, 130, 246, 0.24) 0, rgba(59, 130, 246, 0) 38%),
-    linear-gradient(165deg, #e0f2fe 0%, #ecfeff 36%, #f8fafc 72%, #f1f5f9 100%);
+    linear-gradient(165deg, var(--kml-page-start, #e0f2fe) 0%, var(--kml-page-mid, #ecfeff) 36%, var(--kml-page-end, #f8fafc) 72%, var(--kml-page-bottom, #f1f5f9) 100%);
   overflow: hidden;
+}
+
+:global(:root[data-theme='dark']) .kml-fullscreen-page {
+  --kml-page-start: #102a43;
+  --kml-page-mid: #12344e;
+  --kml-page-end: #0e1a2b;
+  --kml-page-bottom: #0b1728;
 }
 
 .kml-fullscreen-page::before {
@@ -739,7 +746,7 @@ onMounted(() => {
 
 .kml-menu-toggle :deep(.el-button) {
   border: 1px solid rgba(148, 163, 184, 0.45);
-  background: rgba(255, 255, 255, 0.76);
+  background: var(--surface);
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.18);
   backdrop-filter: blur(6px);
 }
@@ -751,8 +758,8 @@ onMounted(() => {
   bottom: 16px;
   width: min(420px, calc(100vw - 32px));
   z-index: 28;
-  background: linear-gradient(168deg, rgba(255, 255, 255, 0.9) 0%, rgba(248, 250, 252, 0.94) 100%);
-  border: 1px solid rgba(148, 163, 184, 0.38);
+  background: var(--surface);
+  border: 1px solid var(--line);
   border-radius: 18px;
   box-shadow: 0 20px 46px rgba(15, 23, 42, 0.2);
   backdrop-filter: blur(10px);
@@ -766,21 +773,21 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   padding: 16px 16px 10px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.28);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.84) 0%, rgba(255, 255, 255, 0.38) 100%);
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface) 88%, var(--bg));
 }
 
 .floating-menu-header h3 {
   margin: 0;
   font-size: 17px;
   letter-spacing: 0.2px;
-  color: #0f172a;
+  color: var(--text);
 }
 
 .floating-menu-header p {
   margin: 5px 0 0;
   font-size: 12px;
-  color: #475569;
+  color: var(--muted);
 }
 
 .floating-menu-scroll {
@@ -794,8 +801,8 @@ onMounted(() => {
 }
 
 .floating-menu-scroll :deep(.el-collapse-item) {
-  background: rgba(255, 255, 255, 0.54);
-  border: 1px solid rgba(148, 163, 184, 0.26);
+  background: color-mix(in srgb, var(--surface) 82%, var(--bg));
+  border: 1px solid var(--line);
   border-radius: 12px;
   margin-bottom: 10px;
   overflow: hidden;
@@ -839,10 +846,10 @@ onMounted(() => {
   line-height: 42px;
   padding: 0 12px 0 14px;
   border: 0;
-  color: #0f172a;
+  color: var(--text);
   font-size: 13px;
   font-weight: 600;
-  background: linear-gradient(180deg, rgba(248, 250, 252, 0.9) 0%, rgba(241, 245, 249, 0.8) 100%);
+  background: color-mix(in srgb, var(--surface) 90%, var(--bg));
 }
 
 .floating-menu-scroll :deep(.el-collapse-item__wrap) {
@@ -869,7 +876,7 @@ onMounted(() => {
 
 .floating-row > span {
   font-size: 12px;
-  color: #475569;
+  color: var(--muted);
   white-space: nowrap;
 }
 
@@ -903,7 +910,7 @@ onMounted(() => {
 .floating-subtitle {
   margin: 6px 0 0;
   font-size: 12px;
-  color: #0f172a;
+  color: var(--text);
   font-weight: 600;
   letter-spacing: 0.25px;
   text-transform: uppercase;
@@ -916,10 +923,10 @@ onMounted(() => {
 }
 
 .gis-info-card {
-  border: 1px solid rgba(148, 163, 184, 0.35);
+  border: 1px solid var(--line);
   border-radius: 10px;
   padding: 7px 8px;
-  background: linear-gradient(160deg, rgba(255, 255, 255, 0.92) 0%, rgba(241, 245, 249, 0.88) 100%);
+  background: color-mix(in srgb, var(--surface) 90%, var(--bg));
   box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
   display: flex;
   flex-direction: column;
@@ -928,13 +935,13 @@ onMounted(() => {
 
 .gis-info-card .label {
   font-size: 11px;
-  color: #64748b;
+  color: var(--muted);
   line-height: 1.2;
 }
 
 .gis-info-card strong {
   font-size: 15px;
-  color: #0f172a;
+  color: var(--text);
   font-weight: 700;
   line-height: 1;
 }
@@ -964,13 +971,13 @@ onMounted(() => {
 }
 
 .muted-text {
-  color: #64748b;
+  color: var(--muted);
   font-size: 12px;
 }
 
 .hint-text {
   margin: 0;
-  color: #475569;
+  color: var(--muted);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -992,7 +999,7 @@ onMounted(() => {
 :deep(.floating-form-block .el-switch) {
   box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.38) inset;
   border-radius: 9px;
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--surface);
 }
 
 :deep(.floating-form-block .el-input__wrapper:hover),
