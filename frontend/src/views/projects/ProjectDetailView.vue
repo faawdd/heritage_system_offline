@@ -9,6 +9,8 @@
       </div>
       <div class="header-actions">
         <el-button @click="goList">返回列表</el-button>
+        <el-button :loading="archiving" @click="downloadAllFilesArchive">导出全部文件</el-button>
+        <el-button v-if="isSuperAdmin" type="danger" plain @click="removeProject">删除项目</el-button>
         <el-button type="primary" :loading="loading" @click="loadDetail">刷新</el-button>
       </div>
     </header>
@@ -356,9 +358,12 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
+import { useAuthStore } from '../../stores/system/authStore'
 
 import {
+  deleteProject,
   deleteProjectDocument,
+  downloadProjectAllFilesArchive,
   downloadProjectDocumentsArchive,
   fetchProjectDetail,
   linkProjectKmlRecord,
@@ -372,6 +377,7 @@ import OfficialDocumentGenerator from '../../components/projects/OfficialDocumen
 
 const route = useRoute()
 const router = useRouter()
+const authStore = useAuthStore()
 
 const projectId = route.params.projectId
 const loading = ref(false)
@@ -403,6 +409,11 @@ const timelineEvents = computed(() => detail.operation_logs || [])
 
 const docCategories = computed(() => guide.documents?.categories || [])
 const requiredDocCategories = computed(() => docCategories.value.filter((item) => item.required_now && !item.archived))
+const isSuperAdmin = computed(() => {
+  const user = authStore.user || {}
+  const roles = Array.isArray(user.roles) ? user.roles : []
+  return Boolean(user.is_superuser) || roles.includes('超级管理员')
+})
 
 const mapRecords = computed(() => (
   detail.kml_record_id
@@ -694,6 +705,60 @@ async function downloadDocumentsArchive() {
     ElMessage.error(error?.message || '打包下载失败')
   } finally {
     archiving.value = false
+  }
+}
+
+async function downloadAllFilesArchive() {
+  archiving.value = true
+  try {
+    const response = await downloadProjectAllFilesArchive(projectId)
+    const blob = new Blob([response.data], { type: 'application/zip' })
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = `${detail.project_name || '项目'}-全部文件.zip`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(link.href)
+  } catch (error) {
+    ElMessage.error(error?.message || '导出文件失败')
+  } finally {
+    archiving.value = false
+  }
+}
+
+async function removeProject() {
+  let confirmName
+  try {
+    const result = await ElMessageBox.prompt(
+      `删除后项目记录和已上传文件都不可恢复。请输入项目名称「${detail.project_name}」确认删除。`,
+      '删除项目',
+      {
+        confirmButtonText: '确认删除',
+        cancelButtonText: '取消',
+        confirmButtonClass: 'el-button--danger',
+        inputPlaceholder: detail.project_name
+      }
+    )
+    confirmName = result.value
+  } catch (error) {
+    return
+  }
+
+  if (confirmName !== detail.project_name) {
+    ElMessage.warning('项目名称不匹配，已取消删除')
+    return
+  }
+
+  try {
+    const result = await deleteProject(projectId, confirmName)
+    if (!result.success) {
+      throw new Error(result.message || '删除失败')
+    }
+    ElMessage.success('项目已删除')
+    await router.push('/projects')
+  } catch (error) {
+    ElMessage.error(error?.message || '删除失败')
   }
 }
 
