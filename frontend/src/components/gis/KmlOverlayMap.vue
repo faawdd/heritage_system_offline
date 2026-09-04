@@ -1606,6 +1606,7 @@ onMounted(() => {
   map.getView().on('change:resolution', updateBoundaryZoomVisibility)
 
   loadHeritageLayer()
+  reloadKmlLayers()
 })
 
 watch(
@@ -1621,7 +1622,7 @@ watch(
   () => {
     reloadConflictLayer()
   },
-  { deep: true }
+  { deep: true, immediate: true }
 )
 
 watch(
