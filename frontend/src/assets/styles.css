@@ -13,6 +13,9 @@
   --sidebar-group-bg: rgba(255, 255, 255, 0.72);
   --sidebar-active-bg: #d8eaff;
   --sidebar-hover-bg: rgba(128, 176, 229, 0.22);
+  --danger-text: #b42318;
+  --success-text: #087443;
+  --warning-text: #9a6700;
   --sidebar-width: 252px;
   --content-padding: 24px;
 }
@@ -32,6 +35,9 @@
   --sidebar-group-bg: rgba(22, 44, 72, 0.58);
   --sidebar-active-bg: #234f7a;
   --sidebar-hover-bg: rgba(98, 133, 171, 0.26);
+  --danger-text: #ff8f8f;
+  --success-text: #6ee7b7;
+  --warning-text: #f8c76b;
 }
 
 * {
@@ -506,6 +512,30 @@ section,
   --el-button-text-color: var(--text);
 }
 
+:root[data-theme='dark'] {
+  --el-bg-color: var(--surface);
+  --el-bg-color-page: var(--bg);
+  --el-bg-color-overlay: #1d304b;
+  --el-fill-color-blank: var(--surface);
+  --el-fill-color: #203653;
+  --el-fill-color-light: #203653;
+  --el-fill-color-lighter: #24405f;
+  --el-fill-color-extra-light: #2a4666;
+  --el-fill-color-dark: #102139;
+  --el-text-color-primary: var(--text);
+  --el-text-color-regular: #c2d4eb;
+  --el-text-color-secondary: var(--muted);
+  --el-text-color-placeholder: #89a2c1;
+  --el-border-color: var(--line);
+  --el-border-color-light: #345273;
+  --el-border-color-lighter: #294562;
+  --el-color-primary-light-9: #183b5e;
+  --el-color-info-light-9: #203653;
+  --el-color-success-light-9: #163f3b;
+  --el-color-warning-light-9: #4a3a1d;
+  --el-color-danger-light-9: #512a35;
+}
+
 :root[data-theme='dark'] .el-table,
 :root[data-theme='dark'] .el-input__wrapper,
 :root[data-theme='dark'] .el-select__wrapper,
@@ -513,11 +543,36 @@ section,
 :root[data-theme='dark'] .el-statistic__content {
   --el-fill-color-blank: var(--surface);
   --el-bg-color: var(--surface);
-  --el-bg-color-overlay: var(--surface);
   --el-text-color-primary: var(--text);
-  --el-text-color-regular: var(--muted);
   --el-border-color: var(--line);
-  --el-fill-color-light: #16263d;
+}
+
+:root[data-theme='dark'] .el-dialog,
+:root[data-theme='dark'] .el-message-box,
+:root[data-theme='dark'] .el-popover,
+:root[data-theme='dark'] .el-dropdown-menu,
+:root[data-theme='dark'] .el-picker-panel,
+:root[data-theme='dark'] .el-select-dropdown {
+  background-color: var(--el-bg-color-overlay);
+  border-color: var(--el-border-color);
+  color: var(--el-text-color-primary);
+}
+
+:root[data-theme='dark'] .el-dialog__title,
+:root[data-theme='dark'] .el-message-box__title,
+:root[data-theme='dark'] .el-message-box__message,
+:root[data-theme='dark'] .el-form-item__label,
+:root[data-theme='dark'] .el-dropdown-menu__item,
+:root[data-theme='dark'] .el-select-dropdown__item,
+:root[data-theme='dark'] .el-picker-panel__body {
+  color: var(--el-text-color-primary);
+}
+
+:root[data-theme='dark'] .el-dialog__headerbtn .el-dialog__close,
+:root[data-theme='dark'] .el-message-box__headerbtn .el-message-box__close,
+:root[data-theme='dark'] .el-input__count,
+:root[data-theme='dark'] .el-form-item__error {
+  color: var(--el-text-color-secondary);
 }
 
 .stat-title {

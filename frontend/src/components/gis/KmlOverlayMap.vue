@@ -1662,7 +1662,7 @@ watch(
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(15, 23, 42, 0.22);
+  background: color-mix(in srgb, var(--bg) 58%, transparent);
   backdrop-filter: blur(1px);
 }
 
@@ -1670,9 +1670,9 @@ watch(
   display: flex;
   align-items: center;
   gap: 10px;
-  color: #0f172a;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
   border-radius: 10px;
   padding: 10px 12px;
   font-size: 13px;
@@ -1697,12 +1697,12 @@ watch(
 .kml-feature-popup {
   min-width: 220px;
   max-width: 320px;
-  background: rgba(255, 255, 255, 0.96);
-  border: 1px solid #e2e8f0;
+  background: var(--surface);
+  border: 1px solid var(--line);
   border-radius: 10px;
   padding: 8px 10px;
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.22);
-  color: #0f172a;
+  color: var(--text);
   font-size: 12px;
   display: none;
 }
@@ -1719,7 +1719,7 @@ watch(
 .kml-feature-popup-content {
   white-space: pre-line;
   line-height: 1.5;
-  color: #334155;
+  color: var(--muted);
 }
 
 .kml-overlay-tip {
@@ -1742,8 +1742,8 @@ watch(
   top: 12px;
   right: 12px;
   z-index: 6;
-  background: linear-gradient(165deg, rgba(255, 255, 255, 0.88) 0%, rgba(241, 245, 249, 0.84) 100%);
-  border: 1px solid rgba(148, 163, 184, 0.34);
+  background: color-mix(in srgb, var(--surface) 92%, var(--bg));
+  border: 1px solid var(--line);
   border-radius: 12px;
   box-shadow: 0 14px 30px rgba(15, 23, 42, 0.18);
   padding: 11px;
@@ -1762,16 +1762,16 @@ watch(
 
 .toolbar-label {
   font-size: 12px;
-  color: #0f172a;
+  color: var(--text);
   min-width: 34px;
   font-weight: 600;
 }
 
 .toolbar-btn {
-  border: 1px solid rgba(148, 163, 184, 0.55);
+  border: 1px solid var(--line);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.9);
-  color: #0f172a;
+  background: var(--surface);
+  color: var(--text);
   font-size: 12px;
   line-height: 1;
   padding: 6px 9px;
@@ -1786,10 +1786,10 @@ watch(
 }
 
 .toolbar-select {
-  border: 1px solid rgba(148, 163, 184, 0.55);
+  border: 1px solid var(--line);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.9);
-  color: #0f172a;
+  background: var(--surface);
+  color: var(--text);
   font-size: 12px;
   line-height: 1;
   padding: 5px 6px;
@@ -1804,7 +1804,7 @@ watch(
 
 .measure-text {
   font-size: 12px;
-  color: #0f172a;
+  color: var(--text);
   font-weight: 600;
 }
 
@@ -1815,8 +1815,8 @@ watch(
   z-index: 6;
   min-width: 196px;
   max-width: 250px;
-  background: linear-gradient(160deg, rgba(255, 255, 255, 0.9) 0%, rgba(241, 245, 249, 0.9) 100%);
-  border: 1px solid rgba(148, 163, 184, 0.34);
+  background: color-mix(in srgb, var(--surface) 92%, var(--bg));
+  border: 1px solid var(--line);
   border-radius: 12px;
   box-shadow: 0 14px 30px rgba(15, 23, 42, 0.18);
   padding: 10px 10px 8px;
@@ -1828,7 +1828,7 @@ watch(
 
 .legend-title {
   font-size: 12px;
-  color: #0f172a;
+  color: var(--text);
   font-weight: 600;
   margin-bottom: 2px;
   letter-spacing: 0.2px;
@@ -1839,7 +1839,7 @@ watch(
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  color: #1e293b;
+  color: var(--muted);
   line-height: 1.2;
 }
 
