@@ -9,6 +9,25 @@ from core.models import HeritageSite, InspectionRecord, LandUseProjectApproval, 
 
 PERIOD_LABELS = dict(ReportRecord.PERIOD_CHOICES)
 
+PERIOD_THEMES = {
+    ReportRecord.PERIOD_WEEKLY: {
+        'ink': '#244b55', 'muted': '#6b7f82', 'accent': '#3e8790',
+        'gold': '#c99a52', 'paper': '#f6f8f5', 'line': '#d7e2df',
+    },
+    ReportRecord.PERIOD_MONTHLY: {
+        'ink': '#18332f', 'muted': '#657774', 'accent': '#1b7168',
+        'gold': '#c7933f', 'paper': '#f8f5ee', 'line': '#d9e0d9',
+    },
+    ReportRecord.PERIOD_QUARTERLY: {
+        'ink': '#3f344f', 'muted': '#776e80', 'accent': '#7b5d91',
+        'gold': '#b98658', 'paper': '#f8f4f0', 'line': '#e1d8df',
+    },
+    ReportRecord.PERIOD_YEARLY: {
+        'ink': '#4a3024', 'muted': '#7e6b60', 'accent': '#a65e3b',
+        'gold': '#bd8a3d', 'paper': '#faf5ea', 'line': '#e5d8c3',
+    },
+}
+
 PERIOD_LITERATURE = {
     ReportRecord.PERIOD_WEEKLY: {
         'line': '慎终如始，则无败事。',
@@ -122,6 +141,7 @@ def build_report_context(period, period_start, period_end):
         'period_end': period_end,
         'generated_at': timezone.localtime(),
         'literature': PERIOD_LITERATURE[period],
+        'theme': PERIOD_THEMES[period],
         'summary': {
             'heritage_total': HeritageSite.objects.count(),
             'inspection_total': total_inspections,
