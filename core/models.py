@@ -575,6 +575,12 @@ class ReportRecord(models.Model):
         indexes = [
             models.Index(fields=['period', '-period_end']),
         ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['period', 'period_start', 'period_end'],
+                name='unique_report_period_range',
+            ),
+        ]
 
     def __str__(self):
         return f'{self.get_period_display()}：{self.period_start} 至 {self.period_end}'

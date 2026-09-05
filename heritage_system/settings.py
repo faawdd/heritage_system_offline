@@ -109,6 +109,10 @@ SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 # 静态文件收集目录
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
+# 内置报告调度器：Django 进程启动后自动检查已完成周期并生成报告。
+REPORT_AUTO_GENERATOR_ENABLED = os.environ.get('REPORT_AUTO_GENERATOR_ENABLED', 'true').lower() == 'true'
+REPORT_AUTO_GENERATOR_INTERVAL = int(os.environ.get('REPORT_AUTO_GENERATOR_INTERVAL', '3600'))
+
 INSTALLED_APPS = [
     'core',
     'system',
