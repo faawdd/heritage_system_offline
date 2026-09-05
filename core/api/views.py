@@ -308,6 +308,8 @@ class HeritageMapPointsAPIView(APIView):
 
     def get(self, request):
         rows = get_heritage_map_points()
+        for row in rows:
+            row['preview_url'] = legacy_views.build_heritage_preview_entry_url(request.user, row['id'])
         return Response({'success': True, 'rows': rows})
 
 
