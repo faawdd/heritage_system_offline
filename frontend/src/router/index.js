@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 import AppLayout from '../layouts/AppLayout.vue'
 import DashboardView from '../views/dashboard/DashboardView.vue'
+import ReportCenterView from '../views/reports/ReportCenterView.vue'
 import ProjectListView from '../views/projects/ProjectListView.vue'
 import ProjectCreateView from '../views/projects/ProjectCreateView.vue'
 import ProjectDetailView from '../views/projects/ProjectDetailView.vue'
@@ -39,6 +40,7 @@ const routes = [
     children: [
       { path: '', redirect: '/dashboard' },
       { path: 'dashboard', component: DashboardView },
+      { path: 'reports', component: ReportCenterView },
       { path: 'projects', component: ProjectListView },
       { path: 'projects/new', component: ProjectCreateView },
       { path: 'projects/:projectId', component: ProjectDetailView, props: true },

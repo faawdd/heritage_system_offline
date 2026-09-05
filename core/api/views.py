@@ -22,7 +22,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core import views as legacy_views
-from core.models import HeritagePhoto, HeritageSite, ImmovableHeritage, InspectionRecord, KmlUploadRecord, LandUseProjectApproval, ProjectAudit
+from core.models import HeritagePhoto, HeritageSite, ImmovableHeritage, InspectionRecord, KmlUploadRecord, LandUseProjectApproval, ProjectAudit, ReportRecord
 from core.permission_decorators import can_modify_core_data
 from core.permissions.api_permissions import IsManagementAdmin
 from core.services import data_sync
@@ -33,6 +33,7 @@ from core.services.heritage_service import (
 )
 from core.services.system_service import get_system_version_payload
 from core.ovkml_converter import build_csv_outputs, parse_kml_or_kmz
+from core.services.report_service import create_report, get_completed_period_bounds, render_report_html
 
 logger = logging.getLogger(__name__)
 
