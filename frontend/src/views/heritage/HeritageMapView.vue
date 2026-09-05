@@ -47,12 +47,9 @@
 <script setup>
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { useRouter } from 'vue-router'
 
 import { fetchHeritageMapPoints } from '../../api/heritageApi'
 import HeritageMapCanvas from '../../components/heritage/HeritageMapCanvas.vue'
-
-const router = useRouter()
 
 const loading = ref(false)
 const keyword = ref('')
@@ -62,10 +59,10 @@ const menuVisible = ref(true)
 const activePanels = ref(['filters'])
 
 function openDetail(payload) {
-  if (!payload?.id) {
+  if (!payload?.id || !payload.preview_url) {
     return
   }
-  router.push(`/heritage/${payload.id}`)
+  window.open(payload.preview_url, '_blank', 'noopener,noreferrer')
 }
 
 async function loadData() {
