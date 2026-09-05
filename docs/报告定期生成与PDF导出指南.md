@@ -8,6 +8,17 @@
 
 ## 定期生成
 
+系统已内置报告调度器。Django 应用进程启动后会自动检查已完成的周、月、季度和年度周期，并在后台生成尚未归档的报告；之后默认每小时检查一次。同一统计周期只会保留一份报告，多个 Web 进程同时运行也不会重复归档。
+
+在 Django 后台的「报告生成计划」中可以关闭某个周期。未配置计划时，四种报告默认全部启用。也可以通过环境变量调整行为：
+
+```bash
+REPORT_AUTO_GENERATOR_ENABLED=true
+REPORT_AUTO_GENERATOR_INTERVAL=3600
+```
+
+## 手动补生成
+
 管理命令位于 `core/management/commands/generate_reports.py`：
 
 ```bash
@@ -21,7 +32,7 @@ python manage.py generate_reports
 python manage.py generate_reports --period monthly
 ```
 
-建议在服务器使用 cron 每天执行一次，命令自身会跳过当天已生成的周期：
+通常无需额外配置 cron。若部署环境会定期重启应用，或希望由独立运维任务兜底，也可以每天执行一次；命令自身会跳过已归档的统计周期：
 
 ```cron
 10 8 * * * cd /srv/heritage_system && .venv/bin/python manage.py generate_reports >> logs/report_generation.log 2>&1

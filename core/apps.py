@@ -8,3 +8,6 @@ class CoreConfig(AppConfig):
     def ready(self):
         """Django启动时加载signals"""
         import core.signals
+        from core.report_scheduler import start_report_scheduler
+
+        start_report_scheduler()
