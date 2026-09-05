@@ -2,7 +2,10 @@
   <section class="project-detail" v-loading="loading">
     <header class="page-header">
       <div class="title-row">
-        <h1>{{ detail.project_name || '项目详情' }}</h1>
+        <div class="page-heading">
+          <span class="page-kicker">建设项目 / 办理工作台</span>
+          <h1>{{ detail.project_name || '项目详情' }}</h1>
+        </div>
         <el-tag :type="statusTagType" effect="dark">{{ detail.status_label || '-' }}</el-tag>
         <el-tag v-if="guide.path_label" :type="pathTagType" effect="plain">{{ guide.path_label }}</el-tag>
         <el-tag v-if="detail.has_high_level_overlap" type="danger">涉及自治区及以上级别文物</el-tag>
@@ -15,8 +18,27 @@
       </div>
     </header>
 
+    <div class="project-summary-bar">
+      <div class="summary-item summary-item--primary">
+        <span>当前节点</span>
+        <strong>{{ currentStepLabel }}</strong>
+      </div>
+      <div class="summary-item">
+        <span>项目单位</span>
+        <strong>{{ detail.company_name || '-' }}</strong>
+      </div>
+      <div class="summary-item">
+        <span>收文日期</span>
+        <strong>{{ detail.receive_date || '-' }}</strong>
+      </div>
+      <div class="summary-item" :class="{ 'summary-item--danger': detail.has_high_level_overlap }">
+        <span>核验结论</span>
+        <strong>{{ detail.kml_file_path ? (detail.is_overlap_artifact ? `涉及文物 ${overlapRows.length} 处` : '暂未发现涉及文物') : '待上传选址文件' }}</strong>
+      </div>
+    </div>
+
     <div class="card">
-      <el-descriptions :column="4" size="small" border>
+      <el-descriptions class="project-descriptions" :column="4" size="small" border>
         <el-descriptions-item label="项目单位">{{ detail.company_name || '-' }}</el-descriptions-item>
         <el-descriptions-item label="来函日期">{{ detail.incoming_doc_date || '-' }}</el-descriptions-item>
         <el-descriptions-item label="收文日期">{{ detail.receive_date || '-' }}</el-descriptions-item>
@@ -29,7 +51,8 @@
     </div>
 
     <div class="card">
-      <el-steps :active="activeStepIndex" align-center finish-status="success">
+      <div class="steps-scroll">
+        <el-steps :active="activeStepIndex" align-center finish-status="success">
         <el-step
           v-for="step in guide.steps || []"
           :key="step.key"
@@ -37,16 +60,18 @@
           :description="step.state === 'skipped' ? '本流程不涉及' : step.description"
           :status="elStepStatus(step)"
         />
-      </el-steps>
+        </el-steps>
+      </div>
     </div>
 
     <div class="detail-body">
       <main class="detail-main">
-        <div class="card">
+        <div class="card priority-card">
           <div class="card-title">
             <h3>当前待办</h3>
-            <span class="advice">{{ guide.advice }}</span>
+            <span class="todo-count">{{ todos.length }} 项待办</span>
           </div>
+          <p v-if="guide.advice" class="advice">{{ guide.advice }}</p>
 
           <el-empty
             v-if="!todos.length"
@@ -171,7 +196,7 @@
 
         <div class="card">
           <h3>附件与文档</h3>
-          <div class="action-row">
+          <div class="action-row project-upload-row">
             <el-select v-model="upload.file_type" style="width: 230px">
               <el-option label="项目选址(KML/KMZ)" value="kml" />
               <el-option label="现场勘查照片" value="field_photo" />
@@ -220,7 +245,7 @@
             class="blocker"
           />
 
-          <div class="doc-upload">
+          <div class="doc-upload project-doc-upload">
             <el-select v-model="docUpload.category" placeholder="公文类别" style="width: 200px">
               <el-option
                 v-for="item in docCategories"
@@ -311,7 +336,10 @@
       </main>
 
       <aside class="detail-side card">
-        <h3>办理记录</h3>
+        <div class="side-heading">
+          <h3>办理记录</h3>
+          <span>{{ timelineEvents.length }} 条</span>
+        </div>
         <el-timeline v-if="timelineEvents.length">
           <el-timeline-item
             v-for="(event, index) in timelineEvents"
@@ -438,6 +466,11 @@ const activeStepIndex = computed(() => {
   const steps = guide.steps || []
   const index = steps.findIndex((step) => step.state === 'current')
   return index >= 0 ? index : steps.length
+})
+
+const currentStepLabel = computed(() => {
+  const currentStep = (guide.steps || []).find((step) => step.state === 'current')
+  return currentStep?.title || detail.status_label || '尚未开始'
 })
 
 function elStepStatus(step) {
@@ -821,6 +854,12 @@ loadDetail()
   align-items: center;
   flex-wrap: wrap;
   gap: 12px;
+  position: sticky;
+  top: -12px;
+  z-index: 5;
+  padding: 10px 0;
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  backdrop-filter: blur(8px);
 }
 
 .title-row {
@@ -833,6 +872,62 @@ loadDetail()
 .title-row h1 {
   margin: 0;
   font-size: 22px;
+  overflow-wrap: anywhere;
+}
+
+.page-heading {
+  min-width: 0;
+}
+
+.page-kicker {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+.project-summary-bar {
+  display: grid;
+  grid-template-columns: 1.2fr 1.5fr 1fr 1.6fr;
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--line);
+}
+
+.summary-item {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+  padding: 12px 14px;
+  background: var(--surface);
+}
+
+.summary-item span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.summary-item strong {
+  overflow-wrap: anywhere;
+  font-size: 14px;
+}
+
+.summary-item--primary strong {
+  color: #2563eb;
+}
+
+.summary-item--danger strong {
+  color: var(--danger-text);
+}
+
+.header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .card {
@@ -865,6 +960,11 @@ loadDetail()
   font-size: 13px;
 }
 
+.todo-count {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .detail-body {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 320px;
@@ -885,6 +985,10 @@ loadDetail()
   padding: 14px;
   margin-bottom: 12px;
   background: color-mix(in srgb, var(--surface) 82%, var(--bg));
+}
+
+.priority-card {
+  border-top: 3px solid #2563eb;
 }
 
 .todo-head {
@@ -1025,6 +1129,37 @@ loadDetail()
   overflow-y: auto;
 }
 
+.side-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.side-heading h3 {
+  margin-bottom: 12px;
+}
+
+.side-heading span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.steps-scroll {
+  min-width: 0;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.steps-scroll :deep(.el-steps) {
+  min-width: 680px;
+}
+
+.project-upload-row input[type='file'],
+.project-doc-upload input[type='file'] {
+  max-width: 100%;
+}
+
 .timeline-title {
   font-weight: 600;
   font-size: 13px;
@@ -1046,6 +1181,113 @@ loadDetail()
   .detail-side {
     position: static;
     max-height: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .project-detail {
+    gap: 10px;
+  }
+
+  .card {
+    padding: 12px;
+    border-radius: 10px;
+  }
+
+  .title-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .project-summary-bar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .summary-item {
+    padding: 10px;
+  }
+
+  .title-row h1 {
+    font-size: 20px;
+  }
+
+  .header-actions {
+    width: 100%;
+  }
+
+  .header-actions .el-button {
+    flex: 1 1 calc(50% - 8px);
+    margin-left: 0;
+  }
+
+  .page-header {
+    top: -10px;
+    padding: 8px 0;
+  }
+
+  .project-descriptions :deep(.el-descriptions__body),
+  .project-descriptions :deep(.el-descriptions__table) {
+    width: 100%;
+  }
+
+  .project-descriptions :deep(.el-descriptions__label),
+  .project-descriptions :deep(.el-descriptions__content) {
+    display: block;
+    width: auto;
+  }
+
+  .project-descriptions :deep(.el-descriptions__cell) {
+    display: block;
+    width: 100%;
+  }
+
+  .card-title {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .card-title > div,
+  .card-title > .el-button {
+    width: 100%;
+  }
+
+  .card-title > div .el-button {
+    margin-left: 0;
+    margin-right: 8px;
+  }
+
+  .todo-head {
+    align-items: flex-start;
+  }
+
+  .todo-head strong {
+    overflow-wrap: anywhere;
+  }
+
+  .action-row,
+  .doc-upload {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .action-row > *,
+  .doc-upload > * {
+    width: 100% !important;
+    max-width: none !important;
+  }
+
+  .action-row input[type='file'],
+  .doc-upload input[type='file'] {
+    min-height: 32px;
+  }
+
+  .map-box {
+    height: 300px;
+  }
+
+  .doc-table {
+    overflow-x: auto;
   }
 }
 </style>
