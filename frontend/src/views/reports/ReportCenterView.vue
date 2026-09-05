@@ -18,13 +18,13 @@
         <p>报告采用系统实时数据生成，针对不同周期调整观察尺度。HTML 页面保留纸张版式，可直接使用浏览器“打印 / 存储为 PDF”。</p>
         <div class="period-notes"><span v-for="option in periodOptions" :key="option.value"><b>{{ option.label }}</b>{{ periodNotes[option.value] }}</span></div>
       </div>
-      <div class="history-panel card"><div class="card-header-row"><h3>已生成报告</h3><el-button link :loading="loading" @click="loadReports">刷新</el-button></div><el-table :data="reports" v-loading="loading" empty-text="还没有报告，先生成一份吧" stripe><el-table-column prop="title" label="报告" min-width="220" /><el-table-column label="统计区间" width="220"><template #default="scope">{{ scope.row.period_start }} 至 {{ scope.row.period_end }}</template></el-table-column><el-table-column label="操作" width="150" fixed="right"><template #default="scope"><el-button link type="primary" @click="openReport(scope.row.id)">打开 / PDF</el-button></template></el-table-column></el-table></div>
+      <div class="history-panel card"><div class="card-header-row"><div><h3>{{ periodLabels[selectedPeriod] }}历史报告</h3><span class="history-count">共 {{ filteredReports.length }} 份</span></div><el-button link :loading="loading" @click="loadReports">刷新</el-button></div><el-table :data="filteredReports" v-loading="loading" empty-text="当前类型还没有报告，先生成一份吧" stripe><el-table-column label="类型" width="92"><template #default="scope"><span class="period-badge" :class="`period-${scope.row.period}`">{{ periodLabels[scope.row.period] }}</span></template></el-table-column><el-table-column prop="title" label="报告" min-width="210" /><el-table-column label="统计区间" width="220"><template #default="scope">{{ scope.row.period_start }} 至 {{ scope.row.period_end }}</template></el-table-column><el-table-column label="操作" width="150" fixed="right"><template #default="scope"><el-button link type="primary" @click="openReport(scope.row.id)">打开 / PDF</el-button></template></el-table-column></el-table></div>
     </div>
   </section>
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { fetchReportHtml, fetchReportPreview, fetchReports, generateReport } from '../../api/reportApi'
 
@@ -40,6 +40,7 @@ const selectedPeriod = ref('monthly')
 const reports = ref([])
 const loading = ref(false)
 const generating = ref(false)
+const filteredReports = computed(() => reports.value.filter((report) => report.period === selectedPeriod.value))
 
 async function loadReports() {
   loading.value = true
@@ -82,7 +83,7 @@ onMounted(loadReports)
 .report-header { display:flex; justify-content:space-between; align-items:flex-end; gap:24px; } .report-header h1 { margin:4px 0 8px; font: 700 34px/1.1 Georgia,serif; letter-spacing:.03em; } .report-header p { margin:0; color:#6c7d78; } .eyebrow { color:#ad7d37!important; letter-spacing:.18em; font:12px Arial,sans-serif; }
 .report-toolbar { display:flex; align-items:center; gap:18px; margin:28px 0; padding:13px 16px; } .report-toolbar .muted-text { flex:1; }
 .report-layout { display:grid; grid-template-columns:minmax(240px,.65fr) minmax(500px,1.7fr); gap:22px; } .report-intro { padding:32px 22px; min-height:430px; background:#173c35; color:#f6f1e5; position:relative; overflow:hidden; } .report-intro:after { content:''; position:absolute; right:-60px; bottom:-80px; width:240px; height:240px; border:1px solid rgba(211,166,83,.45); transform:rotate(35deg); } .intro-mark { color:#d4a452; font:bold 48px Georgia,serif; line-height:.75; } .intro-mark small { font:12px Arial,sans-serif; letter-spacing:.2em; } .report-intro h2 { margin:42px 0 16px; font:32px/1.3 Georgia,serif; } .report-intro h2 em { color:#d4a452; font-style:normal; } .report-intro p { color:#c3d2cc; line-height:1.8; max-width:300px; } .period-notes { display:grid; gap:9px; margin-top:30px; font-size:12px; color:#aac0b7; } .period-notes span { display:flex; gap:10px; } .period-notes b { color:#f2ead8; min-width:42px; }
-.history-panel { min-width:0; padding:18px; } .history-panel :deep(.el-table) { --el-table-header-bg-color:#f0f4ef; }
+.history-panel { min-width:0; padding:18px; } .history-panel :deep(.el-table) { --el-table-header-bg-color:#f0f4ef; } .history-count { color:#7b8b86; font-size:12px; } .period-badge { display:inline-block; min-width:44px; padding:2px 7px; text-align:center; border:1px solid currentColor; font-size:12px; } .period-weekly { color:#3e8790; background:#edf6f5; } .period-monthly { color:#1b7168; background:#edf5ef; } .period-quarterly { color:#7b5d91; background:#f4eff7; } .period-yearly { color:#a65e3b; background:#fbf0e8; }
 @media (max-width: 900px) { .report-center { padding:18px; } .report-header, .report-toolbar { align-items:flex-start; flex-direction:column; } .report-layout { grid-template-columns:1fr; } .report-intro { min-height:unset; } }
 @media print { .report-center { display:none; } }
 </style>
