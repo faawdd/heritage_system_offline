@@ -10,9 +10,9 @@
         v-model="store.filters.keyword"
         placeholder="按项目名/企业名/文号检索"
         clearable
-        style="max-width: 320px"
+        class="project-filter-keyword"
       />
-      <el-select v-model="store.filters.status" placeholder="状态筛选" clearable style="width: 220px">
+      <el-select v-model="store.filters.status" class="project-filter-status" placeholder="状态筛选" clearable>
         <el-option label="10_已收文" value="10_已收文" />
         <el-option label="20_初审安全" value="20_初审安全" />
         <el-option label="21_初审涉及" value="21_CHECK_OVERLAP" />
@@ -22,7 +22,7 @@
         <el-option label="50_批复已收到" value="50_批复已收到" />
         <el-option label="60_已结案归档" value="60_已结案归档" />
       </el-select>
-      <el-select v-model="store.filters.workflowPath" placeholder="流程分支" clearable style="width: 180px">
+      <el-select v-model="store.filters.workflowPath" class="project-filter-path" placeholder="流程分支" clearable>
         <el-option label="考古流程" value="ARCHAEOLOGY_FLOW" />
         <el-option label="直接复函流程" value="DIRECT_REPLY" />
       </el-select>
@@ -101,7 +101,7 @@
       </el-card>
     </div>
 
-    <div class="card" v-else>
+    <div class="card project-table-wrap" v-else>
       <el-table :data="store.rows" v-loading="store.loading" stripe>
         <el-table-column prop="project_name" label="项目名称" min-width="220" />
         <el-table-column prop="company_name" label="企业单位" min-width="180" />
@@ -251,6 +251,25 @@ onMounted(() => {
   gap: 12px;
 }
 
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.project-filter-keyword {
+  width: min(320px, 100%);
+}
+
+.project-filter-status {
+  width: 220px;
+}
+
+.project-filter-path {
+  width: 180px;
+}
+
 .stat-item--danger :deep(.el-statistic__content-value) {
   color: #c81e1e;
 }
@@ -336,6 +355,8 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 @media (max-width: 1300px) {
@@ -351,6 +372,55 @@ onMounted(() => {
 
   .stats-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .toolbar {
+    align-items: stretch;
+  }
+
+  .project-filter-keyword,
+  .project-filter-status,
+  .project-filter-path,
+  .toolbar .el-button {
+    width: 100%;
+  }
+
+  .view-switch {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .view-switch :deep(.el-segmented) {
+    width: 100%;
+  }
+
+  .view-switch :deep(.el-segmented__group) {
+    width: 100%;
+  }
+
+  .view-switch :deep(.el-segmented__item) {
+    flex: 1;
+  }
+
+  .stats-row {
+    grid-template-columns: 1fr;
+  }
+
+  .project-card-header,
+  .project-card-meta div {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .project-card-meta strong {
+    overflow-wrap: anywhere;
+  }
+
+  .project-table-wrap {
+    padding: 10px;
   }
 }
 </style>
