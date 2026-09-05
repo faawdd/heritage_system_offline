@@ -216,7 +216,10 @@ const staticMenuGroups = [
   {
     key: 'workspace',
     title: '工作台',
-    items: [{ label: '综合看板', to: '/dashboard' }]
+    items: [
+      { label: '综合看板', to: '/dashboard' },
+      { label: '报告中心', to: '/reports' }
+    ]
   },
   {
     key: 'heritage',

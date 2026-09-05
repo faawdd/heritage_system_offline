@@ -33,6 +33,13 @@ from core.api.views import (
     SipuBoundaryImportStartAPIView,
     SipuBoundaryImportStatusAPIView,
 )
+from core.api.report_views import (
+    ReportDetailAPIView,
+    ReportGenerateAPIView,
+    ReportHTMLAPIView,
+    ReportListAPIView,
+    ReportPreviewAPIView,
+)
 from core import views as legacy_views
 
 app_name = 'core_api'
@@ -46,6 +53,11 @@ urlpatterns = [
     path('system/data-sync/export/', DataSyncExportAPIView.as_view(), name='data_sync_export'),
     path('system/data-sync/import/', DataSyncImportAPIView.as_view(), name='data_sync_import'),
     path('dashboard/overview/', DashboardOverviewAPIView.as_view(), name='dashboard_overview'),
+    path('reports/', ReportListAPIView.as_view(), name='report_list'),
+    path('reports/generate/', ReportGenerateAPIView.as_view(), name='report_generate'),
+    path('reports/preview/', ReportPreviewAPIView.as_view(), name='report_preview'),
+    path('reports/<int:report_id>/', ReportDetailAPIView.as_view(), name='report_detail'),
+    path('reports/<int:report_id>/html/', ReportHTMLAPIView.as_view(), name='report_html'),
     path('heritage/map-points/', HeritageMapPointsAPIView.as_view(), name='heritage_map_points'),
     path('heritage/stats/meta/', HeritageStatsMetaAPIView.as_view(), name='heritage_stats_meta'),
     path('heritage/classification-stats/', legacy_views.heritage_classification_stats_api, name='heritage_classification_stats'),

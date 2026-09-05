@@ -543,6 +543,61 @@ class SipuImportJob(models.Model):
         ordering = ['-created_at']
 
 
+class ReportRecord(models.Model):
+    """定期业务报告快照，保存生成时的 HTML 以保证历史报告可复现。"""
+
+    PERIOD_WEEKLY = 'weekly'
+    PERIOD_MONTHLY = 'monthly'
+    PERIOD_QUARTERLY = 'quarterly'
+    PERIOD_YEARLY = 'yearly'
+    PERIOD_CHOICES = [
+        (PERIOD_WEEKLY, '周报'),
+        (PERIOD_MONTHLY, '月报'),
+        (PERIOD_QUARTERLY, '季度报'),
+        (PERIOD_YEARLY, '年报'),
+    ]
+
+    period = models.CharField('报告周期', max_length=20, choices=PERIOD_CHOICES)
+    period_start = models.DateField('统计开始日期')
+    period_end = models.DateField('统计结束日期')
+    title = models.CharField('报告标题', max_length=200)
+    html_content = models.TextField('HTML报告内容')
+    generated_at = models.DateTimeField('生成时间', auto_now_add=True)
+    generated_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='generated_reports', verbose_name='生成人员',
+    )
+
+    class Meta:
+        verbose_name = '业务分析报告'
+        verbose_name_plural = verbose_name
+        ordering = ['-period_end', '-generated_at']
+        indexes = [
+            models.Index(fields=['period', '-period_end']),
+        ]
+
+    def __str__(self):
+        return f'{self.get_period_display()}：{self.period_start} 至 {self.period_end}'
+
+
+class ReportSchedule(models.Model):
+    """报告生成计划，由管理命令按计划执行。"""
+
+    period = models.CharField('报告周期', max_length=20, choices=ReportRecord.PERIOD_CHOICES, unique=True)
+    enabled = models.BooleanField('启用', default=True)
+    run_hour = models.PositiveSmallIntegerField('执行小时', default=8)
+    last_generated_at = models.DateTimeField('上次生成时间', null=True, blank=True)
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+
+    class Meta:
+        verbose_name = '报告生成计划'
+        verbose_name_plural = verbose_name
+        ordering = ['period']
+
+    def __str__(self):
+        return f'{self.get_period_display()}计划'
+
+
 class Coordinate(models.Model):
     """输变电项目杆塔坐标点"""
     CHECK_STATUS_CHOICES = [
