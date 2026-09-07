@@ -42,7 +42,7 @@ else:
 
 SYSTEM_REGION = env('SYSTEM_REGION', default='鄯善县')
 SYSTEM_NAME = env('SYSTEM_NAME', default=f'{SYSTEM_REGION}文物管理平台')
-SYSTEM_VERSION_BASE = env('SYSTEM_VERSION_BASE', default='v2.1')
+SYSTEM_VERSION_BASE = env('SYSTEM_VERSION_BASE', default='v2.2')
 
 
 def build_system_version():
