@@ -19,26 +19,27 @@ from django.urls import path, include, re_path
 from django.conf import settings
 from django.conf.urls.static import static
 from django.views.generic import RedirectView
-from core.views import (heritage_map_view, heritage_dashboard_view, heritage_stats_api,
-                        heritage_stats_by_category_api, admin_index_view,
-                        admin_direct_entry_block_view,
-                        kanerjing_list_view, kanerjing_stats_api, kanerjing_import_check_view,
-                        CustomPasswordChangeDoneView, inspection_mobile_add_view,
-                        inspection_mobile_list_view, kml_overlay_check_view,
-                        ovkml_converter_view, kml_process_convert_view,
-                        heritage_classification_stats_api, heritage_detail_view,
-                        heritage_boundary_export_view,
-                        mobile_kml_entry_view, mobile_collect_entry_view, app_showcase_view,
-                        system_version_api, heritage_collect_view,
-                        dem_elevation_lookup_api,
-                        heritage_detail_preview_view,
-                        export_immovable_heritage_docx_view,
-                        land_project_management_view, land_project_edit_view,
-                        land_project_list_api, land_project_detail_api,
-                        land_project_create_api, land_project_upload_api,
-                        land_project_download_misc_zip_api,
-                        verify_project_spatial_safety_api, land_project_next_doc_num_api,
-                        land_project_workflow_action_api, land_project_controls_api)
+from core.views import (
+    heritage_map_view, heritage_dashboard_view, heritage_stats_api,
+    heritage_stats_by_category_api, admin_index_view,
+    admin_direct_entry_block_view,
+    kanerjing_list_view, kanerjing_stats_api, kanerjing_import_check_view,
+    CustomPasswordChangeDoneView, inspection_mobile_add_view,
+    inspection_mobile_list_view, kml_overlay_check_view, ovkml_converter_view,
+    heritage_classification_stats_api, heritage_detail_view,
+    heritage_boundary_export_view,
+    mobile_kml_entry_view, mobile_collect_entry_view, app_showcase_view,
+    system_version_api, heritage_collect_view,
+    dem_elevation_lookup_api,
+    heritage_detail_preview_view,
+    export_immovable_heritage_docx_view,
+    land_project_management_view, land_project_edit_view,
+    land_project_list_api, land_project_detail_api,
+    land_project_create_api, land_project_upload_api,
+    land_project_download_misc_zip_api,
+    verify_project_spatial_safety_api, land_project_next_doc_num_api,
+    land_project_workflow_action_api, land_project_controls_api,
+)
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 urlpatterns = [
@@ -56,7 +57,6 @@ urlpatterns = [
     path('admin/heritage/<int:pk>/detail/', heritage_detail_view, name='heritage_detail'),  # 文物详情页（只读）
     path('admin/heritage/<int:pk>/boundary-export/', heritage_boundary_export_view, name='heritage_boundary_export'),
     path('admin/ovkml-converter/', ovkml_converter_view, name='ovkml_converter'),
-    path('admin/kml-process-convert/', kml_process_convert_view, name='kml_process_convert'),
     path('admin/land-projects/', land_project_management_view, name='land_project_management'),
     path('admin/land-projects/edit/', land_project_edit_view, name='land_project_edit'),
     path('admin/heritage-map/', heritage_map_view, name='heritage_map'),

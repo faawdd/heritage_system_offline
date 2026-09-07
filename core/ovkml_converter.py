@@ -77,15 +77,24 @@ def serialize_coords(coords: Sequence[Coord], decimals: int = 10) -> str:
 
 
 class CoordinateTransformer:
-    def __init__(self, input_crs: str, output_crs: str):
+    def __init__(self, input_crs: str, output_crs: str, central_meridian: float = 90):
         self.input_crs = input_crs
         self.output_crs = output_crs
+        self.central_meridian = float(central_meridian)
         self._transformer_cache: Dict[Tuple[str, str], Any] = {}
         self._proj_cache: Dict[float, Any] = {}
         self._epsg_map = {
             "wgs84": "EPSG:4326",
             "cgcs2000": "EPSG:4490",
         }
+
+    def _source_crs(self) -> Any:
+        if self.input_crs == "cgcs2000_proj":
+            return CRS.from_proj4(
+                f"+proj=tmerc +lat_0=0 +lon_0={self.central_meridian} "
+                "+k=1 +x_0=500000 +y_0=0 +ellps=GRS80 +units=m +no_defs"
+            )
+        return CRS.from_user_input(self._epsg_map.get(self.input_crs, "EPSG:4326"))
 
     def _get_transformer(self, src: str, dst: str) -> Any:
         key = (src, dst)
@@ -103,23 +112,28 @@ class CoordinateTransformer:
         if Transformer is None or CRS is None:
             raise RuntimeError("输出为 cgcs2000_proj 需要安装 pyproj")
 
-        cm = self._central_meridian_3deg(lon)
+            cm = self._central_meridian_3deg(lon)
         if cm not in self._proj_cache:
             proj_crs = CRS.from_proj4(
                 f"+proj=tmerc +lat_0=0 +lon_0={cm} +k=1 +x_0=500000 +y_0=0 +ellps=GRS80 +units=m +no_defs"
             )
-            src_epsg = self._epsg_map.get(self.input_crs, "EPSG:4326")
-            transformer = Transformer.from_crs(CRS.from_user_input(src_epsg), proj_crs, always_xy=True)
+            transformer = Transformer.from_crs(self._source_crs(), proj_crs, always_xy=True)
             self._proj_cache[cm] = transformer
 
         x, y = self._proj_cache[cm].transform(lon, lat)
         return x, y
 
     def transform_lonlat(self, lon: float, lat: float) -> Tuple[float, float]:
+        if Transformer is None or CRS is None:
+            return lon, lat
+
+        if self.input_crs == "cgcs2000_proj":
+            target = "EPSG:4490" if self.output_crs != "wgs84" else "EPSG:4326"
+            transformer = Transformer.from_crs(self._source_crs(), CRS.from_user_input(target), always_xy=True)
+            return transformer.transform(lon, lat)
+
         if self.output_crs == "cgcs2000_proj":
             if self.input_crs == "wgs84":
-                if Transformer is None or CRS is None:
-                    return lon, lat
                 transformer = self._get_transformer("EPSG:4326", "EPSG:4490")
                 return transformer.transform(lon, lat)
             return lon, lat
@@ -138,6 +152,8 @@ class CoordinateTransformer:
     def to_projected_xy(self, lon: float, lat: float) -> Tuple[Optional[float], Optional[float]]:
         if self.output_crs != "cgcs2000_proj":
             return None, None
+        if self.input_crs == "cgcs2000_proj":
+            return lon, lat
         return self._project_to_cgcs2000(lon, lat)
 
 
@@ -236,9 +252,9 @@ def walk_kml(node: ET.Element, folder_stack: List[str], out_records: List[Placem
         walk_kml(child, folder_stack, out_records, transformer)
 
 
-def parse_ovkml(content: bytes, input_crs: str, output_crs: str) -> List[PlacemarkRecord]:
+def parse_ovkml(content: bytes, input_crs: str, output_crs: str, central_meridian: float = 90) -> List[PlacemarkRecord]:
     root = ET.fromstring(content)
-    transformer = CoordinateTransformer(input_crs=input_crs, output_crs=output_crs)
+    transformer = CoordinateTransformer(input_crs=input_crs, output_crs=output_crs, central_meridian=central_meridian)
     records: List[PlacemarkRecord] = []
     walk_kml(root, [], records, transformer)
     return records
@@ -266,7 +282,12 @@ def extract_kml_from_kmz(content: bytes) -> bytes:
         raise ValueError('不是有效的ZIP文件')
 
 
-def parse_kml_or_kmz(content: bytes, input_crs: str, output_crs: str) -> Tuple[List[PlacemarkRecord], str]:
+def parse_kml_or_kmz(
+    content: bytes,
+    input_crs: str,
+    output_crs: str,
+    central_meridian: float = 90,
+) -> Tuple[List[PlacemarkRecord], str]:
     """
     解析KML/OVKML/KMZ/OVKMZ文件。
     返回值: (records列表, 文件格式字符串)
@@ -277,7 +298,11 @@ def parse_kml_or_kmz(content: bytes, input_crs: str, output_crs: str) -> Tuple[L
     # 尝试作为KML/OVKML直接解析
     try:
         root = ET.fromstring(content)
-        transformer = CoordinateTransformer(input_crs=input_crs, output_crs=output_crs)
+        transformer = CoordinateTransformer(
+            input_crs=input_crs,
+            output_crs=output_crs,
+            central_meridian=central_meridian,
+        )
         records: List[PlacemarkRecord] = []
         walk_kml(root, [], records, transformer)
         return records, file_format
@@ -289,7 +314,11 @@ def parse_kml_or_kmz(content: bytes, input_crs: str, output_crs: str) -> Tuple[L
         kml_content = extract_kml_from_kmz(content)
         file_format = 'kmz'
         root = ET.fromstring(kml_content)
-        transformer = CoordinateTransformer(input_crs=input_crs, output_crs=output_crs)
+        transformer = CoordinateTransformer(
+            input_crs=input_crs,
+            output_crs=output_crs,
+            central_meridian=central_meridian,
+        )
         records: List[PlacemarkRecord] = []
         walk_kml(root, [], records, transformer)
         return records, file_format

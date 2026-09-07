@@ -1846,16 +1846,6 @@ def _convert_dxf_bytes_to_kml(dxf_bytes: bytes, doc_name: str):
 
 
 @staff_member_required
-def kml_process_convert_view(request):
-    """旧 KML 转换页已迁移到 Vue，保留兼容入口。"""
-    query_string = request.META.get('QUERY_STRING', '')
-    target = '/static/frontend/gis/kml-process-convert'
-    if query_string:
-        target = f'{target}?{query_string}'
-    return redirect(target)
-
-
-@staff_member_required
 @staff_member_required
 def ovkml_converter_view(request):
     """旧 OVKML 转换页已迁移到 Vue，保留兼容入口。"""

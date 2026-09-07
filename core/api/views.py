@@ -2098,103 +2098,6 @@ class GisKmlManagementActionAPIView(APIView):
         )
 
 
-class GisKmlProcessConvertAPIView(APIView):
-    permission_classes = [IsManagementAdmin]
-    parser_classes = [MultiPartParser, FormParser]
-
-    def post(self, request):
-        tool = (request.data.get('tool') or '').strip()
-        action = (request.data.get('action') or '').strip()
-
-        if tool == 'dxf_to_kml':
-            dxf_file = request.FILES.get('dxf_file')
-            if not dxf_file:
-                return Response({'success': False, 'message': '请先选择 DXF 文件。'}, status=400)
-
-            lower_name = (dxf_file.name or '').lower()
-            if not lower_name.endswith('.dxf'):
-                return Response({'success': False, 'message': '文件格式不正确，请上传 .dxf 文件。'}, status=400)
-
-            try:
-                kml_bytes, _stats = legacy_views._convert_dxf_bytes_to_kml(
-                    dxf_file.read(), os.path.splitext(dxf_file.name)[0]
-                )
-            except Exception as exc:
-                return Response({'success': False, 'message': f'DXF 转换失败：{exc}'}, status=400)
-
-            date_str = timezone.now().strftime('%Y%m%d_%H%M%S')
-            export_name = f'dxf_to_kml_{date_str}.kml'
-            response = HttpResponse(kml_bytes, content_type='application/vnd.google-earth.kml+xml; charset=utf-8')
-            response['Content-Disposition'] = f'attachment; filename="{export_name}"'
-            return response
-
-        if tool == 'kml_table':
-            source_mode = (request.data.get('source_mode') or 'uploaded').strip()
-            input_crs = (request.data.get('input_crs') or 'wgs84').strip()
-            output_mode = (request.data.get('output_mode') or 'geo').strip()
-            geo_output_crs = (request.data.get('geo_output_crs') or 'wgs84').strip()
-            uploaded_record_id = (request.data.get('uploaded_record_id') or '').strip()
-
-            source_name = ''
-            raw_content = b''
-
-            if source_mode == 'uploaded':
-                if not uploaded_record_id:
-                    return Response({'success': False, 'message': '请先选择已上传记录。'}, status=400)
-                record = KmlUploadRecord.objects.filter(id=uploaded_record_id).first()
-                if not record:
-                    return Response({'success': False, 'message': '所选记录不存在。'}, status=404)
-                source_name = os.path.basename(record.source_file.name or record.title or f'kml_record_{record.id}')
-                with record.source_file.open('rb') as source:
-                    raw_content = source.read()
-            else:
-                upload_file = request.FILES.get('kml_file')
-                if not upload_file:
-                    return Response({'success': False, 'message': '请先上传 KML/KMZ 文件。'}, status=400)
-                source_name = upload_file.name or '未命名文件'
-                raw_content = upload_file.read()
-
-            if not legacy_views._is_kml_family_filename(source_name):
-                return Response({'success': False, 'message': '文件格式不正确，请选择 .kml/.kmz/.ovkml/.ovkmz。'}, status=400)
-
-            parse_output_crs = 'cgcs2000_proj' if output_mode == 'cgcs2000_proj' else geo_output_crs
-            try:
-                records, file_format = parse_kml_or_kmz(raw_content, input_crs=input_crs, output_crs=parse_output_crs)
-            except Exception as exc:
-                return Response({'success': False, 'message': f'解析失败：{exc}'}, status=400)
-
-            if not records:
-                return Response({'success': False, 'message': '未提取到要素，请检查文件内容。'}, status=400)
-
-            table_rows = legacy_views._build_kml_table_rows(records, parse_output_crs)
-
-            if action == 'export_csv':
-                csv_text = legacy_views._build_kml_table_csv(table_rows, parse_output_crs)
-                date_str = timezone.now().strftime('%Y%m%d_%H%M%S')
-                ext_name = 'cgcs2000坐标' if parse_output_crs == 'cgcs2000_proj' else '经纬度坐标'
-                report_name = f'{date_str}_{os.path.splitext(source_name)[0]}_{ext_name}.csv'
-                response = HttpResponse(csv_text, content_type='text/csv; charset=utf-8-sig')
-                response['Content-Disposition'] = f'attachment; filename="{report_name}"'
-                return response
-
-            return Response(
-                {
-                    'success': True,
-                    'data': {
-                        'source_name': source_name,
-                        'file_format': file_format,
-                        'total_count': len(table_rows),
-                        'preview_rows': table_rows[:200],
-                        'preview_truncated': len(table_rows) > 200,
-                        'coord_a_label': 'CGCS2000_X(米)' if parse_output_crs == 'cgcs2000_proj' else '经度',
-                        'coord_b_label': 'CGCS2000_Y(米)' if parse_output_crs == 'cgcs2000_proj' else '纬度',
-                    },
-                }
-            )
-
-        return Response({'success': False, 'message': '未知操作请求。'}, status=400)
-
-
 class GisOvkmlConvertAPIView(APIView):
     permission_classes = [IsManagementAdmin]
     parser_classes = [MultiPartParser, FormParser]
@@ -2203,6 +2106,7 @@ class GisOvkmlConvertAPIView(APIView):
         upload_file = request.FILES.get('ovkml_file')
         input_crs = (request.data.get('input_crs') or 'wgs84').strip()
         output_crs = (request.data.get('output_crs') or 'cgcs2000').strip()
+        central_meridian = request.data.get('central_meridian') or '90'
         action = (request.data.get('action') or 'convert').strip()
         deduplicate = str(request.data.get('deduplicate') or 'true').lower() in {'1', 'true', 'on', 'yes'}
 
@@ -2210,13 +2114,28 @@ class GisOvkmlConvertAPIView(APIView):
             return Response({'success': False, 'message': '请先选择 KML/KMZ/OVKML/OVKMZ 文件。'}, status=400)
 
         filename = (upload_file.name or '').lower()
-        if not (filename.endswith('.kml') or filename.endswith('.ovkml') or filename.endswith('.kmz') or filename.endswith('.ovkmz')):
-            return Response({'success': False, 'message': '文件格式不正确，请上传 .kml .kmz .ovkml .ovkmz 文件。'}, status=400)
+        is_dxf = filename.endswith('.dxf')
+        if not (is_dxf or filename.endswith('.kml') or filename.endswith('.ovkml') or filename.endswith('.kmz') or filename.endswith('.ovkmz')):
+            return Response({'success': False, 'message': '文件格式不正确，请上传 .dxf/.kml/.kmz/.ovkml/.ovkmz 文件。'}, status=400)
 
         try:
-            records, file_format = parse_kml_or_kmz(upload_file.read(), input_crs=input_crs, output_crs=output_crs)
+            raw_content = upload_file.read()
+            if is_dxf:
+                raw_content, _stats = legacy_views._convert_dxf_bytes_to_kml(
+                    raw_content, os.path.splitext(upload_file.name)[0]
+                )
+                file_format = 'dxf'
+            else:
+                file_format = None
+            records, parsed_format = parse_kml_or_kmz(
+                raw_content,
+                input_crs=input_crs,
+                output_crs=output_crs,
+                central_meridian=float(central_meridian),
+            )
+            file_format = file_format or parsed_format
         except Exception as exc:
-            return Response({'success': False, 'message': f'解析失败：{exc}'}, status=400)
+            return Response({'success': False, 'message': f'转换解析失败：{exc}'}, status=400)
 
         if not records:
             return Response({'success': False, 'message': '未提取到 Placemark，请检查文件内容。'}, status=400)
