@@ -186,7 +186,6 @@ import { changeSystemPassword, fetchSystemProfile, updateSystemProfile } from '.
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
-const DJANGO_ADMIN_URL = 'https://beichenhome.top:9081/admin'
 const THEME_MODE_KEY = 'heritage_theme_mode'
 const SIDEBAR_COLLAPSE_KEY = 'heritage_sidebar_collapsed'
 const themeMode = ref('system')
@@ -265,8 +264,6 @@ const staticMenuGroups = [
       { label: '角色管理', to: '/system/roles' },
       { label: 'DeepSeek配置', to: '/system/ai-config' },
       { label: '数据管理', to: '/system/data-management' },
-      { label: '后台管理', to: DJANGO_ADMIN_URL },
-      { label: '菜单管理', to: '/system/menus' }
     ]
   }
 ]
@@ -304,13 +301,9 @@ function ensureHeritageEntries(groups = []) {
     { label: '采集数据管理', to: '/collect/records' }
   ]
   const requiredSystemItems = [
-    { label: '后台管理', to: DJANGO_ADMIN_URL },
     { label: 'DeepSeek配置', to: '/system/ai-config' },
     { label: '数据管理', to: '/system/data-management' }
   ]
-  if (isSuperAdminUser()) {
-    requiredSystemItems.push({ label: '菜单管理', to: '/system/menus' })
-  }
 
   function isSystemGroup(title, items = []) {
     if ((title || '').trim() === '系统管理') {
@@ -336,21 +329,6 @@ function ensureHeritageEntries(groups = []) {
     }
 
     let existingItems = [...groupItems]
-    if (systemGroup) {
-      existingItems = existingItems.map((item) => {
-        const label = String(item?.label || '').trim()
-        const to = String(item?.to || '').trim()
-        if (label === '后台管理' || to.startsWith('/admin/')) {
-          return {
-            ...item,
-            label: '后台管理',
-            to: DJANGO_ADMIN_URL
-          }
-        }
-        return item
-      })
-    }
-
     const existingToSet = new Set(existingItems.map((item) => item.to))
     requiredItems.forEach((item) => {
       if (!existingToSet.has(item.to)) {
@@ -398,7 +376,7 @@ const menuGroups = computed(() => {
     return groups
       .map((group) => ({
         ...group,
-        items: (group.items || []).filter((item) => item.to !== '/system/menus')
+        items: group.items || []
       }))
       .filter((group) => Array.isArray(group.items) && group.items.length > 0)
   }
