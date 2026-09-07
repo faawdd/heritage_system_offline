@@ -5,6 +5,7 @@ import os
 import sys
 import threading
 import time
+from datetime import datetime, time as datetime_time, timedelta
 
 from django.conf import settings
 from django.db import close_old_connections
@@ -17,11 +18,27 @@ logger = logging.getLogger(__name__)
 _scheduler_started = False
 
 
-def _enabled_periods():
-    schedules = list(ReportSchedule.objects.filter(enabled=True).values_list('period', flat=True))
-    if schedules:
+def _schedules():
+    schedules = list(
+        ReportSchedule.objects.filter(enabled=True).values('period', 'run_hour')
+    )
+    if schedules or ReportSchedule.objects.exists():
         return schedules
-    return [period for period, _ in ReportRecord.PERIOD_CHOICES]
+    return [{'period': period, 'run_hour': 8} for period, _ in ReportRecord.PERIOD_CHOICES]
+
+
+def _is_due(period, run_hour, reference_datetime=None):
+    """Return whether the latest completed period has reached its scheduled time."""
+    reference_datetime = reference_datetime or timezone.now()
+    local_now = timezone.localtime(reference_datetime, timezone.get_current_timezone())
+    _, period_end = get_completed_period_bounds(period, local_now.date())
+    scheduled_date = period_end + timedelta(days=1)
+    scheduled_at = datetime.combine(
+        scheduled_date,
+        datetime_time(hour=min(max(int(run_hour), 0), 23)),
+    )
+    scheduled_at = timezone.make_aware(scheduled_at, timezone.get_current_timezone())
+    return local_now >= scheduled_at
 
 
 def generate_due_reports():
@@ -29,7 +46,10 @@ def generate_due_reports():
     close_old_connections()
     generated = []
     try:
-        for period in _enabled_periods():
+        for schedule in _schedules():
+            period = schedule['period']
+            if not _is_due(period, schedule['run_hour']):
+                continue
             period_start, period_end = get_completed_period_bounds(period)
             if ReportRecord.objects.filter(
                 period=period, period_start=period_start, period_end=period_end
