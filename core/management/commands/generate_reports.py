@@ -17,10 +17,13 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         target_period = options.get('period')
-        periods = [target_period] if target_period else list(
-            ReportSchedule.objects.filter(enabled=True).values_list('period', flat=True)
-        )
-        if not periods:
+        if target_period:
+            periods = [target_period]
+        elif ReportSchedule.objects.exists():
+            periods = list(
+                ReportSchedule.objects.filter(enabled=True).values_list('period', flat=True)
+            )
+        else:
             periods = [key for key, _ in ReportRecord.PERIOD_CHOICES]
 
         created = 0

@@ -59,19 +59,18 @@ PERIOD_LITERATURE = {
 def get_completed_period_bounds(period, reference_date=None):
     """Return the most recent completed calendar period before reference_date."""
     reference_date = reference_date or timezone.localdate()
-    anchor = reference_date - timedelta(days=1)
     if period == ReportRecord.PERIOD_WEEKLY:
-        end = anchor - timedelta(days=anchor.weekday() + 1)
+        end = reference_date - timedelta(days=reference_date.weekday() + 1)
         return end - timedelta(days=6), end
     if period == ReportRecord.PERIOD_MONTHLY:
-        end = anchor.replace(day=1) - timedelta(days=1)
+        end = reference_date.replace(day=1) - timedelta(days=1)
         return end.replace(day=1), end
     if period == ReportRecord.PERIOD_QUARTERLY:
-        quarter = (anchor.month - 1) // 3
-        end = date(anchor.year, quarter * 3 + 1, 1) - timedelta(days=1)
+        quarter = (reference_date.month - 1) // 3
+        end = date(reference_date.year, quarter * 3 + 1, 1) - timedelta(days=1)
         return date(end.year, end.month - 2, 1), end
     if period == ReportRecord.PERIOD_YEARLY:
-        end = date(anchor.year, 1, 1) - timedelta(days=1)
+        end = date(reference_date.year, 1, 1) - timedelta(days=1)
         return date(end.year, 1, 1), end
     raise ValueError(f'不支持的报告周期：{period}')
 
