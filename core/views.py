@@ -667,6 +667,39 @@ def _is_point_in_polygon(lon, lat, polygon_rings):
     return True
 
 
+def _orientation(first_point, second_point, third_point):
+    return (
+        (second_point[0] - first_point[0]) * (third_point[1] - first_point[1])
+        - (second_point[1] - first_point[1]) * (third_point[0] - first_point[0])
+    )
+
+
+def _point_on_segment(segment_start, segment_end, point, tolerance=1e-10):
+    if not (
+        min(segment_start[0], segment_end[0]) - tolerance <= point[0] <= max(segment_start[0], segment_end[0]) + tolerance
+        and min(segment_start[1], segment_end[1]) - tolerance <= point[1] <= max(segment_start[1], segment_end[1]) + tolerance
+    ):
+        return False
+    return abs(_orientation(segment_start, segment_end, point)) <= tolerance
+
+
+def _segments_intersect(first_start, first_end, second_start, second_end):
+    first_orientation = _orientation(first_start, first_end, second_start)
+    second_orientation = _orientation(first_start, first_end, second_end)
+    third_orientation = _orientation(second_start, second_end, first_start)
+    fourth_orientation = _orientation(second_start, second_end, first_end)
+
+    if ((first_orientation > 0 > second_orientation or first_orientation < 0 < second_orientation)
+            and (third_orientation > 0 > fourth_orientation or third_orientation < 0 < fourth_orientation)):
+        return True
+    return (
+        _point_on_segment(first_start, first_end, second_start)
+        or _point_on_segment(first_start, first_end, second_end)
+        or _point_on_segment(second_start, second_end, first_start)
+        or _point_on_segment(second_start, second_end, first_end)
+    )
+
+
 def _parse_boundary_rings(zone_text):
     """解析 HeritageSite 的环列表字段（body_boundary/protection_zone/control_zone）为 [[(lon,lat),...],...]。"""
     if not zone_text:
@@ -695,7 +728,7 @@ def _parse_boundary_rings(zone_text):
 
 
 def _load_conflict_site_points():
-    rows = HeritageSite.objects.exclude(longitude__isnull=True).exclude(latitude__isnull=True).values(
+    rows = HeritageSite.objects.values(
         'id', 'name', 'level', 'longitude', 'latitude', 'body_boundary'
     )
     site_points = []
@@ -704,9 +737,17 @@ def _load_conflict_site_points():
             lon = float(row['longitude'])
             lat = float(row['latitude'])
         except (TypeError, ValueError):
-            continue
+            lon = None
+            lat = None
 
         boundary_rings = _parse_boundary_rings(row['body_boundary'])
+        if lon is None or lat is None:
+            if not boundary_rings:
+                continue
+            lons = [pt[0] for ring in boundary_rings for pt in ring]
+            lats = [pt[1] for ring in boundary_rings for pt in ring]
+            lon = sum(lons) / len(lons)
+            lat = sum(lats) / len(lats)
         bbox = (lon, lat, lon, lat)
         if boundary_rings:
             lons = [pt[0] for ring in boundary_rings for pt in ring] + [lon]
@@ -748,6 +789,7 @@ def _feature_bbox(feature):
 
 def _build_site_spatial_index(site_points, cell_deg):
     index = {}
+    max_index_cells = 10000
     for site in site_points:
         lon = site.get('longitude')
         lat = site.get('latitude')
@@ -759,6 +801,9 @@ def _build_site_spatial_index(site_points, cell_deg):
         max_x = int(math.floor(max_lon / cell_deg))
         min_y = int(math.floor(min_lat / cell_deg))
         max_y = int(math.floor(max_lat / cell_deg))
+        if (max_x - min_x + 1) * (max_y - min_y + 1) > max_index_cells:
+            index.setdefault(None, []).append(site)
+            continue
         for x in range(min_x, max_x + 1):
             for y in range(min_y, max_y + 1):
                 index.setdefault((x, y), []).append(site)
@@ -782,6 +827,9 @@ def _query_candidate_sites(site_index, bbox, threshold_m, cell_deg):
 
     seen_ids = set()
     rows = []
+    for site in site_index.get(None, []):
+        seen_ids.add(site['id'])
+        rows.append(site)
     for x in range(min_x, max_x + 1):
         for y in range(min_y, max_y + 1):
             for site in site_index.get((x, y), []):
@@ -794,6 +842,30 @@ def _query_candidate_sites(site_index, bbox, threshold_m, cell_deg):
 
 def _point_in_any_ring(lon, lat, rings):
     return any(_is_point_in_ring(lon, lat, ring) for ring in rings)
+
+
+def _line_segments_intersect(first_line, second_line):
+    """判断两条折线是否存在拓扑相交，包含端点接触和共线重叠。"""
+    if len(first_line) < 2 or len(second_line) < 2:
+        return False
+    for first_index in range(len(first_line) - 1):
+        first_start = first_line[first_index]
+        first_end = first_line[first_index + 1]
+        for second_index in range(len(second_line) - 1):
+            second_start = second_line[second_index]
+            second_end = second_line[second_index + 1]
+            if _segments_intersect(first_start, first_end, second_start, second_end):
+                return True
+    return False
+
+
+def _linestring_intersects_rings(line_coords, rings):
+    """严格判断折线与文物本体范围是否相交或一方包含另一方。"""
+    if len(line_coords) < 2 or not rings:
+        return False
+    if any(_is_point_in_polygon(lon, lat, rings) for lon, lat in line_coords):
+        return True
+    return any(_line_segments_intersect(line_coords, ring) for ring in rings)
 
 
 def _distance_point_to_rings_m(lon, lat, rings):
@@ -830,14 +902,15 @@ def _distance_polygon_to_rings_m(polygon_coords, rings):
 
 
 def _polygon_intersects_rings(polygon_coords, rings):
-    """近似判断 KML 面要素是否与文物边界环重叠（互相包含顶点采样，非严格拓扑相交）。"""
-    outer_ring = (polygon_coords or [[]])[0]
-    if any(_point_in_any_ring(lon, lat, rings) for lon, lat in outer_ring):
+    """严格判断 KML 面与文物本体范围是否相交，包含边界穿越和互相包含。"""
+    if not polygon_coords or not rings:
+        return False
+    if any(_is_point_in_polygon(lon, lat, rings) for lon, lat in polygon_coords[0]):
         return True
-    for ring in rings:
-        if ring and _is_point_in_polygon(ring[0][0], ring[0][1], polygon_coords or []):
-            return True
-    return False
+    if any(_is_point_in_polygon(lon, lat, polygon_coords) for lon, lat in rings[0]):
+        return True
+    return any(_line_segments_intersect(polygon_ring, site_ring)
+               for polygon_ring in polygon_coords for site_ring in rings)
 
 
 def _analyze_conflicts(features, threshold_m, site_points=None):
@@ -879,21 +952,30 @@ def _analyze_conflicts(features, threshold_m, site_points=None):
                     relation = '点位于文物本体边界内' if inside else '点距文物本体边界最短距离'
                 elif feature_type == 'LineString':
                     distance_m = _distance_linestring_to_rings_m(coords or [], boundary_rings)
-                    matched = math.isfinite(distance_m) and distance_m <= threshold
-                    relation = '线距文物本体边界最短距离'
+                    intersects = _linestring_intersects_rings(coords or [], boundary_rings)
+                    matched = intersects or (math.isfinite(distance_m) and distance_m <= threshold)
+                    if intersects:
+                        distance_m = 0.0
+                    relation = '线与文物本体范围相交' if intersects else '线距文物本体边界最短距离'
                 elif feature_type == 'MultiLineString':
                     min_distance = float('inf')
+                    intersects = False
                     for line_coords in (coords or []):
                         min_distance = min(min_distance, _distance_linestring_to_rings_m(line_coords, boundary_rings))
+                        intersects = intersects or _linestring_intersects_rings(line_coords, boundary_rings)
                     distance_m = min_distance
-                    matched = math.isfinite(distance_m) and distance_m <= threshold
-                    relation = '线距文物本体边界最短距离'
+                    matched = intersects or (math.isfinite(distance_m) and distance_m <= threshold)
+                    if intersects:
+                        distance_m = 0.0
+                    relation = '线与文物本体范围相交' if intersects else '线距文物本体边界最短距离'
                 elif feature_type == 'Polygon':
                     inside = _polygon_intersects_rings(coords or [], boundary_rings)
                     boundary_distance = _distance_polygon_to_rings_m(coords or [], boundary_rings)
                     distance_m = boundary_distance
                     matched = inside or (math.isfinite(boundary_distance) and boundary_distance <= threshold)
-                    relation = '面与文物本体边界重叠' if inside else '面距文物本体边界最短距离'
+                    if inside:
+                        distance_m = 0.0
+                    relation = '面与文物本体范围相交' if inside else '面距文物本体边界最短距离'
                 elif feature_type == 'MultiPolygon':
                     inside = any(_polygon_intersects_rings(polygon, boundary_rings) for polygon in (coords or []))
                     boundary_distance = min(
@@ -902,7 +984,9 @@ def _analyze_conflicts(features, threshold_m, site_points=None):
                     )
                     distance_m = boundary_distance
                     matched = inside or (math.isfinite(boundary_distance) and boundary_distance <= threshold)
-                    relation = '面与文物本体边界重叠' if inside else '面距文物本体边界最短距离'
+                    if inside:
+                        distance_m = 0.0
+                    relation = '面与文物本体范围相交' if inside else '面距文物本体边界最短距离'
             elif feature_type == 'Point' and isinstance(coords, (list, tuple)) and len(coords) >= 2:
                 lon, lat = float(coords[0]), float(coords[1])
                 distance_m = _haversine_m(site_lat, site_lon, lat, lon)
