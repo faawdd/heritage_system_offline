@@ -58,10 +58,6 @@ export async function submitGisKmlManagementAction(formData) {
   return postBlobAware('/api/v1/gis/kml-management/action/', formData)
 }
 
-export async function submitKmlProcessConvert(formData) {
-  return postBlobAware('/api/v1/gis/kml-process-convert/', formData)
-}
-
 export async function submitOvkmlConvert(formData) {
   const response = await client.post('/api/v1/gis/ovkml-convert/', formData, {
     headers: {

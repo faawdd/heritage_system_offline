@@ -30,6 +30,19 @@ export async function uploadProjectFile(projectId, formData) {
   return response.data
 }
 
+export async function downloadProjectAllFilesArchive(projectId) {
+  return client.get(`/api/v1/projects/${projectId}/download-all-files/`, {
+    responseType: 'blob'
+  })
+}
+
+export async function deleteProject(projectId, confirmName) {
+  const response = await client.post(`/api/v1/projects/${projectId}/delete/`, {
+    confirm_name: confirmName
+  })
+  return response.data
+}
+
 export async function verifyProjectSpatialSafety(projectId, thresholdM) {
   const params = thresholdM ? { threshold_m: thresholdM } : {}
   const response = await client.post(`/api/v1/projects/${projectId}/verify-spatial-safety/`, null, { params })

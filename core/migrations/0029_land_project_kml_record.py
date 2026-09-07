@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('core', '0029_sipu_import_job'),
+        ('core', '0028_sipu_import_job'),
     ]
 
     # 与 0024/0025/0027/0028 一致：跨环境自动索引名哈希漂移会导致 migrate 报错，仅保留真实模型变更。

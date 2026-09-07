@@ -5,15 +5,13 @@ import uuid
 import zipfile
 import csv
 import re
-import concurrent.futures
 import logging
-from types import SimpleNamespace
-from pathlib import Path
 from datetime import timedelta, datetime
 from urllib.parse import quote
 
 from django.conf import settings
 from django.core.cache import cache
+from django.core.files.storage import default_storage
 from django.db.models import Q, Count
 from django.http import HttpResponse
 from django.contrib.auth.models import User
@@ -24,7 +22,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core import views as legacy_views
-from core.models import HeritagePhoto, HeritageSite, ImmovableHeritage, InspectionRecord, KmlUploadRecord, LandUseProjectApproval, ProjectAudit
+from core.models import HeritagePhoto, HeritageSite, ImmovableHeritage, InspectionRecord, KmlUploadRecord, LandUseProjectApproval, ProjectAudit, ReportRecord
 from core.permission_decorators import can_modify_core_data
 from core.permissions.api_permissions import IsManagementAdmin
 from core.services import data_sync
@@ -35,54 +33,16 @@ from core.services.heritage_service import (
 )
 from core.services.system_service import get_system_version_payload
 from core.ovkml_converter import build_csv_outputs, parse_kml_or_kmz
-from scripts.sipu_immovable_to_base_csv import (
-    CSV_HEADERS,
-    FetchConfig,
-    SipuClient,
-    build_row_for_item,
-    fetch_all_rows,
-    write_csv,
-)
+from core.services.report_service import create_report, get_completed_period_bounds, render_report_html
 
 logger = logging.getLogger(__name__)
 
 
-def _unwrap_legacy_view(view_func):
-    target = view_func
-    while hasattr(target, '__wrapped__'):
-        target = target.__wrapped__
-    return target
-
-
-def _call_legacy_view(view_func, request, *args, **kwargs):
-    raw_request = getattr(request, '_request', request)
-    raw_request.user = request.user
-    target = _unwrap_legacy_view(view_func)
-    return target(raw_request, *args, **kwargs)
-
-
-def _resolve_public_base_url(request=None) -> str:
-    configured = (os.environ.get('DJANGO_WEB_BASE_URL') or '').strip()
-    if configured:
-        return configured.rstrip('/')
-
-    if request is not None:
-        try:
-            return request.build_absolute_uri('/').rstrip('/')
-        except Exception:
-            pass
-
-    # Debug/offline mode defaults to local host to avoid leaking production URLs.
-    if settings.DEBUG:
-        return 'http://127.0.0.1:8000'
-    return 'https://beichenhome.top:9081'
-
-
-def _build_inspection_photo_url(photo_field, request=None) -> str:
+def _build_inspection_photo_url(photo_field) -> str:
     if not photo_field:
         return ''
 
-    base_url = _resolve_public_base_url(request)
+    base_url = os.environ.get('DJANGO_WEB_BASE_URL', 'https://beichenhome.top:9081').rstrip('/')
     photo_path = str(getattr(photo_field, 'url', photo_field) or '').strip()
     if not photo_path:
         return ''
@@ -91,357 +51,12 @@ def _build_inspection_photo_url(photo_field, request=None) -> str:
     return f"{base_url}/{photo_path.lstrip('/')}"
 
 
-_IMMOVABLE_SITE_CODE_RE = re.compile(r'^IMM-(\d+)$', re.IGNORECASE)
-
-_IMMOVABLE_TO_SITE_CATEGORY = {
-    'GWZ': 'GYZ',
-    'GMZ': 'GMZ',
-    'GJZ': 'GJZ',
-    'SKT': 'SKT',
-    'JDJW': 'JDJW',
-    'QT': 'QT',
-}
-
-_SITE_TO_IMMOVABLE_CATEGORY = {
-    'GYZ': 'GWZ',
-    'KRJ': 'GWZ',
-    'GMZ': 'GMZ',
-    'GJZ': 'GJZ',
-    'SKT': 'SKT',
-    'JDJW': 'JDJW',
-    'QT': 'QT',
-}
-
-
-def _map_immovable_category_to_site(category: str) -> str:
-    value = (category or '').strip()
-    return _IMMOVABLE_TO_SITE_CATEGORY.get(value, 'QT')
-
-
-def _map_site_category_to_immovable(category: str) -> str:
-    value = (category or '').strip()
-    return _SITE_TO_IMMOVABLE_CATEGORY.get(value, 'QT')
-
-
-def _build_immovable_link_code(heritage_obj) -> str:
-    survey_code = (getattr(heritage_obj, 'survey_code', '') or '').strip()
-    if survey_code:
-        return survey_code
-    return f"IMM-{heritage_obj.id:06d}"
-
-
-def _resolve_immovable_by_site_code(sip_code: str):
-    code = (sip_code or '').strip()
-    if not code:
-        return None
-
-    by_survey = ImmovableHeritage.objects.filter(survey_code=code).first()
-    if by_survey:
-        return by_survey
-
-    match = _IMMOVABLE_SITE_CODE_RE.match(code)
-    if match:
-        try:
-            return ImmovableHeritage.objects.filter(id=int(match.group(1))).first()
-        except (TypeError, ValueError):
-            return None
-    return None
-
-
-def _sync_immovable_to_site(heritage_obj, previous_sip_code: str = ''):
-    target_sip_code = _build_immovable_link_code(heritage_obj)
-    manager = (getattr(heritage_obj, 'management_unit', '') or '').strip() or (getattr(heritage_obj, 'manager', '') or '').strip()
-    description = (getattr(heritage_obj, 'description', '') or '').strip() or (getattr(heritage_obj, 'remarks', '') or '').strip()
-
-    site_obj, _ = HeritageSite.objects.update_or_create(
-        sip_code=target_sip_code,
-        defaults={
-            'name': heritage_obj.name,
-            'category': _map_immovable_category_to_site(heritage_obj.category),
-            'level': heritage_obj.protection_level,
-            'address': heritage_obj.address,
-            'longitude': float(heritage_obj.longitude),
-            'latitude': float(heritage_obj.latitude),
-            'manager': manager,
-            'description': description,
-        },
-    )
-
-    previous = (previous_sip_code or '').strip()
-    if previous and previous != target_sip_code:
-        HeritageSite.objects.filter(sip_code=previous).exclude(id=site_obj.id).delete()
-
-    return site_obj
-
-
-def _delete_site_for_immovable(heritage_obj, previous_sip_code: str = ''):
-    target_codes = {_build_immovable_link_code(heritage_obj)}
-    previous = (previous_sip_code or '').strip()
-    if previous:
-        target_codes.add(previous)
-    HeritageSite.objects.filter(sip_code__in=list(target_codes)).delete()
-
-
-def _sync_site_to_immovable(site_obj, previous_sip_code: str = ''):
-    category_values = {value for value, _label in ImmovableHeritage.CATEGORY_CHOICES}
-    level_values = {value for value, _label in ImmovableHeritage.PROTECTION_LEVEL_CHOICES}
-
-    current_code = (site_obj.sip_code or '').strip()
-    previous_code = (previous_sip_code or '').strip()
-
-    heritage = None
-    if previous_code and previous_code != current_code:
-        heritage = _resolve_immovable_by_site_code(previous_code)
-    if not heritage:
-        heritage = _resolve_immovable_by_site_code(current_code)
-
-    mapped_category = _map_site_category_to_immovable(site_obj.category)
-    if mapped_category not in category_values:
-        mapped_category = 'QT'
-    mapped_level = site_obj.level if site_obj.level in level_values else 'DS'
-
-    if not heritage:
-        survey_code = '' if _IMMOVABLE_SITE_CODE_RE.match(current_code) else current_code
-        heritage = ImmovableHeritage.objects.create(
-            survey_code=survey_code,
-            name=site_obj.name,
-            era='未详',
-            category=mapped_category,
-            province='新疆维吾尔自治区',
-            address=site_obj.address,
-            coordinate_system='CGCS2000',
-            longitude=float(site_obj.longitude),
-            latitude=float(site_obj.latitude),
-            preservation_status='一般',
-            ownership='state',
-            manager=(site_obj.manager or '').strip(),
-            management_unit=(site_obj.manager or '').strip(),
-            protection_level=mapped_level,
-            description=(site_obj.description or '').strip(),
-        )
-        return heritage
-
-    if current_code:
-        if _IMMOVABLE_SITE_CODE_RE.match(current_code):
-            if not heritage.survey_code:
-                heritage.survey_code = ''
-        else:
-            heritage.survey_code = current_code
-
-    heritage.name = site_obj.name
-    heritage.address = site_obj.address
-    heritage.longitude = float(site_obj.longitude)
-    heritage.latitude = float(site_obj.latitude)
-    heritage.category = mapped_category
-    heritage.protection_level = mapped_level
-
-    if not heritage.province:
-        heritage.province = '新疆维吾尔自治区'
-    if site_obj.manager and not heritage.management_unit:
-        heritage.management_unit = site_obj.manager
-    if site_obj.manager and not heritage.manager:
-        heritage.manager = site_obj.manager
-    if site_obj.description and not heritage.description:
-        heritage.description = site_obj.description
-
-    heritage.save()
-    return heritage
-
-
-def _delete_immovable_for_site(site_obj):
-    heritage = _resolve_immovable_by_site_code((site_obj.sip_code or '').strip())
-    if heritage:
-        heritage.delete()
-
-
-def _choice_label(choices, value):
-    for code, label in choices:
-        if code == value:
-            return label
-    return value or ''
-
-
-def _serialize_immovable_preview(heritage_obj):
-    return {
-        'id': heritage_obj.id,
-        'survey_code': heritage_obj.survey_code,
-        'sip_code': heritage_obj.survey_code,
-        'name': heritage_obj.name,
-        'former_name': heritage_obj.former_name,
-        'era': heritage_obj.era,
-        'category': heritage_obj.category,
-        'category_label': _choice_label(ImmovableHeritage.CATEGORY_CHOICES, heritage_obj.category),
-        'protection_level': heritage_obj.protection_level,
-        'level': heritage_obj.protection_level,
-        'level_label': _choice_label(ImmovableHeritage.PROTECTION_LEVEL_CHOICES, heritage_obj.protection_level),
-        'preservation_status': heritage_obj.preservation_status,
-        'ownership': heritage_obj.ownership,
-        'ownership_label': _choice_label(ImmovableHeritage.OWNERSHIP_CHOICES, heritage_obj.ownership),
-        'province': heritage_obj.province,
-        'city': heritage_obj.city,
-        'county': heritage_obj.county,
-        'township': heritage_obj.township,
-        'village': heritage_obj.village,
-        'address': heritage_obj.address,
-        'longitude': heritage_obj.longitude,
-        'latitude': heritage_obj.latitude,
-        'manager': heritage_obj.manager,
-        'management_unit': heritage_obj.management_unit,
-        'user_unit': heritage_obj.user_unit,
-        'ownership_detail': heritage_obj.ownership_detail,
-        'description': heritage_obj.description,
-        'brief': heritage_obj.description,
-        'remarks': heritage_obj.remarks,
-        'remark': heritage_obj.remarks,
-        'reviewed_at': heritage_obj.reviewed_at.isoformat() if heritage_obj.reviewed_at else '',
-        'collect_unit': '鄯善县文化体育广播电视和旅游局（文物局）',
-        'reviewer_display': (heritage_obj.reviewer.get_full_name() or heritage_obj.reviewer.username) if heritage_obj.reviewer else '',
-    }
-
-
-def _serialize_site_preview(site_obj):
-    return {
-        'id': site_obj.id,
-        'survey_code': site_obj.sip_code,
-        'sip_code': site_obj.sip_code,
-        'name': site_obj.name,
-        'former_name': '',
-        'era': '',
-        'category': site_obj.category,
-        'category_label': _choice_label(HeritageSite.CATEGORY_CHOICES, site_obj.category),
-        'protection_level': site_obj.level,
-        'level': site_obj.level,
-        'level_label': _choice_label(HeritageSite.LEVEL_CHOICES, site_obj.level),
-        'preservation_status': '',
-        'ownership': '',
-        'ownership_label': '',
-        'province': '新疆维吾尔自治区',
-        'city': '吐鲁番市',
-        'county': '鄯善县',
-        'township': '',
-        'village': '',
-        'address': site_obj.address,
-        'longitude': site_obj.longitude,
-        'latitude': site_obj.latitude,
-        'manager': site_obj.manager,
-        'management_unit': site_obj.manager,
-        'user_unit': '',
-        'ownership_detail': '',
-        'description': site_obj.description,
-        'brief': site_obj.description,
-        'remarks': '',
-        'remark': '',
-        'reviewed_at': '',
-        'collect_unit': '鄯善县文化体育广播电视和旅游局（文物局）',
-        'reviewer_display': '',
-    }
-
-
 class HealthAPIView(APIView):
     permission_classes = []
     authentication_classes = []
 
     def get(self, request):
         return Response({'status': 'ok'})
-
-
-class HeritageClassificationStatsAPIView(APIView):
-    permission_classes = [IsManagementAdmin]
-
-    def get(self, request):
-        return _call_legacy_view(legacy_views.heritage_classification_stats_api, request)
-
-
-class ProjectListAPIView(APIView):
-    permission_classes = [IsManagementAdmin]
-
-    def get(self, request):
-        return _call_legacy_view(legacy_views.land_project_list_api, request)
-
-
-class ProjectDetailAPIView(APIView):
-    permission_classes = [IsManagementAdmin]
-
-    def get(self, request, project_id):
-        return _call_legacy_view(legacy_views.land_project_detail_api, request, project_id)
-
-
-class ProjectCreateAPIView(APIView):
-    permission_classes = [IsManagementAdmin]
-
-    def post(self, request):
-        return _call_legacy_view(legacy_views.land_project_create_api, request)
-
-
-class ProjectUploadAPIView(APIView):
-    permission_classes = [IsManagementAdmin]
-    parser_classes = [MultiPartParser, FormParser]
-
-    def post(self, request, project_id):
-        return _call_legacy_view(legacy_views.land_project_upload_api, request, project_id)
-
-
-class ProjectDownloadMiscZipAPIView(APIView):
-    permission_classes = [IsManagementAdmin]
-
-    def get(self, request, project_id):
-        return _call_legacy_view(legacy_views.land_project_download_misc_zip_api, request, project_id)
-
-
-class ProjectVerifySpatialSafetyAPIView(APIView):
-    permission_classes = [IsManagementAdmin]
-
-    def post(self, request, project_id):
-        return _call_legacy_view(legacy_views.verify_project_spatial_safety_api, request, project_id)
-
-
-class ProjectLinkKmlRecordAPIView(APIView):
-    permission_classes = [IsManagementAdmin]
-
-    def post(self, request, project_id):
-        return _call_legacy_view(legacy_views.land_project_link_kml_record_api, request, project_id)
-
-
-class ProjectDocumentsArchiveAPIView(APIView):
-    permission_classes = [IsManagementAdmin]
-
-    def get(self, request, project_id):
-        return _call_legacy_view(legacy_views.land_project_documents_archive_api, request, project_id)
-
-
-class ProjectDocumentDownloadAPIView(APIView):
-    permission_classes = [IsManagementAdmin]
-
-    def get(self, request, project_id, document_id):
-        return _call_legacy_view(legacy_views.land_project_document_download_api, request, project_id, document_id)
-
-
-class ProjectDocumentDeleteAPIView(APIView):
-    permission_classes = [IsManagementAdmin]
-
-    def post(self, request, project_id, document_id):
-        return _call_legacy_view(legacy_views.land_project_document_delete_api, request, project_id, document_id)
-
-
-class ProjectNextDocNumAPIView(APIView):
-    permission_classes = [IsManagementAdmin]
-
-    def get(self, request):
-        return _call_legacy_view(legacy_views.land_project_next_doc_num_api, request)
-
-
-class ProjectWorkflowActionAPIView(APIView):
-    permission_classes = [IsManagementAdmin]
-
-    def post(self, request, project_id):
-        return _call_legacy_view(legacy_views.land_project_workflow_action_api, request, project_id)
-
-
-class ProjectControlsAPIView(APIView):
-    permission_classes = [IsManagementAdmin]
-
-    def get(self, request, project_id):
-        return _call_legacy_view(legacy_views.land_project_controls_api, request, project_id)
 
 
 class SystemVersionAPIView(APIView):
@@ -689,10 +304,12 @@ class DashboardOverviewAPIView(APIView):
 
 
 class HeritageMapPointsAPIView(APIView):
-    permission_classes = [IsManagementAdmin]
+    permission_classes = [IsAdminUser]
 
     def get(self, request):
         rows = get_heritage_map_points()
+        for row in rows:
+            row['preview_url'] = legacy_views.build_heritage_preview_entry_url(request.user, row['id'])
         return Response({'success': True, 'rows': rows})
 
 
@@ -712,42 +329,6 @@ class HeritageDetailAPIView(APIView):
         if not payload:
             return Response({'success': False, 'message': '文物不存在'}, status=404)
         return Response({'success': True, 'data': payload})
-
-
-class HeritagePreviewAPIView(APIView):
-    permission_classes = [IsManagementAdmin]
-
-    def get(self, request):
-        immovable_id_raw = (request.GET.get('immovable_id') or '').strip()
-        site_id_raw = (request.GET.get('site_id') or '').strip()
-
-        if immovable_id_raw:
-            try:
-                immovable_id = int(immovable_id_raw)
-            except (TypeError, ValueError):
-                return Response({'success': False, 'message': 'immovable_id 格式非法'}, status=400)
-
-            heritage = ImmovableHeritage.objects.select_related('reviewer').filter(id=immovable_id).first()
-            if not heritage:
-                return Response({'success': False, 'message': '文物档案不存在'}, status=404)
-            return Response({'success': True, 'data': _serialize_immovable_preview(heritage)})
-
-        if site_id_raw:
-            try:
-                site_id = int(site_id_raw)
-            except (TypeError, ValueError):
-                return Response({'success': False, 'message': 'site_id 格式非法'}, status=400)
-
-            site = HeritageSite.objects.filter(id=site_id).first()
-            if not site:
-                return Response({'success': False, 'message': '文物档案不存在'}, status=404)
-
-            heritage = _resolve_immovable_by_site_code((site.sip_code or '').strip())
-            if heritage:
-                return Response({'success': True, 'data': _serialize_immovable_preview(heritage)})
-            return Response({'success': True, 'data': _serialize_site_preview(site)})
-
-        return Response({'success': False, 'message': '请提供 immovable_id 或 site_id'}, status=400)
 
 
 class HeritageSiteManageListAPIView(APIView):
@@ -827,8 +408,6 @@ class HeritageSiteManageDetailAPIView(APIView):
         if not site:
             return Response({'success': False, 'message': '文物档案不存在'}, status=404)
 
-        previous_sip_code = site.sip_code
-
         if 'name' in request.data:
             site.name = (request.data.get('name') or '').strip()
         if not site.name:
@@ -875,27 +454,10 @@ class HeritageSiteManageDetailAPIView(APIView):
 
         try:
             site.save()
-            _sync_site_to_immovable(site, previous_sip_code=previous_sip_code)
         except Exception as exc:
             return Response({'success': False, 'message': f'保存失败: {exc}'}, status=400)
 
         return Response({'success': True, 'message': '文物档案已更新'})
-
-    def delete(self, request, site_id):
-        if not can_modify_core_data(request.user):
-            return Response({'success': False, 'message': '当前角色仅可查看，禁止删除'}, status=403)
-
-        site = HeritageSite.objects.filter(id=site_id).first()
-        if not site:
-            return Response({'success': False, 'message': '文物档案不存在'}, status=404)
-
-        try:
-            _delete_immovable_for_site(site)
-            site.delete()
-        except Exception as exc:
-            return Response({'success': False, 'message': f'删除失败: {exc}'}, status=400)
-
-        return Response({'success': True, 'message': '文物档案已删除'})
 
 
 class HeritageSiteManageImportAPIView(APIView):
@@ -1185,8 +747,6 @@ class ImmovableHeritageDetailAPIView(APIView):
         if not heritage:
             return Response({'success': False, 'message': '文物档案不存在'}, status=404)
 
-        previous_sip_code = _build_immovable_link_code(heritage)
-
         text_fields = [
             'survey_code', 'name', 'former_name', 'era', 'heritage_type',
             'province', 'city', 'county', 'township', 'village', 'address',
@@ -1302,27 +862,48 @@ class ImmovableHeritageDetailAPIView(APIView):
 
         try:
             heritage.save()
-            _sync_immovable_to_site(heritage, previous_sip_code=previous_sip_code)
         except Exception as exc:
             return Response({'success': False, 'message': f'保存失败: {exc}'}, status=400)
 
         return Response({'success': True, 'message': '文物档案已更新'})
 
     def delete(self, request, site_id):
-        if not can_modify_core_data(request.user):
-            return Response({'success': False, 'message': '当前角色仅可查看，禁止删除'}, status=403)
+        if not request.user.is_superuser:
+            return Response({'success': False, 'message': '仅超级管理员可以删除采集记录'}, status=403)
 
         heritage = ImmovableHeritage.objects.filter(id=site_id).first()
         if not heritage:
             return Response({'success': False, 'message': '文物档案不存在'}, status=404)
 
+        photo_paths = list(heritage.photos.exclude(image='').values_list('image', flat=True))
+        record_name = heritage.name
         try:
-            _delete_site_for_immovable(heritage)
             heritage.delete()
-        except Exception as exc:
-            return Response({'success': False, 'message': f'删除失败: {exc}'}, status=400)
+        except Exception:
+            logger.exception('删除采集记录失败: site_id=%s', site_id)
+            return Response({'success': False, 'message': '删除失败，请查看服务端日志'}, status=500)
 
-        return Response({'success': True, 'message': '文物档案已删除'})
+        removed_files = 0
+        for path in photo_paths:
+            try:
+                if default_storage.exists(path):
+                    default_storage.delete(path)
+                    removed_files += 1
+            except Exception:
+                logger.warning('删除采集记录照片失败: %s', path)
+
+        logger.warning(
+            '超级管理员 %s 删除采集记录 %s(%s)，清理照片 %s 张',
+            request.user.username,
+            record_name,
+            site_id,
+            removed_files,
+        )
+        return Response({
+            'success': True,
+            'message': f'采集记录「{record_name}」已删除',
+            'data': {'id': site_id, 'removed_files': removed_files},
+        })
 
 
 class ImmovableHeritageCollectAPIView(APIView):
@@ -1516,8 +1097,6 @@ class ImmovableHeritageCollectAPIView(APIView):
                 uploaded_by=request.user,
             )
 
-            _sync_immovable_to_site(heritage)
-
         return Response(
             {
                 'success': True,
@@ -1536,72 +1115,40 @@ class ImmovableHeritageImportAPIView(APIView):
     permission_classes = [IsManagementAdmin]
     parser_classes = [MultiPartParser, FormParser]
 
-    @staticmethod
-    def _normalize_choice_text(value):
-        text = str(value or '').strip()
-        if not text:
-            return ''
-        text = text.replace('（', '(').replace('）', ')')
-        text = text.replace('，', ',').replace('／', '/').replace('、', '')
-        for ch in (' ', '\t', '\r', '\n', '(', ')', ',', '/', '-', '_'):
-            text = text.replace(ch, '')
-        return text.lower()
+    def post(self, request):
+        if not can_modify_core_data(request.user):
+            return Response({'success': False, 'message': '当前角色仅可查看，禁止修改'}, status=403)
 
-    def _build_choice_resolver(self, choices, aliases=None):
-        resolver = {}
-        for value, label in choices:
-            resolver[self._normalize_choice_text(value)] = value
-            resolver[self._normalize_choice_text(label)] = value
+        upload = request.FILES.get('file')
+        if not upload:
+            return Response({'success': False, 'message': '请上传CSV文件'}, status=400)
 
-        for alias, mapped in (aliases or {}).items():
-            resolver[self._normalize_choice_text(alias)] = mapped
+        if not upload.name.lower().endswith('.csv'):
+            return Response({'success': False, 'message': '仅支持CSV文件导入'}, status=400)
 
-        return resolver
+        try:
+            content = upload.read()
+            text = content.decode('utf-8-sig')
+        except Exception:
+            try:
+                text = content.decode('gb18030')
+            except Exception as exc:
+                return Response({'success': False, 'message': f'文件解析失败: {exc}'}, status=400)
 
-    def _resolve_choice_value(self, raw_value, resolver, default=''):
-        raw = (raw_value or '').strip()
-        if not raw:
-            return default
-        return resolver.get(self._normalize_choice_text(raw), raw)
+        reader = csv.DictReader(io.StringIO(text))
+        if not reader.fieldnames:
+            return Response({'success': False, 'message': 'CSV表头为空'}, status=400)
 
-    def _import_rows(self, rows):
-        category_map = self._build_choice_resolver(ImmovableHeritage.CATEGORY_CHOICES)
-        level_map = self._build_choice_resolver(
-            ImmovableHeritage.PROTECTION_LEVEL_CHOICES,
-            aliases={
-                '国家级文物保护单位': 'GB',
-                '省级文物保护单位': 'SB',
-                '自治区级文物保护单位': 'SB',
-                '直辖市级文物保护单位': 'SB',
-                '市级文物保护单位': 'XB',
-                '县级文物保护单位': 'XB',
-                '未定级不可移动文物': 'DS',
-                '未定级': 'DS',
-            },
-        )
-        ownership_map = self._build_choice_resolver(ImmovableHeritage.OWNERSHIP_CHOICES)
-        preservation_map = self._build_choice_resolver(
-            ImmovableHeritage.PRESERVATION_STATUS_CHOICES,
-            aliases={
-                '良好': '较好',
-                '中等': '一般',
-                '不好': '较差',
-            },
-        )
+        category_map = {label: value for value, label in ImmovableHeritage.CATEGORY_CHOICES}
+        level_map = {label: value for value, label in ImmovableHeritage.PROTECTION_LEVEL_CHOICES}
+        ownership_map = {label: value for value, label in ImmovableHeritage.OWNERSHIP_CHOICES}
+        preservation_map = {label: value for value, label in ImmovableHeritage.PRESERVATION_STATUS_CHOICES}
 
         updated_count = 0
         created_count = 0
         skipped_rows = []
 
-        valid_categories = {value for value, _label in ImmovableHeritage.CATEGORY_CHOICES}
-        valid_levels = {value for value, _label in ImmovableHeritage.PROTECTION_LEVEL_CHOICES}
-        valid_ownership = {value for value, _label in ImmovableHeritage.OWNERSHIP_CHOICES}
-        valid_preservation = {value for value, _label in ImmovableHeritage.PRESERVATION_STATUS_CHOICES}
-
-        for index, row in enumerate(rows, start=2):
-            if not any(str(value or '').strip() for value in row.values()):
-                continue
-
+        for index, row in enumerate(reader, start=2):
             survey_code = (row.get('采集编号') or row.get('survey_code') or row.get('四普编号') or row.get('sip_code') or '').strip()
             name = (row.get('文物名称') or row.get('name') or '').strip()
             era = (row.get('时代') or row.get('era') or '').strip()
@@ -1625,11 +1172,15 @@ class ImmovableHeritageImportAPIView(APIView):
             level_raw = (row.get('保护级别') or row.get('protection_level') or row.get('level') or '').strip()
             ownership_raw = (row.get('权属') or row.get('ownership') or '').strip()
             preservation_raw = (row.get('保存现状') or row.get('preservation_status') or '').strip()
-            category = self._resolve_choice_value(category_raw, category_map)
-            level = self._resolve_choice_value(level_raw, level_map)
-            ownership = self._resolve_choice_value(ownership_raw, ownership_map, default='state')
-            preservation_status = self._resolve_choice_value(preservation_raw, preservation_map, default='一般')
+            category = category_map.get(category_raw, category_raw)
+            level = level_map.get(level_raw, level_raw)
+            ownership = ownership_map.get(ownership_raw, ownership_raw or 'state')
+            preservation_status = preservation_map.get(preservation_raw, preservation_raw or '一般')
 
+            valid_categories = {value for value, _label in ImmovableHeritage.CATEGORY_CHOICES}
+            valid_levels = {value for value, _label in ImmovableHeritage.PROTECTION_LEVEL_CHOICES}
+            valid_ownership = {value for value, _label in ImmovableHeritage.OWNERSHIP_CHOICES}
+            valid_preservation = {value for value, _label in ImmovableHeritage.PRESERVATION_STATUS_CHOICES}
             if category not in valid_categories:
                 skipped_rows.append({'line': index, 'reason': f'文物类别非法: {category_raw}'})
                 continue
@@ -1684,56 +1235,22 @@ class ImmovableHeritageImportAPIView(APIView):
             if survey_code:
                 payload['survey_code'] = survey_code
 
-            heritage_obj, created = ImmovableHeritage.objects.update_or_create(**lookup, defaults=payload)
-            _sync_immovable_to_site(heritage_obj)
+            _, created = ImmovableHeritage.objects.update_or_create(**lookup, defaults=payload)
             if created:
                 created_count += 1
             else:
                 updated_count += 1
 
-        return {
-            'created_count': created_count,
-            'updated_count': updated_count,
-            'skipped_count': len(skipped_rows),
-            'skipped_rows': skipped_rows[:50],
-        }
-
-    def _import_csv_text(self, text):
-        reader = csv.DictReader(io.StringIO(text))
-        if not reader.fieldnames:
-            raise ValueError('CSV表头为空')
-        return self._import_rows(reader)
-
-    def post(self, request):
-        if not can_modify_core_data(request.user):
-            return Response({'success': False, 'message': '当前角色仅可查看，禁止修改'}, status=403)
-
-        upload = request.FILES.get('file')
-        if not upload:
-            return Response({'success': False, 'message': '请上传CSV文件'}, status=400)
-
-        if not upload.name.lower().endswith('.csv'):
-            return Response({'success': False, 'message': '仅支持CSV文件导入'}, status=400)
-
-        try:
-            content = upload.read()
-            text = content.decode('utf-8-sig')
-        except Exception:
-            try:
-                text = content.decode('gb18030')
-            except Exception as exc:
-                return Response({'success': False, 'message': f'文件解析失败: {exc}'}, status=400)
-
-        try:
-            summary = self._import_csv_text(text)
-        except ValueError as exc:
-            return Response({'success': False, 'message': str(exc)}, status=400)
-
         return Response(
             {
                 'success': True,
                 'message': '导入完成',
-                'data': summary,
+                'data': {
+                    'created_count': created_count,
+                    'updated_count': updated_count,
+                    'skipped_count': len(skipped_rows),
+                    'skipped_rows': skipped_rows[:50],
+                },
             }
         )
 
@@ -1768,134 +1285,6 @@ class ImmovableHeritageImportAPIView(APIView):
             return None
 
         return None
-
-
-class SipuFetchAndImportAPIView(APIView):
-    permission_classes = [IsManagementAdmin]
-
-    def post(self, request):
-        if not can_modify_core_data(request.user):
-            return Response({'success': False, 'message': '当前角色仅可查看，禁止修改'}, status=403)
-
-        data = request.data or {}
-        jsessionid = str(data.get('jsessionid') or '').strip()
-        if not jsessionid:
-            return Response({'success': False, 'message': '请填写四普系统 JSESSIONID'}, status=400)
-
-        base_url = str(data.get('base_url') or 'http://202.41.243.152:9046').strip()
-        endpoint = str(data.get('endpoint') or '/immovableListController.do?queryRelicList').strip()
-        detail_endpoint = str(data.get('detail_endpoint') or '/tBBdataBasicController.do?goBasicView').strip()
-        user_county = str(data.get('user_county') or '650421').strip()
-        sort_field = str(data.get('sort_field') or 'update_date').strip()
-        sort_type = str(data.get('sort_type') or 'desc').strip().lower()
-        back_status = str(data.get('back_status') or '0').strip()
-        skip_detail = bool(data.get('skip_detail', False))
-        strict = bool(data.get('strict', False))
-
-        try:
-            page_size = max(1, int(data.get('page_size') or 100))
-            timeout = max(5, int(data.get('timeout') or 25))
-            workers = max(1, int(data.get('workers') or 8))
-            retries = max(1, int(data.get('retries') or 3))
-            retry_backoff = max(0.2, float(data.get('retry_backoff') or 1.5))
-            max_pages_raw = data.get('max_pages')
-            max_pages = int(max_pages_raw) if str(max_pages_raw or '').strip() else None
-        except (TypeError, ValueError):
-            return Response({'success': False, 'message': 'page_size/timeout/workers/retries/max_pages 参数格式错误'}, status=400)
-
-        if sort_type not in {'asc', 'desc'}:
-            return Response({'success': False, 'message': 'sort_type 仅支持 asc 或 desc'}, status=400)
-
-        cfg = FetchConfig(
-            base_url=base_url,
-            endpoint=endpoint,
-            detail_endpoint=detail_endpoint,
-            jsessionid=jsessionid,
-            user_county=user_county,
-            page_size=page_size,
-            timeout=timeout,
-            max_pages=max_pages,
-            sort_field=sort_field,
-            sort_type=sort_type,
-            back_status=back_status,
-            retries=retries,
-            retry_backoff=retry_backoff,
-        )
-
-        try:
-            source_rows = fetch_all_rows(SipuClient(cfg))
-        except Exception as exc:
-            return Response({'success': False, 'message': f'四普抓取失败: {exc}'}, status=400)
-
-        args = SimpleNamespace(skip_detail=skip_detail, jsessionid=jsessionid, strict=strict)
-        converted = []
-        skipped_count = 0
-        detail_failed_count = 0
-
-        if workers <= 1:
-            for item in source_rows:
-                status, row, _message = build_row_for_item(item=item, cfg=cfg, args=args)
-                if status == 'skipped':
-                    skipped_count += 1
-                elif status in {'error', 'detail_failed'}:
-                    detail_failed_count += 1
-                    if row is not None:
-                        converted.append(row)
-                elif row is not None:
-                    converted.append(row)
-        else:
-            indexed_rows = {}
-            with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
-                future_map = {
-                    executor.submit(build_row_for_item, item, cfg, args): idx
-                    for idx, item in enumerate(source_rows)
-                }
-                for future in concurrent.futures.as_completed(future_map):
-                    idx = future_map[future]
-                    try:
-                        status, row, _message = future.result()
-                    except Exception:
-                        status, row = 'error', None
-
-                    if status == 'skipped':
-                        skipped_count += 1
-                    elif status in {'error', 'detail_failed'}:
-                        detail_failed_count += 1
-                        if row is not None:
-                            indexed_rows[idx] = row
-                    elif row is not None:
-                        indexed_rows[idx] = row
-
-            for idx in sorted(indexed_rows.keys()):
-                converted.append(indexed_rows[idx])
-
-        output_name = str(data.get('output') or 'data/sipu_base_data.csv').strip()
-        output_path = output_name if os.path.isabs(output_name) else os.path.join(settings.BASE_DIR, output_name)
-        try:
-            write_csv(Path(output_path), converted)
-        except Exception as exc:
-            return Response({'success': False, 'message': f'CSV 写入失败: {exc}'}, status=500)
-
-        importer = ImmovableHeritageImportAPIView()
-        try:
-            import_summary = importer._import_rows(converted)
-        except Exception as exc:
-            return Response({'success': False, 'message': f'自动导入失败: {exc}'}, status=500)
-
-        return Response(
-            {
-                'success': True,
-                'message': '四普抓取并自动导入完成',
-                'data': {
-                    'fetch_count': len(source_rows),
-                    'csv_written_count': len(converted),
-                    'conversion_skipped_count': skipped_count,
-                    'detail_failed_count': detail_failed_count,
-                    'output_path': output_path,
-                    'import_summary': import_summary,
-                },
-            }
-        )
 
 
 class ImmovableHeritageExportAPIView(APIView):
@@ -1980,7 +1369,7 @@ class InspectionListAPIView(APIView):
             'issue_details': item.issue_details or '',
             'latitude': item.latitude,
             'longitude': item.longitude,
-            'photo_url': _build_inspection_photo_url(item.photo, request),
+            'photo_url': _build_inspection_photo_url(item.photo),
         }
 
     def _parse_bool(self, value, default=True):
@@ -2219,7 +1608,7 @@ class InspectionDetailAPIView(APIView):
                     'issue_details': item.issue_details or '',
                     'latitude': item.latitude,
                     'longitude': item.longitude,
-                    'photo_url': _build_inspection_photo_url(item.photo, request),
+                    'photo_url': _build_inspection_photo_url(item.photo),
                 },
             }
         )
@@ -2709,103 +2098,6 @@ class GisKmlManagementActionAPIView(APIView):
         )
 
 
-class GisKmlProcessConvertAPIView(APIView):
-    permission_classes = [IsManagementAdmin]
-    parser_classes = [MultiPartParser, FormParser]
-
-    def post(self, request):
-        tool = (request.data.get('tool') or '').strip()
-        action = (request.data.get('action') or '').strip()
-
-        if tool == 'dxf_to_kml':
-            dxf_file = request.FILES.get('dxf_file')
-            if not dxf_file:
-                return Response({'success': False, 'message': '请先选择 DXF 文件。'}, status=400)
-
-            lower_name = (dxf_file.name or '').lower()
-            if not lower_name.endswith('.dxf'):
-                return Response({'success': False, 'message': '文件格式不正确，请上传 .dxf 文件。'}, status=400)
-
-            try:
-                kml_bytes, _stats = legacy_views._convert_dxf_bytes_to_kml(
-                    dxf_file.read(), os.path.splitext(dxf_file.name)[0]
-                )
-            except Exception as exc:
-                return Response({'success': False, 'message': f'DXF 转换失败：{exc}'}, status=400)
-
-            date_str = timezone.now().strftime('%Y%m%d_%H%M%S')
-            export_name = f'dxf_to_kml_{date_str}.kml'
-            response = HttpResponse(kml_bytes, content_type='application/vnd.google-earth.kml+xml; charset=utf-8')
-            response['Content-Disposition'] = f'attachment; filename="{export_name}"'
-            return response
-
-        if tool == 'kml_table':
-            source_mode = (request.data.get('source_mode') or 'uploaded').strip()
-            input_crs = (request.data.get('input_crs') or 'wgs84').strip()
-            output_mode = (request.data.get('output_mode') or 'geo').strip()
-            geo_output_crs = (request.data.get('geo_output_crs') or 'wgs84').strip()
-            uploaded_record_id = (request.data.get('uploaded_record_id') or '').strip()
-
-            source_name = ''
-            raw_content = b''
-
-            if source_mode == 'uploaded':
-                if not uploaded_record_id:
-                    return Response({'success': False, 'message': '请先选择已上传记录。'}, status=400)
-                record = KmlUploadRecord.objects.filter(id=uploaded_record_id).first()
-                if not record:
-                    return Response({'success': False, 'message': '所选记录不存在。'}, status=404)
-                source_name = os.path.basename(record.source_file.name or record.title or f'kml_record_{record.id}')
-                with record.source_file.open('rb') as source:
-                    raw_content = source.read()
-            else:
-                upload_file = request.FILES.get('kml_file')
-                if not upload_file:
-                    return Response({'success': False, 'message': '请先上传 KML/KMZ 文件。'}, status=400)
-                source_name = upload_file.name or '未命名文件'
-                raw_content = upload_file.read()
-
-            if not legacy_views._is_kml_family_filename(source_name):
-                return Response({'success': False, 'message': '文件格式不正确，请选择 .kml/.kmz/.ovkml/.ovkmz。'}, status=400)
-
-            parse_output_crs = 'cgcs2000_proj' if output_mode == 'cgcs2000_proj' else geo_output_crs
-            try:
-                records, file_format = parse_kml_or_kmz(raw_content, input_crs=input_crs, output_crs=parse_output_crs)
-            except Exception as exc:
-                return Response({'success': False, 'message': f'解析失败：{exc}'}, status=400)
-
-            if not records:
-                return Response({'success': False, 'message': '未提取到要素，请检查文件内容。'}, status=400)
-
-            table_rows = legacy_views._build_kml_table_rows(records, parse_output_crs)
-
-            if action == 'export_csv':
-                csv_text = legacy_views._build_kml_table_csv(table_rows, parse_output_crs)
-                date_str = timezone.now().strftime('%Y%m%d_%H%M%S')
-                ext_name = 'cgcs2000坐标' if parse_output_crs == 'cgcs2000_proj' else '经纬度坐标'
-                report_name = f'{date_str}_{os.path.splitext(source_name)[0]}_{ext_name}.csv'
-                response = HttpResponse(csv_text, content_type='text/csv; charset=utf-8-sig')
-                response['Content-Disposition'] = f'attachment; filename="{report_name}"'
-                return response
-
-            return Response(
-                {
-                    'success': True,
-                    'data': {
-                        'source_name': source_name,
-                        'file_format': file_format,
-                        'total_count': len(table_rows),
-                        'preview_rows': table_rows[:200],
-                        'preview_truncated': len(table_rows) > 200,
-                        'coord_a_label': 'CGCS2000_X(米)' if parse_output_crs == 'cgcs2000_proj' else '经度',
-                        'coord_b_label': 'CGCS2000_Y(米)' if parse_output_crs == 'cgcs2000_proj' else '纬度',
-                    },
-                }
-            )
-
-        return Response({'success': False, 'message': '未知操作请求。'}, status=400)
-
-
 class GisOvkmlConvertAPIView(APIView):
     permission_classes = [IsManagementAdmin]
     parser_classes = [MultiPartParser, FormParser]
@@ -2814,6 +2106,7 @@ class GisOvkmlConvertAPIView(APIView):
         upload_file = request.FILES.get('ovkml_file')
         input_crs = (request.data.get('input_crs') or 'wgs84').strip()
         output_crs = (request.data.get('output_crs') or 'cgcs2000').strip()
+        central_meridian = request.data.get('central_meridian') or '90'
         action = (request.data.get('action') or 'convert').strip()
         deduplicate = str(request.data.get('deduplicate') or 'true').lower() in {'1', 'true', 'on', 'yes'}
 
@@ -2821,13 +2114,28 @@ class GisOvkmlConvertAPIView(APIView):
             return Response({'success': False, 'message': '请先选择 KML/KMZ/OVKML/OVKMZ 文件。'}, status=400)
 
         filename = (upload_file.name or '').lower()
-        if not (filename.endswith('.kml') or filename.endswith('.ovkml') or filename.endswith('.kmz') or filename.endswith('.ovkmz')):
-            return Response({'success': False, 'message': '文件格式不正确，请上传 .kml .kmz .ovkml .ovkmz 文件。'}, status=400)
+        is_dxf = filename.endswith('.dxf')
+        if not (is_dxf or filename.endswith('.kml') or filename.endswith('.ovkml') or filename.endswith('.kmz') or filename.endswith('.ovkmz')):
+            return Response({'success': False, 'message': '文件格式不正确，请上传 .dxf/.kml/.kmz/.ovkml/.ovkmz 文件。'}, status=400)
 
         try:
-            records, file_format = parse_kml_or_kmz(upload_file.read(), input_crs=input_crs, output_crs=output_crs)
+            raw_content = upload_file.read()
+            if is_dxf:
+                raw_content, _stats = legacy_views._convert_dxf_bytes_to_kml(
+                    raw_content, os.path.splitext(upload_file.name)[0]
+                )
+                file_format = 'dxf'
+            else:
+                file_format = None
+            records, parsed_format = parse_kml_or_kmz(
+                raw_content,
+                input_crs=input_crs,
+                output_crs=output_crs,
+                central_meridian=float(central_meridian),
+            )
+            file_format = file_format or parsed_format
         except Exception as exc:
-            return Response({'success': False, 'message': f'解析失败：{exc}'}, status=400)
+            return Response({'success': False, 'message': f'转换解析失败：{exc}'}, status=400)
 
         if not records:
             return Response({'success': False, 'message': '未提取到 Placemark，请检查文件内容。'}, status=400)

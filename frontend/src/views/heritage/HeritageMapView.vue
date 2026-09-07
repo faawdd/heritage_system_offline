@@ -5,7 +5,8 @@
       :points="points"
       :active-levels="activeLevels"
       :keyword="keyword"
-      @select="onSelect"
+      :show-point-popup="true"
+      @open-detail="openDetail"
     />
 
     <div class="heritage-menu-toggle">
@@ -37,19 +38,6 @@
               <el-button type="primary" @click="loadData" :loading="loading">刷新点位</el-button>
             </div>
           </el-collapse-item>
-
-          <el-collapse-item title="选中文物" name="selected">
-            <div class="heritage-form-block">
-              <el-descriptions :column="1" border>
-                <el-descriptions-item label="名称">{{ selected.name || '-' }}</el-descriptions-item>
-                <el-descriptions-item label="等级">{{ selected.level_label || '-' }}</el-descriptions-item>
-                <el-descriptions-item label="经纬度">
-                  {{ selected.lng ?? '-' }}, {{ selected.lat ?? '-' }}
-                </el-descriptions-item>
-              </el-descriptions>
-              <el-button type="success" :disabled="!selected.id" @click="openDetail">查看档案详情</el-button>
-            </div>
-          </el-collapse-item>
         </el-collapse>
       </el-scrollbar>
     </aside>
@@ -57,39 +45,24 @@
 </template>
 
 <script setup>
-import { reactive, ref } from 'vue'
+import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { useRouter } from 'vue-router'
 
 import { fetchHeritageMapPoints } from '../../api/heritageApi'
 import HeritageMapCanvas from '../../components/heritage/HeritageMapCanvas.vue'
-
-const router = useRouter()
 
 const loading = ref(false)
 const keyword = ref('')
 const points = ref([])
 const activeLevels = ref(['GB', 'SB', 'XB', 'DS'])
-const selected = reactive({})
 const menuVisible = ref(true)
-const activePanels = ref(['filters', 'selected'])
+const activePanels = ref(['filters'])
 
-function fillReactive(target, source) {
-  Object.keys(target).forEach((key) => delete target[key])
-  Object.keys(source || {}).forEach((key) => {
-    target[key] = source[key]
-  })
-}
-
-function onSelect(payload) {
-  fillReactive(selected, payload)
-}
-
-function openDetail() {
-  if (!selected.id) {
+function openDetail(payload) {
+  if (!payload?.id || !payload.preview_url) {
     return
   }
-  router.push(`/heritage/${selected.id}`)
+  window.open(payload.preview_url, '_blank', 'noopener,noreferrer')
 }
 
 async function loadData() {

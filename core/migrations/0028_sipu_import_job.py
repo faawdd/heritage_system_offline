@@ -9,7 +9,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('core', '0028_heritagesite_body_boundary'),
+        ('core', '0027_heritagesite_body_boundary'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

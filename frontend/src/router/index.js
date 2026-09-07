@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 import AppLayout from '../layouts/AppLayout.vue'
 import DashboardView from '../views/dashboard/DashboardView.vue'
+import ReportCenterView from '../views/reports/ReportCenterView.vue'
 import ProjectListView from '../views/projects/ProjectListView.vue'
 import ProjectCreateView from '../views/projects/ProjectCreateView.vue'
 import ProjectDetailView from '../views/projects/ProjectDetailView.vue'
@@ -15,38 +16,13 @@ import ImmovableHeritageManageView from '../views/heritage/ImmovableHeritageMana
 import KanerjingListView from '../views/heritage/KanerjingListView.vue'
 import ImmovableCollectView from '../views/collect/ImmovableCollectView.vue'
 import KmlManagementView from '../views/gis/KmlManagementView.vue'
-import KmlProcessConvertView from '../views/gis/KmlProcessConvertView.vue'
 import OvkmlConvertView from '../views/gis/OvkmlConvertView.vue'
-import LoginView from '../views/Login.vue'
+import LoginView from '../views/system/auth/LoginView.vue'
 import DeepSeekConfigView from '../views/system/admin/DeepSeekConfigView.vue'
 import DataManagementView from '../views/system/data/DataManagementView.vue'
 import UserListView from '../views/system/user/UserListView.vue'
 import RoleListView from '../views/system/role/RoleListView.vue'
-import MenuListView from '../views/system/menu/MenuListView.vue'
-import AboutView from '../views/system/about/AboutView.vue'
 import { useAuthStore } from '../stores/system/authStore'
-
-const DESKTOP_AUTH_KEY = 'desktop_local_auth'
-
-function hasElectronBridge() {
-  return typeof window !== 'undefined' && Boolean(window.electronAPI)
-}
-
-function getDesktopAuthStorage() {
-  if (typeof window === 'undefined' || !window.sessionStorage) {
-    return null
-  }
-  return window.sessionStorage
-}
-
-function isDesktopAuthorized() {
-  const storage = getDesktopAuthStorage()
-  return hasElectronBridge() && Boolean(storage) && storage.getItem(DESKTOP_AUTH_KEY) === '1'
-}
-
-function isDesktopLoginWindowRoute(route) {
-  return hasElectronBridge() && route.path === '/login' && route.query.login_window === '1'
-}
 
 const routes = [
   {
@@ -61,6 +37,7 @@ const routes = [
     children: [
       { path: '', redirect: '/dashboard' },
       { path: 'dashboard', component: DashboardView },
+      { path: 'reports', component: ReportCenterView },
       { path: 'projects', component: ProjectListView },
       { path: 'projects/new', component: ProjectCreateView },
       { path: 'projects/:projectId', component: ProjectDetailView, props: true },
@@ -74,14 +51,11 @@ const routes = [
       { path: 'collect/records', component: ImmovableHeritageManageView },
       { path: 'heritage/:siteId', component: HeritageDetailView, props: true },
       { path: 'gis/kml-management', component: KmlManagementView },
-      { path: 'gis/kml-process-convert', component: KmlProcessConvertView },
       { path: 'gis/ovkml-convert', component: OvkmlConvertView },
-      { path: 'system/users', component: UserListView, meta: { requiresSuperAdmin: true } },
+      { path: 'system/users', component: UserListView },
       { path: 'system/roles', component: RoleListView },
-      { path: 'system/data-management', component: DataManagementView },
-      { path: 'system/about', component: AboutView },
       { path: 'system/ai-config', component: DeepSeekConfigView },
-      { path: 'system/menus', component: MenuListView, meta: { requiresSuperAdmin: true } }
+      { path: 'system/data-management', component: DataManagementView }
     ]
   }
 ]
@@ -92,30 +66,6 @@ const router = createRouter({
 })
 
 router.beforeEach(async (to) => {
-  if (isDesktopLoginWindowRoute(to)) {
-    return true
-  }
-
-  if (to.path === '/') {
-    return '/login'
-  }
-
-  if (to.query.desktop_auth === '1' && hasElectronBridge()) {
-    const storage = getDesktopAuthStorage()
-    if (storage) {
-      storage.setItem(DESKTOP_AUTH_KEY, '1')
-    }
-    // Clean up legacy persistent flag to avoid login bypass after app restart.
-    localStorage.removeItem(DESKTOP_AUTH_KEY)
-  }
-
-  if (isDesktopAuthorized()) {
-    if (to.path === '/login') {
-      return '/dashboard'
-    }
-    return true
-  }
-
   const authStore = useAuthStore()
   await authStore.restoreSession()
 

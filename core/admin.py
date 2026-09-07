@@ -14,6 +14,8 @@ from .models import (
     ImmovableHeritage,
     HeritagePhoto,
     SipuImportJob,
+    ReportRecord,
+    ReportSchedule,
 )
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin, GroupAdmin as BaseGroupAdmin
@@ -38,6 +40,21 @@ from django.conf import settings
 from django.utils import timezone
 from docxtpl import DocxTemplate
 from .permission_decorators import is_admin, is_inspector, is_management_admin
+
+
+@admin.register(ReportRecord)
+class ReportRecordAdmin(admin.ModelAdmin):
+    list_display = ('title', 'period', 'period_start', 'period_end', 'generated_at', 'generated_by')
+    list_filter = ('period', 'period_end')
+    search_fields = ('title',)
+    readonly_fields = ('html_content', 'generated_at')
+
+
+@admin.register(ReportSchedule)
+class ReportScheduleAdmin(admin.ModelAdmin):
+    list_display = ('period', 'enabled', 'run_hour', 'last_generated_at')
+    list_editable = ('enabled', 'run_hour')
+    readonly_fields = ('last_generated_at', 'created_at')
 
 
 
@@ -792,7 +809,7 @@ class CoordinateAdmin(admin.ModelAdmin):
 
 # 修改后台标题，统一显示动态版本号
 sys_version = getattr(settings, 'SYS_VERSION', 'BuildUnknown')
-system_name = getattr(settings, 'SYSTEM_NAME', '文物管理系统（离线版）')
+system_name = getattr(settings, 'SYSTEM_NAME', '鄯善县文物管理平台')
 admin.site.site_header = f'{system_name} ({sys_version})'
 admin.site.site_title = f'{system_name} ({sys_version})'
 admin.site.index_title = f'欢迎使用{system_name}，当前版本 {sys_version}'

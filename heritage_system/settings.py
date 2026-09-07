@@ -25,20 +25,12 @@ except Exception:
 BASE_DIR = Path(__file__).resolve().parent.parent
 SETTINGS_FILE = Path(__file__).resolve()
 PROJECT_TIME_ZONE = ZoneInfo('Asia/Shanghai')
-APP_DIR = Path(os.getenv('HERITAGE_APP_DIR', str(BASE_DIR))).resolve()
-DATA_DIR = Path(os.getenv('HERITAGE_DATA_DIR', str(BASE_DIR / 'data'))).resolve()
-CONFIG_DIR = Path(os.getenv('HERITAGE_CONFIG_DIR', str(BASE_DIR / 'config'))).resolve()
-
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
 if _django_environ and hasattr(_django_environ, 'Env'):
     env = _django_environ.Env()
-    env_candidates = [CONFIG_DIR / '.env', BASE_DIR / '.env']
-    for env_file in env_candidates:
-        if env_file.exists():
-            _django_environ.Env.read_env(env_file)
-            break
+    env_file = BASE_DIR / '.env'
+    if env_file.exists():
+        _django_environ.Env.read_env(env_file)
 else:
     class _SimpleEnv:
         """当 django-environ 不可用时，使用最小化 env 读取兜底。"""
@@ -49,40 +41,12 @@ else:
     env = _SimpleEnv()
 
 SYSTEM_REGION = env('SYSTEM_REGION', default='鄯善县')
-SYSTEM_NAME = env('SYSTEM_NAME', default='文物管理系统（离线版）')
-SYSTEM_VERSION_BASE = env('SYSTEM_VERSION_BASE', default='v2.1')
+SYSTEM_NAME = env('SYSTEM_NAME', default=f'{SYSTEM_REGION}文物管理平台')
+SYSTEM_VERSION_BASE = env('SYSTEM_VERSION_BASE', default='v2.2')
 
 
 def build_system_version():
-    """优先使用 Git tag 作为版本号，失败时回退到时间戳版本号。"""
-    try:
-        tag_result = subprocess.run(
-            ['git', 'describe', '--tags', '--abbrev=0'],
-            cwd=BASE_DIR,
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=2,
-        )
-        tag_name = (tag_result.stdout or '').strip()
-        if tag_name:
-            try:
-                commit_result = subprocess.run(
-                    ['git', 'log', '-1', '--format=%ct'],
-                    cwd=BASE_DIR,
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                    timeout=2,
-                )
-                timestamp = int(commit_result.stdout.strip())
-                updated_at = datetime.fromtimestamp(timestamp, tz=PROJECT_TIME_ZONE)
-            except (subprocess.SubprocessError, FileNotFoundError, ValueError, OSError):
-                updated_at = datetime.now(PROJECT_TIME_ZONE)
-            return (tag_name, 'git_tag', updated_at)
-    except (subprocess.SubprocessError, FileNotFoundError, OSError):
-        pass
-
+    """优先使用 Git 最后提交时间生成版本号，失败时自动降级。"""
     try:
         result = subprocess.run(
             ['git', 'log', '-1', '--format=%ct'],
@@ -132,7 +96,6 @@ SECRET_KEY = env(
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = str(env('DJANGO_DEBUG', default='0')).lower() in ('1', 'true', 'yes', 'on')
-DESKTOP_MODE = str(env('HERITAGE_DESKTOP_MODE', default='0')).lower() in ('1', 'true', 'yes', 'on')
 ALLOWED_HOSTS = ['beichenhome.top', 'localhost', '127.0.0.1', '[::1]']
 
 # CSRF 信任域名 - 生产环境保持HTTPS配置
@@ -145,6 +108,10 @@ SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 # 静态文件收集目录
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+
+# 内置报告调度器：Django 进程启动后自动检查已完成周期并生成报告。
+REPORT_AUTO_GENERATOR_ENABLED = os.environ.get('REPORT_AUTO_GENERATOR_ENABLED', 'true').lower() == 'true'
+REPORT_AUTO_GENERATOR_INTERVAL = int(os.environ.get('REPORT_AUTO_GENERATOR_INTERVAL', '3600'))
 
 INSTALLED_APPS = [
     'core',
@@ -180,7 +147,7 @@ ROOT_URLCONF = 'heritage_system.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [os.path.join(APP_DIR, 'templates')], # 确保这里能找到自定义模板
+        'DIRS': [os.path.join(BASE_DIR, 'templates')], # 确保这里能找到自定义模板
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -202,8 +169,8 @@ WSGI_APPLICATION = 'heritage_system.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'heritage_system.db.backends.sqlcipher',
-        'NAME': Path(env('HERITAGE_DB_FILE', default=str(DATA_DIR / 'database.db'))),
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
 
@@ -242,19 +209,18 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
+import os
+
 STATIC_URL = '/static/'
 # 开发环境：指定静态文件查找目录
 STATICFILES_DIRS = [
-    os.path.join(APP_DIR, 'static'),
+    os.path.join(BASE_DIR, 'static'),
 ]
 # 生产环境：collectstatic命令收集静态文件的目标目录
-if DESKTOP_MODE:
-    STATIC_ROOT = os.path.join(APP_DIR, 'static')
-else:
-    STATIC_ROOT = os.path.join(APP_DIR, 'staticfiles')
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 MEDIA_URL = '/media/'
-MEDIA_ROOT = env('HERITAGE_UPLOAD_DIR', default=os.path.join(DATA_DIR, 'media'))
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 # DRF and CORS settings
 REST_FRAMEWORK = {
@@ -275,7 +241,7 @@ CORS_ALLOWED_ORIGINS = [
 CORS_ALLOW_CREDENTIALS = True
 
 # 未登录访问受保护页面时统一跳转到 Vue 入口页（由前端路由接管登录）
-LOGIN_URL = '/?redirect=/system/admin'
+LOGIN_URL = '/static/frontend/?redirect=/system/admin'
 
 
 # DEM（SRTM 30m）按需下载缓存配置

@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('core', '0027_backfill_involves_kanerjing'),
+        ('core', '0026_backfill_involves_kanerjing'),
     ]
 
     # 与 0024/0025 一致：跨环境自动索引名哈希可能不一致，剔除 RenameIndex 漂移，仅保留真实字段变更。

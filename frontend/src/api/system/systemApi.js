@@ -72,26 +72,6 @@ export async function fetchSystemMenus() {
   return response.data
 }
 
-export async function createSystemMenu(payload) {
-  const response = await client.post('/api/v1/system/menus/', payload)
-  return response.data
-}
-
-export async function updateSystemMenu(menuId, payload) {
-  const response = await client.patch(`/api/v1/system/menus/${menuId}/`, payload)
-  return response.data
-}
-
-export async function deleteSystemMenu(menuId) {
-  const response = await client.delete(`/api/v1/system/menus/${menuId}/`)
-  return response.data
-}
-
-export async function fetchDeepSeekConfig() {
-  const response = await client.get('/api/v1/system/ai-config/deepseek/')
-  return response.data
-}
-
 export async function updateDeepSeekConfig(payload) {
   const response = await client.put('/api/v1/system/ai-config/deepseek/', payload)
   return response.data
@@ -161,5 +141,10 @@ export async function importDataSyncPackage({ file, datasets = [], mode = 'merge
     headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 30 * 60 * 1000
   })
+  return response.data
+}
+
+export async function fetchDeepSeekConfig() {
+  const response = await client.get('/api/v1/system/ai-config/deepseek/')
   return response.data
 }

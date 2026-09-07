@@ -38,7 +38,7 @@ from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth import get_user_model, login as auth_login
 from rest_framework.decorators import api_view, permission_classes
 from core.permissions.api_permissions import IsManagementAdmin
-from django.db import OperationalError, ProgrammingError
+from django.db import OperationalError, ProgrammingError, transaction
 from django.db.models import Count, Q
 from django.http import JsonResponse, HttpResponse, HttpResponseForbidden, FileResponse
 from django.utils import timezone
@@ -65,8 +65,8 @@ from types import SimpleNamespace
 from django.shortcuts import get_object_or_404
 from django.contrib import messages
 from heritage_system.version import VERSION, VERSION_HISTORY
-from .permission_decorators import is_management_admin, is_limited_admin
-from system.models import SystemConfig
+from .permission_decorators import is_management_admin, is_limited_admin, is_super_admin
+from system.models import SystemConfig, OperationLog
 from utils.dem_handler import describe_tile, get_dem_elevation
 
 User = get_user_model()
@@ -329,7 +329,7 @@ def admin_index_view(request):
 
 def admin_direct_entry_block_view(request):
     """禁止直接进入 Django Admin，统一走 Vue 系统登录后进入。"""
-    return redirect('/?redirect=/system/admin')
+    return redirect('/static/frontend/?redirect=/system/admin')
 
 
 @staff_member_required  # 确保只有登录后台的人能看
@@ -667,6 +667,39 @@ def _is_point_in_polygon(lon, lat, polygon_rings):
     return True
 
 
+def _orientation(first_point, second_point, third_point):
+    return (
+        (second_point[0] - first_point[0]) * (third_point[1] - first_point[1])
+        - (second_point[1] - first_point[1]) * (third_point[0] - first_point[0])
+    )
+
+
+def _point_on_segment(segment_start, segment_end, point, tolerance=1e-10):
+    if not (
+        min(segment_start[0], segment_end[0]) - tolerance <= point[0] <= max(segment_start[0], segment_end[0]) + tolerance
+        and min(segment_start[1], segment_end[1]) - tolerance <= point[1] <= max(segment_start[1], segment_end[1]) + tolerance
+    ):
+        return False
+    return abs(_orientation(segment_start, segment_end, point)) <= tolerance
+
+
+def _segments_intersect(first_start, first_end, second_start, second_end):
+    first_orientation = _orientation(first_start, first_end, second_start)
+    second_orientation = _orientation(first_start, first_end, second_end)
+    third_orientation = _orientation(second_start, second_end, first_start)
+    fourth_orientation = _orientation(second_start, second_end, first_end)
+
+    if ((first_orientation > 0 > second_orientation or first_orientation < 0 < second_orientation)
+            and (third_orientation > 0 > fourth_orientation or third_orientation < 0 < fourth_orientation)):
+        return True
+    return (
+        _point_on_segment(first_start, first_end, second_start)
+        or _point_on_segment(first_start, first_end, second_end)
+        or _point_on_segment(second_start, second_end, first_start)
+        or _point_on_segment(second_start, second_end, first_end)
+    )
+
+
 def _parse_boundary_rings(zone_text):
     """解析 HeritageSite 的环列表字段（body_boundary/protection_zone/control_zone）为 [[(lon,lat),...],...]。"""
     if not zone_text:
@@ -690,12 +723,14 @@ def _parse_boundary_rings(zone_text):
                 except (TypeError, ValueError):
                     continue
         if len(ring) >= 3:
+            if ring[0] != ring[-1]:
+                ring.append(ring[0])
             rings.append(ring)
     return rings
 
 
 def _load_conflict_site_points():
-    rows = HeritageSite.objects.exclude(longitude__isnull=True).exclude(latitude__isnull=True).values(
+    rows = HeritageSite.objects.values(
         'id', 'name', 'level', 'longitude', 'latitude', 'body_boundary'
     )
     site_points = []
@@ -704,9 +739,17 @@ def _load_conflict_site_points():
             lon = float(row['longitude'])
             lat = float(row['latitude'])
         except (TypeError, ValueError):
-            continue
+            lon = None
+            lat = None
 
         boundary_rings = _parse_boundary_rings(row['body_boundary'])
+        if lon is None or lat is None:
+            if not boundary_rings:
+                continue
+            lons = [pt[0] for ring in boundary_rings for pt in ring]
+            lats = [pt[1] for ring in boundary_rings for pt in ring]
+            lon = sum(lons) / len(lons)
+            lat = sum(lats) / len(lats)
         bbox = (lon, lat, lon, lat)
         if boundary_rings:
             lons = [pt[0] for ring in boundary_rings for pt in ring] + [lon]
@@ -748,6 +791,7 @@ def _feature_bbox(feature):
 
 def _build_site_spatial_index(site_points, cell_deg):
     index = {}
+    max_index_cells = 10000
     for site in site_points:
         lon = site.get('longitude')
         lat = site.get('latitude')
@@ -759,6 +803,9 @@ def _build_site_spatial_index(site_points, cell_deg):
         max_x = int(math.floor(max_lon / cell_deg))
         min_y = int(math.floor(min_lat / cell_deg))
         max_y = int(math.floor(max_lat / cell_deg))
+        if (max_x - min_x + 1) * (max_y - min_y + 1) > max_index_cells:
+            index.setdefault(None, []).append(site)
+            continue
         for x in range(min_x, max_x + 1):
             for y in range(min_y, max_y + 1):
                 index.setdefault((x, y), []).append(site)
@@ -782,6 +829,9 @@ def _query_candidate_sites(site_index, bbox, threshold_m, cell_deg):
 
     seen_ids = set()
     rows = []
+    for site in site_index.get(None, []):
+        seen_ids.add(site['id'])
+        rows.append(site)
     for x in range(min_x, max_x + 1):
         for y in range(min_y, max_y + 1):
             for site in site_index.get((x, y), []):
@@ -794,6 +844,30 @@ def _query_candidate_sites(site_index, bbox, threshold_m, cell_deg):
 
 def _point_in_any_ring(lon, lat, rings):
     return any(_is_point_in_ring(lon, lat, ring) for ring in rings)
+
+
+def _line_segments_intersect(first_line, second_line):
+    """判断两条折线是否存在拓扑相交，包含端点接触和共线重叠。"""
+    if len(first_line) < 2 or len(second_line) < 2:
+        return False
+    for first_index in range(len(first_line) - 1):
+        first_start = first_line[first_index]
+        first_end = first_line[first_index + 1]
+        for second_index in range(len(second_line) - 1):
+            second_start = second_line[second_index]
+            second_end = second_line[second_index + 1]
+            if _segments_intersect(first_start, first_end, second_start, second_end):
+                return True
+    return False
+
+
+def _linestring_intersects_rings(line_coords, rings):
+    """严格判断折线与文物本体范围是否相交或一方包含另一方。"""
+    if len(line_coords) < 2 or not rings:
+        return False
+    if any(_is_point_in_polygon(lon, lat, rings) for lon, lat in line_coords):
+        return True
+    return any(_line_segments_intersect(line_coords, ring) for ring in rings)
 
 
 def _distance_point_to_rings_m(lon, lat, rings):
@@ -830,14 +904,15 @@ def _distance_polygon_to_rings_m(polygon_coords, rings):
 
 
 def _polygon_intersects_rings(polygon_coords, rings):
-    """近似判断 KML 面要素是否与文物边界环重叠（互相包含顶点采样，非严格拓扑相交）。"""
-    outer_ring = (polygon_coords or [[]])[0]
-    if any(_point_in_any_ring(lon, lat, rings) for lon, lat in outer_ring):
+    """严格判断 KML 面与文物本体范围是否相交，包含边界穿越和互相包含。"""
+    if not polygon_coords or not rings:
+        return False
+    if any(_is_point_in_polygon(lon, lat, rings) for lon, lat in polygon_coords[0]):
         return True
-    for ring in rings:
-        if ring and _is_point_in_polygon(ring[0][0], ring[0][1], polygon_coords or []):
-            return True
-    return False
+    if any(_is_point_in_polygon(lon, lat, polygon_coords) for lon, lat in rings[0]):
+        return True
+    return any(_line_segments_intersect(polygon_ring, site_ring)
+               for polygon_ring in polygon_coords for site_ring in rings)
 
 
 def _analyze_conflicts(features, threshold_m, site_points=None):
@@ -879,21 +954,30 @@ def _analyze_conflicts(features, threshold_m, site_points=None):
                     relation = '点位于文物本体边界内' if inside else '点距文物本体边界最短距离'
                 elif feature_type == 'LineString':
                     distance_m = _distance_linestring_to_rings_m(coords or [], boundary_rings)
-                    matched = math.isfinite(distance_m) and distance_m <= threshold
-                    relation = '线距文物本体边界最短距离'
+                    intersects = _linestring_intersects_rings(coords or [], boundary_rings)
+                    matched = intersects or (math.isfinite(distance_m) and distance_m <= threshold)
+                    if intersects:
+                        distance_m = 0.0
+                    relation = '线与文物本体范围相交' if intersects else '线距文物本体边界最短距离'
                 elif feature_type == 'MultiLineString':
                     min_distance = float('inf')
+                    intersects = False
                     for line_coords in (coords or []):
                         min_distance = min(min_distance, _distance_linestring_to_rings_m(line_coords, boundary_rings))
+                        intersects = intersects or _linestring_intersects_rings(line_coords, boundary_rings)
                     distance_m = min_distance
-                    matched = math.isfinite(distance_m) and distance_m <= threshold
-                    relation = '线距文物本体边界最短距离'
+                    matched = intersects or (math.isfinite(distance_m) and distance_m <= threshold)
+                    if intersects:
+                        distance_m = 0.0
+                    relation = '线与文物本体范围相交' if intersects else '线距文物本体边界最短距离'
                 elif feature_type == 'Polygon':
                     inside = _polygon_intersects_rings(coords or [], boundary_rings)
                     boundary_distance = _distance_polygon_to_rings_m(coords or [], boundary_rings)
                     distance_m = boundary_distance
                     matched = inside or (math.isfinite(boundary_distance) and boundary_distance <= threshold)
-                    relation = '面与文物本体边界重叠' if inside else '面距文物本体边界最短距离'
+                    if inside:
+                        distance_m = 0.0
+                    relation = '面与文物本体范围相交' if inside else '面距文物本体边界最短距离'
                 elif feature_type == 'MultiPolygon':
                     inside = any(_polygon_intersects_rings(polygon, boundary_rings) for polygon in (coords or []))
                     boundary_distance = min(
@@ -902,7 +986,9 @@ def _analyze_conflicts(features, threshold_m, site_points=None):
                     )
                     distance_m = boundary_distance
                     matched = inside or (math.isfinite(boundary_distance) and boundary_distance <= threshold)
-                    relation = '面与文物本体边界重叠' if inside else '面距文物本体边界最短距离'
+                    if inside:
+                        distance_m = 0.0
+                    relation = '面与文物本体范围相交' if inside else '面距文物本体边界最短距离'
             elif feature_type == 'Point' and isinstance(coords, (list, tuple)) and len(coords) >= 2:
                 lon, lat = float(coords[0]), float(coords[1])
                 distance_m = _haversine_m(site_lat, site_lon, lat, lon)
@@ -1846,16 +1932,6 @@ def _convert_dxf_bytes_to_kml(dxf_bytes: bytes, doc_name: str):
 
 
 @staff_member_required
-def kml_process_convert_view(request):
-    """旧 KML 转换页已迁移到 Vue，保留兼容入口。"""
-    query_string = request.META.get('QUERY_STRING', '')
-    target = '/static/frontend/gis/kml-process-convert'
-    if query_string:
-        target = f'{target}?{query_string}'
-    return redirect(target)
-
-
-@staff_member_required
 @staff_member_required
 def ovkml_converter_view(request):
     """旧 OVKML 转换页已迁移到 Vue，保留兼容入口。"""
@@ -2433,6 +2509,100 @@ def land_project_upload_api(request, project_id):
     return JsonResponse({'success': False, 'message': 'file_type 必须为 kml/misc_zip/field_photo/archaeology_report/kanerjing_plan/official_doc'}, status=400)
 
 
+@csrf_exempt
+@require_POST
+@staff_member_required
+def land_project_delete_api(request, project_id):
+    """删除项目及其附件、公文与流程记录（不可恢复），仅超级管理员可用。"""
+    if not is_super_admin(request.user):
+        return JsonResponse({'success': False, 'message': '仅超级管理员可以删除项目'}, status=403)
+
+    project = LandUseProjectApproval.objects.filter(id=project_id).first()
+    if not project:
+        return JsonResponse({'success': False, 'message': '项目不存在'}, status=404)
+
+    try:
+        payload = _load_json_payload(request)
+    except ValueError as exc:
+        return JsonResponse({'success': False, 'message': str(exc)}, status=400)
+
+    # 二次确认：必须键入完全一致的项目名称，避免误删。
+    confirm_name = (payload.get('confirm_name') or '').strip()
+    if confirm_name != (project.project_name or '').strip():
+        return JsonResponse({'success': False, 'message': '请输入与项目名称完全一致的文本以确认删除'}, status=400)
+
+    delete_kml_record = bool(payload.get('delete_kml_record'))
+    kml_record = project.kml_record
+    kml_record_file = kml_record.source_file.name if (kml_record and kml_record.source_file) else ''
+
+    photo_paths = list(project.field_photos.values_list('photo_path', flat=True))
+    document_paths = list(project.documents.values_list('file_path', flat=True))
+    own_paths = [
+        project.kml_file_path,
+        project.misc_zip_path,
+        project.archaeology_report_path,
+        project.kanerjing_protection_plan_path,
+    ]
+    file_paths = [path for path in own_paths + photo_paths + document_paths if path]
+
+    # 关联的叠加检查记录若被复用，其源文件不随项目删除。
+    if kml_record_file and not delete_kml_record:
+        file_paths = [path for path in file_paths if path != kml_record_file]
+
+    summary = {
+        'project_name': project.project_name,
+        'company_name': project.company_name,
+        'status': project.status,
+        'photo_count': len(photo_paths),
+        'document_count': len(document_paths),
+        'kml_record_id': kml_record.id if kml_record else None,
+    }
+
+    try:
+        with transaction.atomic():
+            project.delete()
+            if delete_kml_record and kml_record and not kml_record.land_projects.exists():
+                kml_record.delete()
+            else:
+                kml_record = None
+    except Exception:
+        logger.exception('删除项目失败: project_id=%s', project_id)
+        return JsonResponse({'success': False, 'message': '删除项目失败，请查看服务端日志'}, status=500)
+
+    removed_files = 0
+    if kml_record is not None and kml_record_file:
+        file_paths.append(kml_record_file)
+    for path in file_paths:
+        try:
+            if default_storage.exists(path):
+                default_storage.delete(path)
+                removed_files += 1
+        except Exception:
+            logger.warning('删除项目文件失败: %s', path)
+
+    OperationLog.objects.create(
+        operator=request.user if request.user.is_authenticated else None,
+        module='land_project',
+        action='delete_project',
+        method=request.method,
+        request_path=request.path[:255],
+        ip=(request.META.get('REMOTE_ADDR') or None),
+        success=True,
+        detail=json.dumps(
+            {**summary, 'project_id': str(project_id), 'removed_files': removed_files,
+             'kml_record_deleted': kml_record is not None},
+            ensure_ascii=False,
+        ),
+    )
+    logger.warning('超级管理员 %s 删除了项目 %s(%s)', request.user.username, summary['project_name'], project_id)
+
+    return JsonResponse({
+        'success': True,
+        'message': f"项目「{summary['project_name']}」已删除",
+        'data': {**summary, 'removed_files': removed_files, 'kml_record_deleted': kml_record is not None},
+    })
+
+
 @staff_member_required
 def land_project_document_download_api(request, project_id, document_id):
     """下载单份归档公文。"""
@@ -2489,6 +2659,90 @@ def land_project_document_delete_api(request, project_id, document_id):
         status_after=project.status,
     )
     return JsonResponse({'success': True})
+
+
+@staff_member_required
+def land_project_all_files_archive_api(request, project_id):
+    """把项目所有已上传文件打包为 ZIP 下载。"""
+    if not is_management_admin(request.user):
+        return JsonResponse({'success': False, 'message': '无权限'}, status=403)
+
+    project = LandUseProjectApproval.objects.filter(id=project_id).first()
+    if not project:
+        return JsonResponse({'success': False, 'message': '项目不存在'}, status=404)
+
+    file_entries = []
+    seen_paths = set()
+
+    def add_file(path, archive_name, label):
+        if not path or path in seen_paths:
+            return
+        seen_paths.add(path)
+        file_entries.append({'path': path, 'archive_name': archive_name, 'label': label})
+
+    project_files = [
+        ('选址文件', project.kml_file_path),
+        ('杂项文件', project.misc_zip_path),
+        ('考古调查报告', project.archaeology_report_path),
+        ('坎儿井保护方案', project.kanerjing_protection_plan_path),
+    ]
+    for label, path in project_files:
+        if path:
+            add_file(path, f'项目附件/{label}{os.path.splitext(path)[1]}', label)
+
+    for photo in project.field_photos.all().order_by('uploaded_at', 'id'):
+        file_name = os.path.basename(photo.photo_path) or f'现场照片-{photo.id}'
+        add_file(photo.photo_path, f'现场照片/{photo.id}-{file_name}', '现场照片')
+
+    for document in project.documents.all().order_by('category', 'uploaded_at', 'id'):
+        file_name = document.file_name or os.path.basename(document.file_path) or f'公文-{document.id}'
+        add_file(
+            document.file_path,
+            f'公文档案/{document.get_category_display()}/{document.id}-{file_name}',
+            '公文档案',
+        )
+
+    if project.kml_record and project.kml_record.source_file:
+        add_file(
+            project.kml_record.source_file.name,
+            f'项目附件/叠加检查源文件{os.path.splitext(project.kml_record.source_file.name)[1]}',
+            '叠加检查源文件',
+        )
+
+    if not file_entries:
+        return JsonResponse({'success': False, 'message': '当前项目尚无上传文件'}, status=404)
+
+    buffer = io.BytesIO()
+    missing_files = []
+    included_files = []
+    with zipfile.ZipFile(buffer, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+        for entry in file_entries:
+            if not default_storage.exists(entry['path']):
+                missing_files.append(entry['label'])
+                continue
+            archive_name = re.sub(r'[\\/:*?"<>|]+', '_', entry['archive_name'])
+            with default_storage.open(entry['path'], 'rb') as file_handler:
+                archive.writestr(archive_name, file_handler.read())
+            included_files.append(archive_name)
+
+        manifest = [
+            f'项目名称：{project.project_name}',
+            f'项目单位：{project.company_name}',
+            f'打包时间：{timezone.localtime():%Y-%m-%d %H:%M:%S}',
+            '',
+            f'已打包文件：{len(included_files)}',
+        ]
+        if missing_files:
+            manifest.extend(['', '未找到的文件：', *missing_files])
+        archive.writestr('文件清单.txt', '\n'.join(manifest))
+
+    if not included_files:
+        return JsonResponse({'success': False, 'message': '项目文件均不存在或已被移除'}, status=404)
+
+    zip_name = f'{project.project_name}-全部文件.zip'
+    response = HttpResponse(buffer.getvalue(), content_type='application/zip')
+    response['Content-Disposition'] = f"attachment; filename*=UTF-8''{quote(zip_name, safe='')}"
+    return response
 
 
 @staff_member_required

@@ -27,7 +27,6 @@
       >
         <el-button type="success" :loading="importing">导入 CSV</el-button>
       </el-upload>
-      <el-button type="warning" :loading="sipu.running" @click="openSipuDialog">四普抓取并导入</el-button>
     </div>
 
     <div class="card top-space">
@@ -37,8 +36,9 @@
           <template #default="scope">
             <a
               class="heritage-view-link"
-              href="#"
-              @click.prevent="openPreview(scope.row)"
+              :href="buildViewModeHref(scope.row)"
+              target="_blank"
+              rel="noopener noreferrer"
             >
               {{ scope.row.name }}
             </a>
@@ -53,10 +53,10 @@
             {{ scope.row.longitude }}, {{ scope.row.latitude }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="130" fixed="right">
+        <el-table-column label="操作" width="140" fixed="right">
           <template #default="scope">
             <el-button link type="primary" @click="openEdit(scope.row)">编辑</el-button>
-            <el-button link type="danger" @click="handleDelete(scope.row)">删除</el-button>
+            <el-button v-if="isSuperAdmin" link type="danger" @click="removeRecord(scope.row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -316,153 +316,24 @@
         <el-button type="primary" :loading="dialog.loading" @click="submitEdit">保存</el-button>
       </template>
     </el-dialog>
-
-    <HeritageA4PreviewDialog
-      v-model="preview.visible"
-      :record="preview.row"
-      :loading="preview.loading"
-      page-title="不可移动文物采集登记表预览"
-    />
-
-    <el-dialog v-model="sipu.visible" title="四普系统抓取并自动导入" width="860px" class="sipu-dialog" :close-on-click-modal="false">
-      <el-alert
-        title="将使用你填写的参数抓取四普数据，先生成 CSV，再自动导入当前系统"
-        type="info"
-        :closable="false"
-        style="margin-bottom: 12px"
-      />
-      <div class="sipu-progress-wrap" v-if="sipu.running">
-        <div class="sipu-progress-head">
-          <span>正在执行抓取与导入，请勿关闭窗口...</span>
-          <span class="sipu-progress-value">{{ sipu.progressPercent }}%</span>
-        </div>
-        <el-progress :percentage="sipu.progressPercent" :stroke-width="16" status="warning" />
-        <div class="sipu-progress-tip">{{ sipu.progressText }}</div>
-      </div>
-
-      <div class="sipu-form-scroll">
-      <el-form label-width="135px" label-position="left" class="sipu-form">
-        <el-row :gutter="12">
-          <el-col :span="24">
-            <el-form-item label="四普系统地址">
-              <el-input v-model="sipu.form.base_url" placeholder="如 http://202.41.243.152:9046" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row :gutter="12">
-          <el-col :span="24">
-            <el-form-item label="JSESSIONID">
-              <el-input v-model="sipu.form.jsessionid" placeholder="必填" show-password />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row :gutter="12">
-          <el-col :span="12">
-            <el-form-item label="区县代码">
-              <el-input v-model="sipu.form.user_county" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="输出CSV路径">
-              <el-input v-model="sipu.form.output" placeholder="默认 data/sipu_base_data.csv" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row :gutter="12">
-          <el-col :span="8">
-            <el-form-item label="每页条数">
-              <el-input-number v-model="sipu.form.page_size" :min="1" :max="500" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="并发线程">
-              <el-input-number v-model="sipu.form.workers" :min="1" :max="32" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="超时秒数">
-              <el-input-number v-model="sipu.form.timeout" :min="5" :max="120" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="重试次数">
-              <el-input-number v-model="sipu.form.retries" :min="1" :max="10" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row :gutter="12">
-          <el-col :span="8">
-            <el-form-item label="最多页数">
-              <el-input-number v-model="sipu.form.max_pages" :min="1" :max="5000" style="width: 100%" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="排序字段">
-              <el-input v-model="sipu.form.sort_field" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="排序方向">
-              <el-select v-model="sipu.form.sort_type" style="width: 100%">
-                <el-option label="倒序(desc)" value="desc" />
-                <el-option label="正序(asc)" value="asc" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row :gutter="12">
-          <el-col :span="12">
-            <el-form-item label="列表接口路径">
-              <el-input v-model="sipu.form.endpoint" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="详情接口路径">
-              <el-input v-model="sipu.form.detail_endpoint" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row :gutter="12">
-          <el-col :span="8">
-            <el-form-item label="backStatus">
-              <el-input v-model="sipu.form.back_status" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="抓详情页">
-              <el-switch v-model="sipu.form.enable_detail" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="严格模式">
-              <el-switch v-model="sipu.form.strict" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-      </el-form>
-      </div>
-      <template #footer>
-        <el-button @click="sipu.visible = false">取消</el-button>
-        <el-button type="warning" :loading="sipu.running" @click="submitSipuFetchImport">开始抓取并导入</el-button>
-      </template>
-    </el-dialog>
   </section>
 </template>
 
 <script setup>
-import { onBeforeUnmount, reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import HeritageA4PreviewDialog from '../../components/HeritageA4PreviewDialog.vue'
+import { useAuthStore } from '../../stores/system/authStore'
 
 import {
-  deleteImmovableHeritage,
   exportImmovableHeritage,
-  fetchAndImportSipuImmovable,
-  fetchHeritagePreview,
   fetchImmovableHeritageList,
   importImmovableHeritage,
+  deleteImmovableHeritage,
   patchImmovableHeritage
 } from '../../api/heritageApi'
+
+const authStore = useAuthStore()
+const isSuperAdmin = computed(() => Boolean(authStore.user?.is_superuser))
 
 const loading = ref(false)
 const importing = ref(false)
@@ -531,76 +402,6 @@ const dialog = reactive({
   }
 })
 
-const preview = reactive({
-  visible: false,
-  loading: false,
-  row: {},
-})
-
-const sipu = reactive({
-  visible: false,
-  running: false,
-  progressPercent: 0,
-  progressText: '准备中',
-  form: {
-    base_url: 'http://202.41.243.152:9046',
-    endpoint: '/immovableListController.do?queryRelicList',
-    detail_endpoint: '/tBBdataBasicController.do?goBasicView',
-    jsessionid: '',
-    user_county: '650421',
-    page_size: 100,
-    timeout: 25,
-    max_pages: null,
-    sort_field: 'update_date',
-    sort_type: 'desc',
-    back_status: '0',
-    workers: 8,
-    retries: 3,
-    output: 'data/sipu_base_data.csv',
-    enable_detail: true,
-    strict: false,
-  },
-})
-
-let sipuProgressTimer = null
-
-function startSipuProgress() {
-  sipu.progressPercent = 8
-  sipu.progressText = '正在连接四普系统并拉取列表...'
-  if (sipuProgressTimer) {
-    clearInterval(sipuProgressTimer)
-  }
-  sipuProgressTimer = setInterval(() => {
-    if (!sipu.running) {
-      clearInterval(sipuProgressTimer)
-      sipuProgressTimer = null
-      return
-    }
-    if (sipu.progressPercent < 90) {
-      const step = sipu.progressPercent < 35 ? 4 : (sipu.progressPercent < 70 ? 2 : 1)
-      sipu.progressPercent += step
-    }
-    if (sipu.progressPercent >= 30 && sipu.progressPercent < 70) {
-      sipu.progressText = '正在批量抓取详情并转换CSV...'
-    } else if (sipu.progressPercent >= 70) {
-      sipu.progressText = '正在导入系统并进行联动同步...'
-    }
-  }, 700)
-}
-
-function stopSipuProgress(success = false) {
-  if (sipuProgressTimer) {
-    clearInterval(sipuProgressTimer)
-    sipuProgressTimer = null
-  }
-  if (success) {
-    sipu.progressPercent = 100
-    sipu.progressText = '处理完成'
-  } else {
-    sipu.progressText = '执行中断'
-  }
-}
-
 function buildParams() {
   return {
     page: pagination.page,
@@ -640,6 +441,29 @@ function handleSearch() {
 function onPageChange(page) {
   pagination.page = page
   loadRows()
+}
+
+async function removeRecord(row) {
+  try {
+    await ElMessageBox.confirm(
+      `删除后「${row.name || '该采集记录'}」及其照片将不可恢复，是否继续？`,
+      '删除采集记录',
+      { confirmButtonText: '确认删除', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch {
+    return
+  }
+
+  try {
+    const result = await deleteImmovableHeritage(row.id)
+    if (!result.success) {
+      throw new Error(result.message || '删除失败')
+    }
+    ElMessage.success(result.message || '采集记录已删除')
+    await loadRows()
+  } catch (error) {
+    ElMessage.error(error?.message || '删除失败')
+  }
 }
 
 function openEdit(row) {
@@ -747,23 +571,17 @@ function normalizeCoordList(rawList) {
   return result
 }
 
-async function openPreview(row) {
-  preview.row = row || {}
-  preview.visible = true
-  preview.loading = true
-  try {
-    if (!row?.id) {
-      return
-    }
-    const result = await fetchHeritagePreview({ immovable_id: row.id })
-    if (result?.success && result?.data) {
-      preview.row = { ...row, ...result.data }
-    }
-  } catch (error) {
-    ElMessage.warning(error?.message || '预览详情加载失败，已展示当前行数据')
-  } finally {
-    preview.loading = false
+function buildViewModeHref(row) {
+  const id = row?.id
+  if (!id) {
+    return '#'
   }
+
+  if (row?.preview_url) {
+    return row.preview_url
+  }
+
+  return `/mobile/collect/${id}/preview/?mode=view`
 }
 
 async function submitEdit() {
@@ -794,37 +612,6 @@ async function submitEdit() {
     ElMessage.error(error?.message || '保存失败')
   } finally {
     dialog.loading = false
-  }
-}
-
-async function handleDelete(row) {
-  if (!row?.id) {
-    return
-  }
-
-  try {
-    await ElMessageBox.confirm(`确认删除文物档案“${row.name || row.id}”吗？`, '删除确认', {
-      confirmButtonText: '删除',
-      cancelButtonText: '取消',
-      type: 'warning'
-    })
-  } catch {
-    return
-  }
-
-  try {
-    const result = await deleteImmovableHeritage(row.id)
-    if (!result?.success) {
-      throw new Error(result?.message || '删除失败')
-    }
-
-    ElMessage.success('删除成功')
-    if (rows.value.length === 1 && pagination.page > 1) {
-      pagination.page -= 1
-    }
-    await loadRows()
-  } catch (error) {
-    ElMessage.error(error?.message || '删除失败')
   }
 }
 
@@ -875,55 +662,6 @@ async function beforeImport(file) {
   return false
 }
 
-function openSipuDialog() {
-  sipu.visible = true
-}
-
-async function submitSipuFetchImport() {
-  if (!sipu.form.jsessionid) {
-    ElMessage.warning('请先填写四普系统 JSESSIONID')
-    return
-  }
-
-  sipu.running = true
-  startSipuProgress()
-  try {
-    const payload = {
-      ...sipu.form,
-      skip_detail: !sipu.form.enable_detail,
-      max_pages: sipu.form.max_pages || null,
-    }
-    delete payload.enable_detail
-
-    const result = await fetchAndImportSipuImmovable(payload)
-    if (!result?.success) {
-      throw new Error(result?.message || '执行失败')
-    }
-
-    stopSipuProgress(true)
-
-    const summary = result.data?.import_summary || {}
-    ElMessage.success(
-      `完成：抓取${result.data?.fetch_count || 0}条，转换${result.data?.csv_written_count || 0}条，导入新增${summary.created_count || 0}条、更新${summary.updated_count || 0}条`
-    )
-    sipu.visible = false
-    pagination.page = 1
-    await loadRows()
-  } catch (error) {
-    stopSipuProgress(false)
-    ElMessage.error(error?.message || '抓取并导入失败')
-  } finally {
-    sipu.running = false
-  }
-}
-
-onBeforeUnmount(() => {
-  if (sipuProgressTimer) {
-    clearInterval(sipuProgressTimer)
-    sipuProgressTimer = null
-  }
-})
-
 loadRows()
 </script>
 
@@ -952,48 +690,5 @@ loadRows()
 .coord-editor-hint {
   color: #8a8f99;
   font-size: 12px;
-}
-
-.sipu-progress-wrap {
-  border: 1px solid #fde68a;
-  background: #fffbeb;
-  border-radius: 10px;
-  padding: 10px 12px;
-  margin-bottom: 12px;
-}
-
-.sipu-progress-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 8px;
-  font-size: 13px;
-  color: #92400e;
-}
-
-.sipu-progress-value {
-  font-weight: 700;
-}
-
-.sipu-progress-tip {
-  margin-top: 6px;
-  font-size: 12px;
-  color: #a16207;
-}
-
-.sipu-form-scroll {
-  max-height: 58vh;
-  overflow-y: auto;
-  padding-right: 4px;
-}
-
-.sipu-form :deep(.el-form-item) {
-  margin-bottom: 14px;
-}
-
-@media (max-width: 768px) {
-  .sipu-form-scroll {
-    max-height: 62vh;
-  }
 }
 </style>

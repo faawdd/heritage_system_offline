@@ -2,8 +2,8 @@
   <div class="app-shell" :class="{ 'is-sidebar-collapsed': isSidebarCollapsed }">
     <aside class="sidebar" :class="{ 'is-collapsed': isSidebarCollapsed }">
       <div class="brand-row">
-        <div class="brand" :title="isSidebarCollapsed ? systemName : ''">
-          {{ isSidebarCollapsed ? '文保' : systemName }}
+        <div class="brand" :title="isSidebarCollapsed ? '鄯善县文物管理平台' : ''">
+          {{ isSidebarCollapsed ? '文保' : '鄯善县文物管理平台' }}
         </div>
         <div class="header-actions" v-if="!isSidebarCollapsed">
           <el-button link type="info" class="collapse-btn" @click="toggleSidebar">折叠</el-button>
@@ -16,7 +16,19 @@
 
       <div class="collapsed-icon-nav" v-if="isSidebarCollapsed">
         <template v-for="group in collapsedShortcutGroups" :key="group.key">
+          <a
+            v-if="isDjangoAdminPath(group.to)"
+            class="collapsed-icon-item"
+            :class="{ active: group.active }"
+            :href="group.to"
+            :data-title="group.title"
+          >
+            <span class="menu-icon" :class="`menu-icon--${getGroupIconType(group.title)}`" aria-hidden="true">
+              {{ getGroupIconLabel(group.title) }}
+            </span>
+          </a>
           <router-link
+            v-else
             class="collapsed-icon-item"
             :class="{ active: group.active }"
             :to="group.to"
@@ -41,7 +53,18 @@
         </button>
         <div class="sidebar-submenu" v-show="isGroupOpen(group.key)">
           <template v-for="item in group.items" :key="item.to">
-            <router-link class="nav-link nav-sublink" :to="item.to">
+            <a
+              v-if="isDjangoAdminPath(item.to)"
+              class="nav-link nav-sublink"
+              :href="item.to"
+            >
+              {{ item.label }}
+            </a>
+            <router-link
+              v-else
+              class="nav-link nav-sublink"
+              :to="item.to"
+            >
               {{ item.label }}
             </router-link>
           </template>
@@ -157,13 +180,11 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { useAppStore } from '../stores/system/appStore'
 import { useAuthStore } from '../stores/system/authStore'
 import { changeSystemPassword, fetchSystemProfile, updateSystemProfile } from '../api/system/systemApi'
 
 const route = useRoute()
 const router = useRouter()
-const appStore = useAppStore()
 const authStore = useAuthStore()
 const THEME_MODE_KEY = 'heritage_theme_mode'
 const SIDEBAR_COLLAPSE_KEY = 'heritage_sidebar_collapsed'
@@ -174,7 +195,6 @@ const passwordDialogVisible = ref(false)
 const profileSubmitting = ref(false)
 const passwordSubmitting = ref(false)
 let mediaQueryList = null
-const systemName = computed(() => appStore.systemName)
 
 const profileForm = reactive({
   username: '',
@@ -195,7 +215,10 @@ const staticMenuGroups = [
   {
     key: 'workspace',
     title: '工作台',
-    items: [{ label: '综合看板', to: '/dashboard' }]
+    items: [
+      { label: '综合看板', to: '/dashboard' },
+      { label: '报告中心', to: '/reports' }
+    ]
   },
   {
     key: 'heritage',
@@ -229,8 +252,7 @@ const staticMenuGroups = [
     title: '地图工具',
     items: [
       { label: 'KML叠加检查', to: '/gis/kml-management' },
-      { label: 'KML处理转换', to: '/gis/kml-process-convert' },
-      { label: 'OVKML转换导入', to: '/gis/ovkml-convert' }
+      { label: 'DXF/OVKML转换导入', to: '/gis/ovkml-convert' }
     ]
   },
   {
@@ -239,10 +261,8 @@ const staticMenuGroups = [
     items: [
       { label: '用户管理', to: '/system/users' },
       { label: '角色管理', to: '/system/roles' },
-      { label: '数据管理', to: '/system/data-management' },
-      { label: '关于系统', to: '/system/about' },
       { label: 'DeepSeek配置', to: '/system/ai-config' },
-      { label: '菜单管理', to: '/system/menus' }
+      { label: '数据管理', to: '/system/data-management' },
     ]
   }
 ]
@@ -253,10 +273,6 @@ function buildMenuGroupsFromTree(treeRows = []) {
     .map((group, index) => {
       const children = (group.children || [])
         .filter((child) => child.visible !== false && child.path)
-        .filter((child) => {
-          const path = String(child.path || '').trim()
-          return !path.startsWith('/admin/') && !path.startsWith('https://beichenhome.top:9081/admin')
-        })
         .map((child) => ({
           label: child.name,
           to: child.path.startsWith('/') ? child.path : `/${child.path}`
@@ -284,13 +300,9 @@ function ensureHeritageEntries(groups = []) {
     { label: '采集数据管理', to: '/collect/records' }
   ]
   const requiredSystemItems = [
-    { label: '数据管理', to: '/system/data-management' },
-    { label: '关于系统', to: '/system/about' },
-    { label: 'DeepSeek配置', to: '/system/ai-config' }
+    { label: 'DeepSeek配置', to: '/system/ai-config' },
+    { label: '数据管理', to: '/system/data-management' }
   ]
-  if (isSuperAdminUser()) {
-    requiredSystemItems.push({ label: '菜单管理', to: '/system/menus' })
-  }
 
   function isSystemGroup(title, items = []) {
     if ((title || '').trim() === '系统管理') {
@@ -316,13 +328,6 @@ function ensureHeritageEntries(groups = []) {
     }
 
     let existingItems = [...groupItems]
-    if (systemGroup) {
-      existingItems = existingItems.filter((item) => {
-        const to = String(item?.to || '').trim()
-        return !to.startsWith('/admin/') && !to.startsWith('https://beichenhome.top:9081/admin')
-      })
-    }
-
     const existingToSet = new Set(existingItems.map((item) => item.to))
     requiredItems.forEach((item) => {
       if (!existingToSet.has(item.to)) {
@@ -370,7 +375,7 @@ const menuGroups = computed(() => {
     return groups
       .map((group) => ({
         ...group,
-        items: (group.items || []).filter((item) => item.to !== '/system/menus')
+        items: group.items || []
       }))
       .filter((group) => Array.isArray(group.items) && group.items.length > 0)
   }
@@ -385,6 +390,13 @@ function isSuperAdminUser() {
   const user = authStore.user || {}
   const roles = Array.isArray(user.roles) ? user.roles : []
   return Boolean(user.is_superuser) || roles.includes('超级管理员')
+}
+
+function isDjangoAdminPath(path) {
+  if (typeof path !== 'string') {
+    return false
+  }
+  return path.startsWith('/admin/') || path.startsWith('https://beichenhome.top:9081/admin')
 }
 
 const collapsedShortcutGroups = computed(() => {
@@ -673,16 +685,6 @@ onUnmounted(() => {
 
 async function logout() {
   await authStore.logout()
-
-  if (window.electronAPI && typeof window.electronAPI.logoutToLogin === 'function') {
-    const result = await window.electronAPI.logoutToLogin()
-    if (!result?.success) {
-      ElMessage.error(result?.message || '退出失败，请重试')
-      return
-    }
-    return
-  }
-
   await router.replace('/login')
 }
 </script>

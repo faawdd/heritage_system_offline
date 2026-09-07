@@ -14,7 +14,6 @@
   - `export_conflict_kml`
   - `export_boundary_points`
   - `export_boundary_kmz`
-- `POST /api/v1/gis/kml-process-convert/`
 - `POST /api/v1/gis/ovkml-convert/`
 
 ### 前端页面
@@ -29,10 +28,9 @@
   - 地图交互增强：天地图卫星/电子/地形切换，KML/冲突图层显隐，点击测距与清除测距
   - 冲突分组增强：按来源文件分组筛选冲突点，并支持一键聚焦当前分组
   - 冲突详情面板：按文物点聚合冲突数，并展示来源/关系/距离明细
-- `/gis/kml-process-convert`
-  - DXF -> KML 下载
-  - KML/KMZ 坐标表预览与CSV导出
 - `/gis/ovkml-convert`
+  - DXF/OVKML/KML/KMZ 统一转换
+  - DXF 投影坐标转经纬度
   - 转换预览
   - ProjectAudit/Detail CSV 下载
   - 去重导入 ProjectAudit
