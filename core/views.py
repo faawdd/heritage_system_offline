@@ -829,16 +829,27 @@ def _query_candidate_sites(site_index, bbox, threshold_m, cell_deg):
 
     seen_ids = set()
     rows = []
-    for site in site_index.get(None, []):
+    def append_site(site):
+        if site['id'] in seen_ids:
+            return
         seen_ids.add(site['id'])
         rows.append(site)
+
+    for site in site_index.get(None, []):
+        append_site(site)
+
+    query_cell_count = (max_x - min_x + 1) * (max_y - min_y + 1)
+    if query_cell_count > 10000:
+        for cell_key, cell_sites in site_index.items():
+            if cell_key is not None:
+                for site in cell_sites:
+                    append_site(site)
+        return rows
+
     for x in range(min_x, max_x + 1):
         for y in range(min_y, max_y + 1):
             for site in site_index.get((x, y), []):
-                if site['id'] in seen_ids:
-                    continue
-                seen_ids.add(site['id'])
-                rows.append(site)
+                append_site(site)
     return rows
 
 
