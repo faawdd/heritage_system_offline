@@ -1,6 +1,6 @@
 from django.test import SimpleTestCase
 
-from core.views import _analyze_conflicts
+from core.views import _analyze_conflicts, _parse_boundary_rings
 
 
 class HeritageRangeConflictTests(SimpleTestCase):
@@ -55,4 +55,24 @@ class HeritageRangeConflictTests(SimpleTestCase):
 
         self.assertEqual(len(conflicts), 1)
         self.assertEqual(conflicts[0]['relation'], '面与文物本体范围相交')
+        self.assertEqual(conflicts[0]['distance_m'], 0.0)
+
+    def test_open_heritage_ring_is_closed_before_line_intersection(self):
+        open_ring = '[[[0,0],[10,0],[10,10],[0,10]]]'
+        rings = _parse_boundary_rings(open_ring)
+        self.assertEqual(rings[0][0], rings[0][-1])
+
+        site = {**self.site, 'boundary_rings': rings, 'bbox': (0.0, 0.0, 10.0, 10.0)}
+        conflicts = _analyze_conflicts(
+            [{
+                'name': '闭合边穿越线',
+                'geometry_type': 'LineString',
+                'coordinates': [(-1.0, 5.0), (1.0, 5.0)],
+                'source': 'line.kml',
+            }],
+            threshold_m=1,
+            site_points=[site],
+        )
+
+        self.assertEqual(len(conflicts), 1)
         self.assertEqual(conflicts[0]['distance_m'], 0.0)

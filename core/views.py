@@ -723,6 +723,8 @@ def _parse_boundary_rings(zone_text):
                 except (TypeError, ValueError):
                     continue
         if len(ring) >= 3:
+            if ring[0] != ring[-1]:
+                ring.append(ring[0])
             rings.append(ring)
     return rings
 
