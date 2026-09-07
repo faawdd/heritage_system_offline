@@ -16,7 +16,6 @@ import ImmovableHeritageManageView from '../views/heritage/ImmovableHeritageMana
 import KanerjingListView from '../views/heritage/KanerjingListView.vue'
 import ImmovableCollectView from '../views/collect/ImmovableCollectView.vue'
 import KmlManagementView from '../views/gis/KmlManagementView.vue'
-import KmlProcessConvertView from '../views/gis/KmlProcessConvertView.vue'
 import OvkmlConvertView from '../views/gis/OvkmlConvertView.vue'
 import LoginView from '../views/system/auth/LoginView.vue'
 import DeepSeekConfigView from '../views/system/admin/DeepSeekConfigView.vue'
@@ -52,7 +51,6 @@ const routes = [
       { path: 'collect/records', component: ImmovableHeritageManageView },
       { path: 'heritage/:siteId', component: HeritageDetailView, props: true },
       { path: 'gis/kml-management', component: KmlManagementView },
-      { path: 'gis/kml-process-convert', component: KmlProcessConvertView },
       { path: 'gis/ovkml-convert', component: OvkmlConvertView },
       { path: 'system/users', component: UserListView },
       { path: 'system/roles', component: RoleListView },

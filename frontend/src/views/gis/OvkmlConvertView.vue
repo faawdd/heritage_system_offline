@@ -1,23 +1,30 @@
 <template>
   <section>
     <header class="page-header">
-      <h1>OVKML/KML/KMZ 转换导入</h1>
-      <p>复用旧导入逻辑，支持去重导入项目审计记录</p>
+      <h1>DXF/OVKML/KML 转换导入</h1>
+      <p>统一完成 DXF、OVKML、KML、KMZ 的坐标转换、预览、CSV 导出和项目导入</p>
     </header>
 
     <div class="card top-space">
       <el-form label-width="130px">
         <el-form-item label="文件">
-          <input ref="fileInputRef" type="file" accept=".kml,.kmz,.ovkml,.ovkmz" />
+          <input ref="fileInputRef" type="file" accept=".dxf,.kml,.kmz,.ovkml,.ovkmz" />
         </el-form-item>
 
         <el-form-item label="输入坐标系">
           <el-select v-model="form.input_crs" style="width: 260px">
             <el-option label="WGS84" value="wgs84" />
+              <el-option label="CGCS2000 经纬度" value="cgcs2000" />
+              <el-option label="CGCS2000 3度带投影（米）" value="cgcs2000_proj" />
             <el-option label="GCJ02" value="gcj02" />
             <el-option label="BD09" value="bd09" />
           </el-select>
         </el-form-item>
+
+          <el-form-item v-if="form.input_crs === 'cgcs2000_proj'" label="中央经线">
+            <el-input-number v-model="form.central_meridian" :min="60" :max="135" :step="3" />
+            <span class="form-hint">DXF 为投影米制坐标时填写，例如鄯善常用 90°</span>
+          </el-form-item>
 
         <el-form-item label="输出坐标系">
           <el-select v-model="form.output_crs" style="width: 260px">
@@ -83,6 +90,7 @@ const loading = ref(false)
 const form = reactive({
   input_crs: 'wgs84',
   output_crs: 'cgcs2000',
+  central_meridian: 90,
   deduplicate: true
 })
 
@@ -107,6 +115,7 @@ function buildFormData(action) {
   formData.set('ovkml_file', file)
   formData.set('input_crs', form.input_crs)
   formData.set('output_crs', form.output_crs)
+  formData.set('central_meridian', String(form.central_meridian))
   formData.set('deduplicate', form.deduplicate ? 'true' : 'false')
   formData.set('action', action)
   return formData
@@ -148,3 +157,11 @@ function downloadUrl(url, fallbackName) {
   link.click()
 }
 </script>
+
+<style scoped>
+.form-hint {
+  margin-left: 12px;
+  color: var(--text-muted, #76838a);
+  font-size: 12px;
+}
+</style>
