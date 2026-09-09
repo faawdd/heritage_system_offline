@@ -691,7 +691,12 @@ class HeritageSiteCoordinateExportAPIView(APIView):
             for site in sites
         ]
         selected_records = [type('ExportRecord', (), {'title': sites[0].name})()] if sites else []
-        return legacy_views._build_boundary_points_kmz(combined_conflicts, selected_records)
+        filename_stem = f"不可移动文物_{'全部' if scope == 'all' else '已选'}边界范围"
+        return legacy_views._build_boundary_points_kmz(
+            combined_conflicts,
+            selected_records,
+            filename_stem=filename_stem,
+        )
 
 
 class ImmovableHeritageListAPIView(APIView):
