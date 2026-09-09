@@ -45,6 +45,14 @@ export async function exportHeritageSiteManage(params = {}) {
   return response
 }
 
+export async function exportHeritageSiteCoordinates(params = {}) {
+  const response = await client.get('/api/v1/heritage/sites/coordinates-export/', {
+    params,
+    responseType: 'blob'
+  })
+  return response
+}
+
 export async function exportHeritageBoundary(siteId, payload) {
   const response = await client.post(`/api/v1/heritage/${siteId}/boundary-export/`, payload, {
     responseType: 'blob'

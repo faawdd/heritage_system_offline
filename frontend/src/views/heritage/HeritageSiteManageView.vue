@@ -20,13 +20,24 @@
       </el-select>
       <el-button type="primary" :loading="loading" @click="handleSearch">查询</el-button>
       <el-button :loading="exporting" @click="handleExport">导出 CSV</el-button>
+      <el-select v-model="coordinateExportMode" style="width: 150px" aria-label="坐标导出方式">
+        <el-option label="中心点坐标" value="point" />
+        <el-option label="边界范围" value="boundary" />
+      </el-select>
+      <el-button :loading="coordinateExporting" :disabled="selectedRows.length === 0" @click="handleCoordinateExport('selected')">
+        导出已选 KMZ
+      </el-button>
+      <el-button type="warning" plain :loading="coordinateExporting" @click="handleCoordinateExport('all')">
+        导出筛选全部 KMZ
+      </el-button>
       <el-upload :show-file-list="false" accept=".csv" :before-upload="beforeImport">
         <el-button type="success" :loading="importing">导入 CSV</el-button>
       </el-upload>
     </div>
 
     <div class="card top-space">
-      <el-table :data="rows" stripe v-loading="loading">
+      <el-table :data="rows" stripe v-loading="loading" @selection-change="onSelectionChange">
+        <el-table-column type="selection" width="52" />
         <el-table-column prop="sip_code" label="四普编号" width="150" />
         <el-table-column label="文物名称" min-width="200">
           <template #default="scope">
@@ -147,6 +158,7 @@ import { ElMessage } from 'element-plus'
 
 import {
   exportHeritageSiteManage,
+  exportHeritageSiteCoordinates,
   fetchHeritageSiteManageList,
   importHeritageSiteManage,
   patchHeritageSiteManage
@@ -155,9 +167,12 @@ import {
 const loading = ref(false)
 const importing = ref(false)
 const exporting = ref(false)
+const coordinateExporting = ref(false)
 const rows = ref([])
+const selectedRows = ref([])
 const categoryOptions = ref([])
 const levelOptions = ref([])
+const coordinateExportMode = ref('point')
 
 const filters = reactive({
   keyword: '',
@@ -227,6 +242,10 @@ function handleSearch() {
 function onPageChange(page) {
   pagination.page = page
   loadRows()
+}
+
+function onSelectionChange(selection) {
+  selectedRows.value = selection
 }
 
 function openEdit(row) {
@@ -306,6 +325,33 @@ async function handleExport() {
     ElMessage.error(error?.message || '导出失败')
   } finally {
     exporting.value = false
+  }
+}
+
+async function handleCoordinateExport(scope) {
+  coordinateExporting.value = true
+  try {
+    const response = await exportHeritageSiteCoordinates({
+      keyword: filters.keyword,
+      category: filters.category,
+      level: filters.level,
+      mode: coordinateExportMode.value,
+      scope,
+      ids: selectedRows.value.map((row) => row.id).join(',')
+    })
+    const blob = new Blob([response.data], { type: 'application/vnd.google-earth.kmz' })
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `不可移动文物_${coordinateExportMode.value === 'point' ? '中心点' : '边界范围'}_${new Date().toISOString().slice(0, 10)}.kmz`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.message || error?.message || '坐标导出失败')
+  } finally {
+    coordinateExporting.value = false
   }
 }
 

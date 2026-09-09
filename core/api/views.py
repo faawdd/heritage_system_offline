@@ -639,6 +639,61 @@ class HeritageSiteManageExportAPIView(APIView):
         return response
 
 
+class HeritageSiteCoordinateExportAPIView(APIView):
+    permission_classes = [IsManagementAdmin]
+
+    def get(self, request):
+        keyword = (request.GET.get('keyword') or '').strip()
+        category = (request.GET.get('category') or '').strip()
+        level = (request.GET.get('level') or '').strip()
+        mode = (request.GET.get('mode') or 'point').strip()
+        scope = (request.GET.get('scope') or 'selected').strip()
+
+        if mode not in {'point', 'boundary'}:
+            return Response({'success': False, 'message': '坐标导出模式非法'}, status=400)
+        if scope not in {'selected', 'all'}:
+            return Response({'success': False, 'message': '导出范围非法'}, status=400)
+
+        queryset = HeritageSite.objects.all().order_by('id')
+        if keyword:
+            queryset = queryset.filter(
+                Q(name__icontains=keyword)
+                | Q(sip_code__icontains=keyword)
+                | Q(address__icontains=keyword)
+                | Q(manager__icontains=keyword)
+                | Q(description__icontains=keyword)
+            )
+        if category:
+            queryset = queryset.filter(category=category)
+        if level:
+            queryset = queryset.filter(level=level)
+
+        if scope == 'selected':
+            raw_ids = (request.GET.get('ids') or '').split(',')
+            ids = [int(value) for value in raw_ids if value.strip().isdigit()]
+            if not ids:
+                return Response({'success': False, 'message': '请先选择文物点'}, status=400)
+            queryset = queryset.filter(id__in=ids)
+
+        sites = list(queryset)
+        if mode == 'point':
+            return legacy_views._build_heritage_points_kmz(sites)
+
+        combined_conflicts = [
+            {
+                'feature_source': '不可移动文物管理',
+                'site_id': site.id,
+                'site_name': site.name,
+                'site_level': site.get_level_display(),
+                'site_longitude': site.longitude,
+                'site_latitude': site.latitude,
+            }
+            for site in sites
+        ]
+        selected_records = [type('ExportRecord', (), {'title': sites[0].name})()] if sites else []
+        return legacy_views._build_boundary_points_kmz(combined_conflicts, selected_records)
+
+
 class ImmovableHeritageListAPIView(APIView):
     permission_classes = [IsManagementAdmin]
 
