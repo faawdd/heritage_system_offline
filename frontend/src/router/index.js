@@ -4,7 +4,6 @@ import AppLayout from '../layouts/AppLayout.vue'
 import DashboardView from '../views/dashboard/DashboardView.vue'
 import ReportCenterView from '../views/reports/ReportCenterView.vue'
 import ProjectListView from '../views/projects/ProjectListView.vue'
-import ProjectCreateView from '../views/projects/ProjectCreateView.vue'
 import ProjectDetailView from '../views/projects/ProjectDetailView.vue'
 import HeritageMapView from '../views/heritage/HeritageMapView.vue'
 import HeritageStatsView from '../views/heritage/HeritageStatsView.vue'
@@ -39,7 +38,6 @@ const routes = [
       { path: 'dashboard', component: DashboardView },
       { path: 'reports', component: ReportCenterView },
       { path: 'projects', component: ProjectListView },
-      { path: 'projects/new', component: ProjectCreateView },
       { path: 'projects/:projectId', component: ProjectDetailView, props: true },
       { path: 'heritage/map', component: HeritageMapView },
       { path: 'heritage/stats', component: HeritageStatsView },

@@ -243,8 +243,7 @@ const staticMenuGroups = [
     key: 'projects',
     title: '项目管理',
     items: [
-      { label: '项目列表', to: '/projects' },
-      { label: '新建项目', to: '/projects/new' }
+      { label: '项目列表', to: '/projects' }
     ]
   },
   {
