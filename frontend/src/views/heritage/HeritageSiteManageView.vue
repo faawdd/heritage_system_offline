@@ -343,7 +343,8 @@ async function handleCoordinateExport(scope) {
     const url = window.URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = `不可移动文物_${coordinateExportMode.value === 'point' ? '中心点' : '边界范围'}_${new Date().toISOString().slice(0, 10)}.kmz`
+    const modeLabel = coordinateExportMode.value === 'point' ? '中心点' : `${scope === 'all' ? '全部' : '已选'}边界范围`
+    link.download = `不可移动文物_${modeLabel}_${new Date().toISOString().slice(0, 10)}.kmz`
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)

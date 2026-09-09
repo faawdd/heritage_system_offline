@@ -1657,7 +1657,13 @@ def _build_boundary_points_csv(combined_conflicts, selected_records, cookie: str
     return response
 
 
-def _build_boundary_points_kmz(combined_conflicts, selected_records, cookie: str = '', user_county: str = '') -> HttpResponse:
+def _build_boundary_points_kmz(
+    combined_conflicts,
+    selected_records,
+    cookie: str = '',
+    user_county: str = '',
+    filename_stem: str = '',
+) -> HttpResponse:
     """
     将冲突文物点在本系统中已存储的范围坐标导出为 KMZ。
     每个文物点按范围类型生成 Placemark，多区块合并为 MultiGeometry。
@@ -1685,7 +1691,9 @@ def _build_boundary_points_kmz(combined_conflicts, selected_records, cookie: str
                 })
 
     date_str = timezone.now().strftime('%Y%m%d')
-    if selected_records and len(selected_records) == 1:
+    if filename_stem:
+        kmz_name = f'{filename_stem}_{timezone.now().strftime("%Y%m%d_%H%M%S")}'
+    elif selected_records and len(selected_records) == 1:
         kmz_name = f'{date_str}{selected_records[0].title}冲突文物边界面'
     elif selected_records:
         kmz_name = f'{date_str}{selected_records[0].title}等冲突文物边界面'
