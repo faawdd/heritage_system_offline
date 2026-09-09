@@ -1758,6 +1758,46 @@ def _build_boundary_points_kmz(combined_conflicts, selected_records, cookie: str
     return response
 
 
+def _build_heritage_points_kmz(sites):
+    """将文物档案的中心坐标导出为 KMZ。"""
+    kmz_name = f"不可移动文物中心点_{timezone.now().strftime('%Y%m%d_%H%M%S')}"
+    ns = 'http://www.opengis.net/kml/2.2'
+    ET.register_namespace('', ns)
+    kml_root = ET.Element(f'{{{ns}}}kml')
+    document = ET.SubElement(kml_root, f'{{{ns}}}Document')
+    ET.SubElement(document, f'{{{ns}}}name').text = kmz_name
+
+    style = ET.SubElement(document, f'{{{ns}}}Style', {'id': 'heritagePoint'})
+    icon_style = ET.SubElement(style, f'{{{ns}}}IconStyle')
+    ET.SubElement(icon_style, f'{{{ns}}}scale').text = '1.1'
+
+    for site in sites:
+        if site.longitude is None or site.latitude is None:
+            continue
+        placemark = ET.SubElement(document, f'{{{ns}}}Placemark')
+        ET.SubElement(placemark, f'{{{ns}}}name').text = site.name or '未命名文物'
+        ET.SubElement(placemark, f'{{{ns}}}styleUrl').text = '#heritagePoint'
+        ET.SubElement(placemark, f'{{{ns}}}description').text = (
+            f'四普编号: {site.sip_code or ""}\n'
+            f'保护级别: {site.get_level_display()}\n'
+            f'坐标: {float(site.longitude):.10f}, {float(site.latitude):.10f}'
+        )
+        point = ET.SubElement(placemark, f'{{{ns}}}Point')
+        ET.SubElement(point, f'{{{ns}}}coordinates').text = (
+            f'{float(site.longitude):.10f},{float(site.latitude):.10f},0'
+        )
+
+    kml_bytes = ET.tostring(kml_root, encoding='utf-8', xml_declaration=True)
+    kmz_buffer = io.BytesIO()
+    with zipfile.ZipFile(kmz_buffer, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr('doc.kml', kml_bytes)
+
+    response = HttpResponse(kmz_buffer.getvalue(), content_type='application/vnd.google-earth.kmz')
+    encoded_name = quote(kmz_name + '.kmz', safe='')
+    response['Content-Disposition'] = f"attachment; filename*=UTF-8''{encoded_name}"
+    return response
+
+
 @staff_member_required
 def kml_management_view(request):
     """旧 KML 文件管理页已迁移到 Vue，保留兼容入口。"""
