@@ -30,6 +30,32 @@
       <el-button type="success" @click="goCreate">新建项目</el-button>
     </div>
 
+    <el-dialog v-model="createDialogVisible" title="新建用地项目" width="560px" destroy-on-close>
+      <p class="create-dialog-hint">收文登记，数据将直接写入现有项目审批流程。</p>
+      <el-form label-width="100px" @submit.prevent>
+        <el-form-item label="项目名称" required>
+          <el-input v-model="createForm.project_name" placeholder="请输入项目名称" />
+        </el-form-item>
+        <el-form-item label="企业单位" required>
+          <el-input v-model="createForm.company_name" placeholder="请输入企业单位名称" />
+        </el-form-item>
+        <el-form-item label="来函日期" required>
+          <el-date-picker
+            v-model="createForm.incoming_doc_date"
+            type="date"
+            value-format="YYYY-MM-DD"
+            format="YYYY-MM-DD"
+            placeholder="选择来函日期"
+            style="width: 100%"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="createDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="creating" @click="submitCreate">创建并进入详情</el-button>
+      </template>
+    </el-dialog>
+
     <div class="stats-row">
       <el-card class="stat-item" shadow="hover" @click="applyStatusFilter('')">
         <el-statistic title="项目总数" :value="summary.total" />
@@ -148,14 +174,23 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
 
+import { createProject } from '../../api/projectApi'
 import { useProjectStore } from '../../stores/projectStore'
 
 const store = useProjectStore()
 const router = useRouter()
 const viewMode = ref('card')
+const createDialogVisible = ref(false)
+const creating = ref(false)
+const createForm = reactive({
+  project_name: '',
+  company_name: '',
+  incoming_doc_date: ''
+})
 const viewOptions = [
   { label: '卡片视图', value: 'card' },
   { label: '表格视图', value: 'table' },
@@ -227,7 +262,33 @@ function applyStatusFilter(status) {
 }
 
 function goCreate() {
-  router.push('/projects/new')
+  createForm.project_name = ''
+  createForm.company_name = ''
+  createForm.incoming_doc_date = ''
+  createDialogVisible.value = true
+}
+
+async function submitCreate() {
+  if (!createForm.project_name || !createForm.company_name || !createForm.incoming_doc_date) {
+    ElMessage.warning('请完整填写项目名称、企业单位和来函日期')
+    return
+  }
+
+  creating.value = true
+  try {
+    const result = await createProject({ ...createForm })
+    if (!result.success) {
+      throw new Error(result.message || '创建失败')
+    }
+    ElMessage.success('创建成功')
+    createDialogVisible.value = false
+    await store.loadProjects()
+    router.push(`/projects/${result.project_id}`)
+  } catch (error) {
+    ElMessage.error(error?.message || '创建失败')
+  } finally {
+    creating.value = false
+  }
 }
 
 function goDetail(projectId) {
@@ -256,6 +317,12 @@ onMounted(() => {
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
+}
+
+.create-dialog-hint {
+  margin: -4px 0 18px 100px;
+  color: #64748b;
+  font-size: 13px;
 }
 
 .project-filter-keyword {
