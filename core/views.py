@@ -16,6 +16,7 @@ from .models import (
 from .ovkml_converter import parse_ovkml, build_csv_outputs
 from .land_project_services import (
     verify_project_spatial_safety,
+    verify_preliminary_spatial_safety,
     build_project_media_path,
     build_workflow_guide,
     get_current_step_key,
@@ -2180,6 +2181,14 @@ def land_project_detail_api(request, project_id):
             'company_name': project.company_name,
             'incoming_doc_date': project.incoming_doc_date.isoformat() if project.incoming_doc_date else '',
             'receive_date': project.receive_date.isoformat() if project.receive_date else '',
+            'preliminary_project_name': project.preliminary_project_name,
+            'preliminary_kml_file_path': project.preliminary_kml_file_path,
+            'preliminary_is_overlap_artifact': project.preliminary_is_overlap_artifact,
+            'preliminary_overlapped_relics_info': project.preliminary_overlapped_relics_info,
+            'preliminary_spatial_check_at': project.preliminary_spatial_check_at.strftime('%Y-%m-%d %H:%M') if project.preliminary_spatial_check_at else '',
+            'preliminary_review_date': project.preliminary_review_date.isoformat() if project.preliminary_review_date else '',
+            'preliminary_review_opinion': project.preliminary_review_opinion,
+            'reuse_preliminary_materials': project.reuse_preliminary_materials,
             'kml_file_path': project.kml_file_path,
             'kml_record': kml_record_payload,
             'kml_record_id': kml_record.id if kml_record else None,
@@ -2280,6 +2289,11 @@ def land_project_create_api(request):
         return JsonResponse({'success': False, 'message': str(exc)}, status=400)
 
     project_name = (payload.get('project_name') or payload.get('projectName') or '').strip()
+    preliminary_project_name = (
+        payload.get('preliminary_project_name')
+        or payload.get('preliminaryProjectName')
+        or project_name
+    ).strip()
     company_name = (
         payload.get('company_name')
         or payload.get('construction_unit')
@@ -2314,6 +2328,7 @@ def land_project_create_api(request):
         project = LandUseProjectApproval.objects.create(
             project_name=project_name,
             company_name=company_name,
+            preliminary_project_name=preliminary_project_name,
             incoming_doc_date=incoming_doc_date,
             receive_date=receive_date,
         )
@@ -2378,20 +2393,39 @@ def land_project_upload_api(request, project_id):
 
     filename = os.path.basename(upload_file.name or 'upload.bin')
 
-    if file_type == 'kml':
+    if file_type in {'kml', 'preliminary_kml'}:
         if not filename.lower().endswith(('.kml', '.kmz', '.ovkml', '.ovkmz')):
             return JsonResponse({'success': False, 'message': 'KML文件类型不正确'}, status=400)
         status_before = project.status
-        relative_path = build_project_media_path(project, 'kml', filename)
+        section = 'preliminary_selection' if file_type == 'preliminary_kml' else 'kml'
+        relative_path = build_project_media_path(project, section, filename)
         saved_path = default_storage.save(relative_path, upload_file)
-        project.kml_file_path = saved_path
-        project.save(update_fields=['kml_file_path', 'updated_at'])
+        if file_type == 'preliminary_kml':
+            project.preliminary_kml_file_path = saved_path
+            project.preliminary_spatial_check_at = None
+            project.preliminary_is_overlap_artifact = None
+            project.preliminary_overlapped_relics_info = []
+            project.preliminary_review_date = None
+            project.preliminary_review_opinion = ''
+            project.reuse_preliminary_materials = False
+            project.status = LandUseProjectApproval.STATUS_RECEIVED
+            project.save(update_fields=[
+                'preliminary_kml_file_path', 'preliminary_spatial_check_at',
+                'preliminary_is_overlap_artifact', 'preliminary_overlapped_relics_info',
+                'preliminary_review_date', 'preliminary_review_opinion', 'status', 'updated_at',
+                'reuse_preliminary_materials',
+            ])
+        else:
+            project.kml_file_path = saved_path
+            project.reuse_preliminary_materials = False
+            project.save(update_fields=['kml_file_path', 'reuse_preliminary_materials', 'updated_at'])
 
         kml_record_id = None
-        try:
-            kml_record_id = sync_project_kml_record(project, user=request.user).id
-        except Exception:
-            logger.exception('项目KML同步为叠加检查记录失败: project_id=%s', project.id)
+        if file_type == 'kml':
+            try:
+                kml_record_id = sync_project_kml_record(project, user=request.user).id
+            except Exception:
+                logger.exception('项目KML同步为叠加检查记录失败: project_id=%s', project.id)
 
         _record_land_project_operation(
             project=project,
@@ -2882,11 +2916,16 @@ def verify_project_spatial_safety_api(request, project_id):
         threshold_m = None
 
     try:
-        result = verify_project_spatial_safety(project_id, threshold_m=threshold_m, user=request.user)
+        if request.GET.get('preliminary') == '1':
+            result = verify_preliminary_spatial_safety(project_id, threshold_m=threshold_m, user=request.user)
+            operation = 'verify_preliminary_spatial'
+        else:
+            result = verify_project_spatial_safety(project_id, threshold_m=threshold_m, user=request.user)
+            operation = 'verify_spatial_safety'
         _record_land_project_operation(
             project=project,
             user=request.user,
-            action='verify_spatial_safety',
+            action=operation,
             payload={
                 'is_overlap_artifact': result.get('is_overlap_artifact', False),
                 'overlapped_count': len(result.get('overlapped_relics_info') or []),

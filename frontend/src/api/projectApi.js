@@ -49,6 +49,13 @@ export async function verifyProjectSpatialSafety(projectId, thresholdM) {
   return response.data
 }
 
+export async function verifyPreliminarySpatialSafety(projectId, thresholdM) {
+  const params = { preliminary: '1' }
+  if (thresholdM) params.threshold_m = thresholdM
+  const response = await client.post(`/api/v1/projects/${projectId}/verify-spatial-safety/`, null, { params })
+  return response.data
+}
+
 export async function linkProjectKmlRecord(projectId, kmlRecordId) {
   const response = await client.post(`/api/v1/projects/${projectId}/link-kml-record/`, {
     kml_record_id: kmlRecordId

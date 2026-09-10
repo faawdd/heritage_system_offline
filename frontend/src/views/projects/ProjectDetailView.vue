@@ -50,6 +50,25 @@
       </el-descriptions>
     </div>
 
+    <div class="card preliminary-review-card">
+      <div class="card-title">
+        <h3>初步选址审查</h3>
+        <el-tag type="warning" effect="plain">不作为开工依据</el-tag>
+      </div>
+      <el-descriptions :column="3" size="small" border>
+        <el-descriptions-item label="初步项目名称">{{ detail.preliminary_project_name || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="初步KML">{{ detail.preliminary_kml_file_path ? '已上传' : '待上传' }}</el-descriptions-item>
+        <el-descriptions-item label="核查时间">{{ detail.preliminary_spatial_check_at || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="核查结论">
+          {{ detail.preliminary_spatial_check_at
+            ? (detail.preliminary_is_overlap_artifact ? `涉及文物 ${(detail.preliminary_overlapped_relics_info || []).length} 处` : '暂未发现涉及文物')
+            : '-' }}
+        </el-descriptions-item>
+        <el-descriptions-item label="回复日期">{{ detail.preliminary_review_date || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="回复意见">{{ detail.preliminary_review_opinion || '-' }}</el-descriptions-item>
+      </el-descriptions>
+    </div>
+
     <div class="card">
       <div class="steps-scroll">
         <el-steps :active="activeStepIndex" align-center finish-status="success">
@@ -198,7 +217,8 @@
           <h3>附件与文档</h3>
           <div class="action-row project-upload-row">
             <el-select v-model="upload.file_type" style="width: 230px">
-              <el-option label="项目选址(KML/KMZ)" value="kml" />
+              <el-option label="初步选址(KML/KMZ)" value="preliminary_kml" />
+              <el-option label="正式选址(KML/KMZ)" value="kml" />
               <el-option label="现场勘查照片" value="field_photo" />
               <el-option label="杂项ZIP" value="misc_zip" />
               <el-option label="考古调查报告PDF" value="archaeology_report" />
@@ -327,6 +347,14 @@
               <span v-if="field.hint && field.type !== 'checkbox'" class="hint">{{ field.hint }}</span>
             </div>
           </div>
+          <el-alert
+            v-if="detail.reuse_preliminary_materials"
+            title="当前终审沿用初审项目名称和KML；正式终审仍需重新执行空间核验。"
+            type="warning"
+            :closable="false"
+            show-icon
+            class="blocker"
+          />
         </div>
 
         <div class="card">
@@ -397,6 +425,7 @@ import {
   linkProjectKmlRecord,
   runProjectWorkflowAction,
   uploadProjectFile,
+  verifyPreliminarySpatialSafety,
   verifyProjectSpatialSafety
 } from '../../api/projectApi'
 import { fetchGisKmlRecords } from '../../api/gisApi'
@@ -542,10 +571,12 @@ function validateTodo(todo) {
   return true
 }
 
-async function runSpatialVerify(thresholdM) {
+async function runSpatialVerify(thresholdM, preliminary = false) {
   processing.value = true
   try {
-    const result = await verifyProjectSpatialSafety(projectId, thresholdM)
+    const result = preliminary
+      ? await verifyPreliminarySpatialSafety(projectId, thresholdM)
+      : await verifyProjectSpatialSafety(projectId, thresholdM)
     if (!result.success) {
       throw new Error(result.message || '空间核验失败')
     }
@@ -553,7 +584,7 @@ async function runSpatialVerify(thresholdM) {
     ElMessage.success(
       data.is_overlap_artifact
         ? `核验完成：涉及 ${(data.overlapped_relics_info || []).length} 处文物`
-        : '核验完成：未涉及已登记文物'
+        : (preliminary ? '初步核验完成：未涉及已登记文物' : '正式核验完成：未涉及已登记文物')
     )
     await loadDetail()
   } catch (error) {
@@ -569,7 +600,7 @@ async function runTodo(todo) {
   }
 
   if (todo.kind === 'spatial') {
-    await runSpatialVerify(formState[todo.action]?.threshold_m)
+    await runSpatialVerify(formState[todo.action]?.threshold_m, todo.action === 'verify_preliminary_spatial')
     return
   }
 
@@ -630,7 +661,9 @@ async function submitUpload() {
       throw new Error(result.message || '上传失败')
     }
     ElMessage.success(
-      upload.file_type === 'kml' ? '选址KML已上传，并同步生成叠加检查记录' : '上传成功'
+      upload.file_type === 'kml'
+        ? '正式选址KML已上传，并同步生成叠加检查记录'
+        : (upload.file_type === 'preliminary_kml' ? '初步选址KML已上传' : '上传成功')
     )
     selectedFile.value = null
     if (fileInputRef.value) {

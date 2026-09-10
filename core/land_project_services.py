@@ -339,6 +339,8 @@ def verify_project_spatial_safety(project_id, threshold_m: int = None, user=None
     project = LandUseProjectApproval.objects.filter(id=project_id).first()
     if not project:
         raise ValueError('项目不存在')
+    if project.status != LandUseProjectApproval.STATUS_PRELIM_REVIEWED or not project.preliminary_review_date:
+        raise ValueError('请先完成初步选址审查回复，再进行正式选址核验')
     if not project.kml_file_path:
         raise ValueError('项目尚未上传KML文件')
     if not default_storage.exists(project.kml_file_path):
@@ -423,6 +425,72 @@ def verify_project_spatial_safety(project_id, threshold_m: int = None, user=None
     }
 
 
+def verify_preliminary_spatial_safety(project_id, threshold_m: int = None, user=None):
+    """核查初步选址KML，仅写入初审专用字段，不改变正式选址核验结论。"""
+    project = LandUseProjectApproval.objects.filter(id=project_id).first()
+    if not project:
+        raise ValueError('项目不存在')
+    if not project.preliminary_kml_file_path:
+        raise ValueError('项目尚未上传初步选址KML文件')
+    if not default_storage.exists(project.preliminary_kml_file_path):
+        raise ValueError('初步选址KML文件不存在或已被移除')
+
+    from . import views as legacy_views
+
+    try:
+        threshold = int(threshold_m or project.preliminary_spatial_check_threshold_m or DEFAULT_SPATIAL_THRESHOLD_M)
+    except (TypeError, ValueError):
+        threshold = DEFAULT_SPATIAL_THRESHOLD_M
+    threshold = max(1, min(5000, threshold))
+    with default_storage.open(project.preliminary_kml_file_path, 'rb') as fp:
+        content = fp.read()
+    features = legacy_views._extract_features_from_upload(project.preliminary_kml_file_path, content)
+    if not features:
+        raise ValueError('初步选址KML未识别到有效要素，请检查文件格式与坐标内容')
+    conflicts = legacy_views._analyze_conflicts(features, threshold)
+    level_label_map = {code: label for code, label in HeritageSite.LEVEL_CHOICES}
+    unique = []
+    seen = set()
+    for row in conflicts:
+        site_level = (row.get('site_level') or '').strip()
+        item = {
+            'heritage_id': row.get('site_id'),
+            'heritage_name': row.get('site_name') or '',
+            'site_level': site_level,
+            'site_level_label': level_label_map.get(site_level, site_level),
+            'is_high_level_protected': site_level in HIGH_PROTECTION_LEVEL_CODES,
+            'zone_type': row.get('relation') or '叠加冲突',
+            'distance_m': row.get('distance_m'),
+            'feature_name': row.get('feature_name') or '',
+            'feature_type': row.get('feature_type') or '',
+        }
+        key = (item.get('heritage_id'), item.get('zone_type'), item.get('feature_name'))
+        if key not in seen:
+            seen.add(key)
+            unique.append(item)
+
+    project.preliminary_is_overlap_artifact = bool(unique)
+    project.preliminary_overlapped_relics_info = unique
+    project.preliminary_spatial_check_at = timezone.now()
+    project.preliminary_spatial_check_threshold_m = threshold
+    project.preliminary_spatial_feature_count = len(features)
+    project.status = LandUseProjectApproval.STATUS_PRELIM_REVIEWED
+    project.save(update_fields=[
+        'preliminary_is_overlap_artifact', 'preliminary_overlapped_relics_info',
+        'preliminary_spatial_check_at', 'preliminary_spatial_check_threshold_m',
+        'preliminary_spatial_feature_count', 'status', 'updated_at',
+    ])
+    return {
+        'project_id': str(project.id),
+        'is_overlap_artifact': bool(unique),
+        'status': project.status,
+        'threshold_m': threshold,
+        'feature_count': len(features),
+        'conflict_count': len(conflicts),
+        'overlapped_relics_info': unique,
+    }
+
+
 def build_project_media_path(project: LandUseProjectApproval, section: str, filename: str) -> str:
     """按年度/项目名自动归档，返回相对MEDIA_ROOT的路径。"""
     year = project.receive_date.year if project.receive_date else timezone.localdate().year
@@ -448,9 +516,14 @@ def get_status_controls(status: str, project: LandUseProjectApproval = None) -> 
     is_overlap = bool(project.is_overlap_artifact) if project else False
 
     return {
-        'upload_kml': status == LandUseProjectApproval.STATUS_RECEIVED,
+        'upload_kml': status in {
+            LandUseProjectApproval.STATUS_PRELIM_REVIEWED,
+            LandUseProjectApproval.STATUS_RECEIVED,
+        },
+        'upload_preliminary_kml': status == LandUseProjectApproval.STATUS_RECEIVED,
         'upload_misc_zip': True,
-        'verify_spatial': status == LandUseProjectApproval.STATUS_RECEIVED,
+        'verify_spatial': status == LandUseProjectApproval.STATUS_PRELIM_REVIEWED,
+        'verify_preliminary_spatial': status == LandUseProjectApproval.STATUS_RECEIVED,
         # 市县联合实地勘查：不涉及/涉及且可行两条分支都需先完成，与流程文档步骤4对应。
         'upload_field_photos': status in {
             LandUseProjectApproval.STATUS_PRELIM_SAFE,
@@ -480,6 +553,26 @@ def get_status_controls(status: str, project: LandUseProjectApproval = None) -> 
 def apply_workflow_action(project: LandUseProjectApproval, action: str, payload: Dict):
     """业务流转强控：校验当前状态、必传公文与必填字段后再跳转。"""
     extra_required = []
+    if action == 'complete_preliminary_review':
+        if project.status != LandUseProjectApproval.STATUS_PRELIM_REVIEWED:
+            raise ValueError('请先完成初步选址KML核查')
+        if project.preliminary_spatial_check_at is None:
+            raise ValueError('请先执行初步选址叠加核验')
+        review_date = payload.get('preliminary_review_date')
+        opinion = (payload.get('preliminary_review_opinion') or '').strip()
+        if not review_date:
+            raise ValueError('请填写初步选址审查回复日期')
+        if not opinion:
+            raise ValueError('请填写初步选址审查回复意见')
+        project.preliminary_review_date = review_date
+        project.preliminary_review_opinion = opinion
+        project.status = LandUseProjectApproval.STATUS_PRELIM_REVIEWED
+        project.save()
+        return {
+            'project_id': str(project.id),
+            'status': project.status,
+            'status_label': project.get_status_display(),
+        }
     if action == 'record_city_reply':
         # 直接复函分支归档的是给项目方的复函，市局审批中分支归档的是市局来函。
         extra_required = [
@@ -605,6 +698,23 @@ def apply_workflow_action(project: LandUseProjectApproval, action: str, payload:
 
     elif action == 'update_extra_info':
         # 不涉及状态跳转的辅助信息录入：坎儿井方案/水利意见/国务院报审标记/保护措施说明等。
+        if 'project_name' in payload:
+            project.project_name = (payload.get('project_name') or '').strip()
+            if not project.project_name:
+                raise ValueError('正式选址项目名称不能为空')
+        if 'preliminary_project_name' in payload:
+            project.preliminary_project_name = (payload.get('preliminary_project_name') or '').strip()
+        if 'reuse_preliminary_materials' in payload:
+            reuse = bool(payload.get('reuse_preliminary_materials'))
+            if reuse:
+                if not project.preliminary_project_name:
+                    raise ValueError('初步选址项目名称为空，无法沿用初审材料')
+                if not project.preliminary_kml_file_path:
+                    raise ValueError('初步选址KML为空，无法沿用初审材料')
+                project.project_name = project.preliminary_project_name
+                project.kml_file_path = project.preliminary_kml_file_path
+                project.kml_record = None
+            project.reuse_preliminary_materials = reuse
         if 'involves_kanerjing' in payload:
             project.involves_kanerjing = bool(payload.get('involves_kanerjing'))
         if 'water_department_opinion' in payload:
@@ -642,7 +752,8 @@ PATH_ARCHAEOLOGY = 'ARCHAEOLOGY_FLOW'
 
 WORKFLOW_STEPS = [
     ('receive', '收文登记', '接收项目方查询函，登记项目名称、建设内容与选址范围资料'),
-    ('precheck', '初步核查', '将项目选址范围与不可移动文物、保护范围、建控地带矢量数据叠加比对'),
+    ('preliminary_review', '初步选址审查', '按初步选址资料查询是否涉及文物并回复；该意见不作为开工依据'),
+    ('precheck', '正式选址核查', '以正式开工前项目资料将选址范围与不可移动文物、保护范围、建控地带矢量数据叠加比对'),
     ('field_check', '联合实地勘查', '市、县文物行政部门赴现场核实选址与文物实际位置及影响'),
     ('city_review', '上报市局与回复意见', '报送县局请示，等待市文物行政部门反馈勘查意见'),
     ('archaeology', '专项保护与逐级报审', '考古调查勘探、影响评估、保护方案编制，并按权限逐级报审'),
@@ -652,6 +763,7 @@ WORKFLOW_STEPS = [
 
 _STATUS_TO_STEP = {
     LandUseProjectApproval.STATUS_RECEIVED: 'receive',
+    LandUseProjectApproval.STATUS_PRELIM_REVIEWED: 'precheck',
     LandUseProjectApproval.STATUS_PRELIM_SAFE: 'field_check',
     LandUseProjectApproval.STATUS_CHECK_OVERLAP: 'field_check',
     LandUseProjectApproval.STATUS_FIELD_DONE: 'city_review',
@@ -663,6 +775,11 @@ _STATUS_TO_STEP = {
 
 
 def get_current_step_key(project: LandUseProjectApproval) -> str:
+    if (
+        project.status == LandUseProjectApproval.STATUS_PRELIM_REVIEWED
+        and not project.preliminary_review_date
+    ):
+        return 'preliminary_review'
     return _STATUS_TO_STEP.get(project.status, 'receive')
 
 
@@ -738,7 +855,42 @@ def build_workflow_todos(project: LandUseProjectApproval, path: str) -> List[Dic
     todos = []
 
     if status == LandUseProjectApproval.STATUS_RECEIVED:
-        return _spatial_todos(project)
+        preliminary_blockers = []
+        if not project.preliminary_kml_file_path:
+            preliminary_blockers.append('请先上传「初步选址KML/KMZ」文件')
+        todos.append({
+            'action': 'verify_preliminary_spatial',
+            'kind': 'spatial',
+            'label': '执行初步选址核查',
+            'description': '仅查询初步选址资料是否涉及文物，核查结果和回复意见不作为正式开工依据。',
+            'enabled': not preliminary_blockers,
+            'blockers': preliminary_blockers,
+            'fields': [_field('threshold_m', '缓冲阈值(米)', 'number', required=False,
+                              value=project.preliminary_spatial_check_threshold_m or DEFAULT_SPATIAL_THRESHOLD_M)],
+        })
+        return todos
+
+    if status == LandUseProjectApproval.STATUS_PRELIM_REVIEWED and not project.preliminary_review_date:
+        return [{
+            'action': 'complete_preliminary_review',
+            'kind': 'workflow',
+            'label': '回复初步选址审查意见',
+            'description': '记录本次初步查询回复；该回复仅供项目选址前期参考，不作为正式开工依据。',
+            'enabled': bool(project.preliminary_spatial_check_at),
+            'blockers': [] if project.preliminary_spatial_check_at else ['请先执行初步选址叠加核验'],
+            'fields': [
+                _field('preliminary_review_date', '回复日期', 'date', value=''),
+                _field('preliminary_review_opinion', '回复意见', 'textarea',
+                       placeholder='填写是否涉及文物及需提示的事项；不得表述为开工依据'),
+            ],
+        }]
+
+    if status == LandUseProjectApproval.STATUS_PRELIM_REVIEWED:
+        formal_todos = _spatial_todos(project)
+        for item in formal_todos:
+            item['label'] = '执行正式选址核验'
+            item['description'] = '请使用正式开工前的项目名称、KML/KMZ重新核查；此结论才进入现有正式选址审批流程。'
+        return formal_todos
 
     if status in {LandUseProjectApproval.STATUS_PRELIM_SAFE, LandUseProjectApproval.STATUS_CHECK_OVERLAP}:
         todos.extend(_spatial_todos(project))
@@ -908,6 +1060,14 @@ def build_extra_info_form(project: LandUseProjectApproval) -> Dict:
         'kind': 'workflow',
         'label': '保存补充信息',
         'fields': [
+             _field('preliminary_project_name', '初步选址项目名称', required=False,
+                 value=project.preliminary_project_name),
+             _field('project_name', '正式选址项目名称', required=True,
+                 value=project.project_name,
+                 hint='正式开工前可与初步选址名称不同，以此字段为正式流程名称'),
+                 _field('reuse_preliminary_materials', '终审沿用初审材料', 'checkbox', required=False,
+                     value=project.reuse_preliminary_materials,
+                     hint='沿用初审项目名称和KML；正式终审仍需重新执行空间核验'),
             _field('involves_kanerjing', '涉及坎儿井', 'checkbox', required=False,
                    value=project.involves_kanerjing,
                    hint='涉及坎儿井需编制保护加固方案并征求水利部门意见'),
