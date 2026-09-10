@@ -274,6 +274,7 @@ class LandUseProjectApproval(models.Model):
     """基层文物管理-用地项目审批与文档登记归档主表。"""
 
     STATUS_RECEIVED = '10_已收文'
+    STATUS_PRELIM_REVIEWED = '15_初步选址审查完成'
     STATUS_PRELIM_SAFE = '20_初审安全'
     STATUS_CHECK_OVERLAP = '21_CHECK_OVERLAP'
     STATUS_FIELD_DONE = '30_现场勘查完成'
@@ -284,6 +285,7 @@ class LandUseProjectApproval(models.Model):
 
     STATUS_CHOICES = [
         (STATUS_RECEIVED, '10_已收文'),
+        (STATUS_PRELIM_REVIEWED, '15_初步选址审查完成'),
         (STATUS_PRELIM_SAFE, '20_初审安全'),
         (STATUS_CHECK_OVERLAP, '21_初审涉及'),
         (STATUS_FIELD_DONE, '30_现场勘查完成'),
@@ -302,6 +304,22 @@ class LandUseProjectApproval(models.Model):
     receive_date = models.DateField('收文日期', default=timezone.localdate)
     kml_file_path = models.CharField('原始KML文件路径', max_length=500, blank=True, default='')
     misc_zip_path = models.CharField('杂项ZIP文件路径', max_length=500, blank=True, default='')
+
+    # 初步选址审查：与正式开工前选址审批资料分开留存，初审回复不作为开工依据。
+    preliminary_project_name = models.CharField('初步选址项目名称', max_length=255, blank=True, default='')
+    preliminary_kml_file_path = models.CharField('初步选址KML文件路径', max_length=500, blank=True, default='')
+    preliminary_is_overlap_artifact = models.BooleanField('初步审查是否涉及文物', null=True, blank=True)
+    preliminary_overlapped_relics_info = models.JSONField('初步审查涉事文物信息', default=list, blank=True)
+    preliminary_spatial_check_at = models.DateTimeField('初步选址核查时间', null=True, blank=True)
+    preliminary_spatial_check_threshold_m = models.PositiveIntegerField('初步核验阈值(米)', default=50)
+    preliminary_spatial_feature_count = models.PositiveIntegerField('初步KML要素数量', default=0)
+    preliminary_review_date = models.DateField('初步选址审查回复日期', null=True, blank=True)
+    preliminary_review_opinion = models.TextField('初步选址审查回复意见', blank=True, default='')
+    reuse_preliminary_materials = models.BooleanField(
+        '终审沿用初审材料',
+        default=False,
+        help_text='勾选后沿用初审项目名称和KML；正式终审仍需重新执行空间核验。',
+    )
 
     # 空间核验结果
     is_overlap_artifact = models.BooleanField('是否涉及文物', default=False)

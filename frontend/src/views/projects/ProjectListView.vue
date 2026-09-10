@@ -36,6 +36,9 @@
         <el-form-item label="项目名称" required>
           <el-input v-model="createForm.project_name" placeholder="请输入项目名称" />
         </el-form-item>
+        <el-form-item label="初步选址名称">
+          <el-input v-model="createForm.preliminary_project_name" placeholder="不填则沿用项目名称，后续可修改" />
+        </el-form-item>
         <el-form-item label="企业单位" required>
           <el-input v-model="createForm.company_name" placeholder="请输入企业单位名称" />
         </el-form-item>
@@ -188,6 +191,7 @@ const createDialogVisible = ref(false)
 const creating = ref(false)
 const createForm = reactive({
   project_name: '',
+  preliminary_project_name: '',
   company_name: '',
   incoming_doc_date: ''
 })
@@ -263,6 +267,7 @@ function applyStatusFilter(status) {
 
 function goCreate() {
   createForm.project_name = ''
+  createForm.preliminary_project_name = ''
   createForm.company_name = ''
   createForm.incoming_doc_date = ''
   createDialogVisible.value = true
