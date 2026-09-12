@@ -1,7 +1,6 @@
 const { app, BrowserWindow, dialog, ipcMain, Menu } = require('electron')
 const path = require('path')
 const fs = require('fs')
-const crypto = require('crypto')
 const { spawn } = require('child_process')
 const http = require('http')
 const net = require('net')
@@ -20,13 +19,9 @@ let loginWindow = null
 let initWizardWindow = null
 let runtimeConfig = null
 let bootstrapAdminPassword = ''
-let desktopLoginPassed = false
-
-const LOCAL_ADMIN_USERNAME = 'test'
-const LOCAL_ADMIN_SALT = 'b2f3a1d94c6e7f80'
-const LOCAL_ADMIN_HASH = 'ff966bdaab84e50ef7b3350ed4c1b5b7ad65bd8ff8f360151e0facec47ee6621acaa478b692e9af09c36673a8b4a3b1a8949eb69cb7cd8220610946cb4e63207'
-const LEGACY_LOCAL_ADMIN_USERNAME = 'admin'
-const LEGACY_LOCAL_ADMIN_HASH = '3e7faae0c71b4dc6ef521af75f9db14c07edd1163db5542b81b81201e3a2eda47c0b4a36ca7be01adb5b4c70e747229b4f7ae3bef0387275f710eb9b4a884ed5'
+// 登录窗口是否已通过真实后端登录（渲染进程拿到 JWT 后通知主进程）。
+// 仅用于决定"关闭登录窗口"时是否应退出应用，不参与任何权限判定。
+let loginWindowAuthenticated = false
 
 function formatTimestamp(date = new Date()) {
   const pad = (num) => String(num).padStart(2, '0')
@@ -394,38 +389,9 @@ function buildRendererUrl(routePath = '/') {
   return `${normalizedBase}${sanitizeRoutePath(routePath)}`
 }
 
-function derivePasswordHash(password, salt) {
-  return crypto.scryptSync(String(password), String(salt), 64).toString('hex')
-}
-
-function safeCompareHash(left, right) {
-  const leftBuffer = Buffer.from(String(left), 'utf-8')
-  const rightBuffer = Buffer.from(String(right), 'utf-8')
-  if (leftBuffer.length !== rightBuffer.length) {
-    return false
-  }
-  return crypto.timingSafeEqual(leftBuffer, rightBuffer)
-}
-
-function verifyLocalAdmin(username, password) {
-  const normalizedUsername = String(username || '').trim()
-  const computedHash = derivePasswordHash(String(password || ''), LOCAL_ADMIN_SALT)
-
-  if (normalizedUsername === LOCAL_ADMIN_USERNAME) {
-    return safeCompareHash(computedHash, LOCAL_ADMIN_HASH)
-  }
-
-  // Backward compatibility for users who still have remembered admin/admin123.
-  if (normalizedUsername === LEGACY_LOCAL_ADMIN_USERNAME) {
-    return safeCompareHash(computedHash, LEGACY_LOCAL_ADMIN_HASH)
-  }
-
-  return false
-}
-
 function resolveMainEntryPath() {
   if (!runtimeConfig?.openImportAfterInit || process.env.ELECTRON_START_URL) {
-    return '/dashboard?desktop_auth=1'
+    return '/dashboard'
   }
 
   runtimeConfig = {
@@ -433,10 +399,10 @@ function resolveMainEntryPath() {
     openImportAfterInit: false,
   }
   saveDesktopConfig(runtimeConfig)
-  return '/system/data-management?fromSetup=1&desktop_auth=1'
+  return '/system/data-management?fromSetup=1'
 }
 
-function createMainWindow(routePath = '/dashboard?desktop_auth=1') {
+function createMainWindow(routePath = '/dashboard') {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -499,7 +465,9 @@ function createLoginWindow() {
 
   loginWindow.on('closed', () => {
     loginWindow = null
-    if (!desktopLoginPassed && !mainWindow && process.platform !== 'darwin') {
+    // 登录窗口被关闭时，如果既没有完成登录（未打开主窗口），也没有主窗口存在，
+    // 说明用户主动取消了登录，退出应用。
+    if (!loginWindowAuthenticated && !mainWindow && process.platform !== 'darwin') {
       app.quit()
     }
   })
@@ -510,27 +478,13 @@ function createLoginWindow() {
 }
 
 function setupAuthIpc() {
-  ipcMain.handle('auth:login', async (_event, payload = {}) => {
+  // 说明：登录凭据校验已彻底移出主进程。渲染进程直接调用后端
+  // POST /api/v1/system/login/ 获取 JWT 并写入 localStorage（见 authStore / client.js）。
+  // 主进程只负责窗口切换：收到"登录成功"通知后打开主窗口、关闭登录窗口。
+  ipcMain.handle('auth:login-succeeded', async () => {
     try {
-      const username = String(payload?.username || '').trim()
-      const password = String(payload?.password || '')
+      loginWindowAuthenticated = true
 
-      if (!username || !password) {
-        return {
-          success: false,
-          message: '请输入用户名和密码',
-        }
-      }
-
-      const verified = verifyLocalAdmin(username, password)
-      if (!verified) {
-        return {
-          success: false,
-          message: '账号或密码错误',
-        }
-      }
-
-      desktopLoginPassed = true
       if (!mainWindow || mainWindow.isDestroyed()) {
         createMainWindow(resolveMainEntryPath())
       } else {
@@ -542,14 +496,11 @@ function setupAuthIpc() {
         loginWindow.close()
       }
 
-      return {
-        success: true,
-        message: '登录成功',
-      }
+      return { success: true, message: '已进入主界面' }
     } catch (error) {
       return {
         success: false,
-        message: `登录校验失败: ${String(error?.message || error)}`,
+        message: `打开主窗口失败: ${String(error?.message || error)}`,
       }
     }
   })
@@ -578,7 +529,9 @@ function setupAuthIpc() {
 
   ipcMain.handle('auth:logout-to-login', async () => {
     try {
-      desktopLoginPassed = false
+      // 退出登录：重置登录态标记，重新打开登录窗口并关闭主窗口。
+      // 令牌清理由渲染进程 authStore.logout() 负责（localStorage）。
+      loginWindowAuthenticated = false
 
       if (!loginWindow || loginWindow.isDestroyed()) {
         createLoginWindow()

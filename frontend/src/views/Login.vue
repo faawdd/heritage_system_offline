@@ -28,7 +28,7 @@
             type="text"
             name="username"
             autocomplete="username"
-            placeholder="例如：test"
+            placeholder="请输入用户名"
             :disabled="loading"
             required
             autofocus
@@ -66,10 +66,13 @@
 
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import appLogo from '../assets/logo.png'
+import { useAuthStore } from '../stores/system/authStore'
 
 const router = useRouter()
+const route = useRoute()
+const authStore = useAuthStore()
 const SAVED_LOGIN_KEY = 'desktop_saved_login_credential'
 
 const loading = ref(false)
@@ -109,18 +112,11 @@ async function handleLogin() {
     return
   }
 
-  if (!window.electronAPI || typeof window.electronAPI.login !== 'function') {
-    errorMessage.value = '当前环境不支持桌面 IPC 登录，请检查 Electron 预加载配置。'
-    return
-  }
-
   loading.value = true
   try {
-    const result = await window.electronAPI.login(form.username, form.password)
-    if (!result?.success) {
-      errorMessage.value = result?.message || '登录失败，请重试'
-      return
-    }
+    // 真实后端登录：POST /api/v1/system/login/，成功后 authStore 会把
+    // access/refresh token 与用户信息写入 localStorage，供 axios 拦截器统一携带。
+    await authStore.login(form.username, form.password)
 
     if (rememberPassword.value) {
       localStorage.setItem(
@@ -134,14 +130,22 @@ async function handleLogin() {
       localStorage.removeItem(SAVED_LOGIN_KEY)
     }
 
-    // 标记当前窗口会话登录成功，供路由守卫放行。
-    sessionStorage.setItem('desktop_local_auth', '1')
-    localStorage.removeItem('desktop_local_auth')
+    // 桌面登录窗口：通知主进程打开主窗口并关闭本登录窗口（主进程不再校验凭据）。
+    if (route.query.login_window === '1' && window.electronAPI && typeof window.electronAPI.notifyLoginSucceeded === 'function') {
+      const result = await window.electronAPI.notifyLoginSucceeded()
+      if (!result?.success) {
+        errorMessage.value = result?.message || '进入主界面失败，请重试'
+        return
+      }
+      // 主窗口即将接管显示，这里无需再路由跳转。
+      return
+    }
 
-    // 兜底跳转：若主进程未切窗，也可在当前窗口进入主页。
-    await router.replace('/dashboard?desktop_auth=1')
+    // 普通（非登录窗口）场景：按 redirect 参数回到目标页，默认进入仪表盘。
+    const redirect = String(route.query.redirect || '/dashboard')
+    await router.replace(redirect)
   } catch (error) {
-    errorMessage.value = String(error?.message || '登录通信失败，请稍后重试')
+    errorMessage.value = String(error?.message || '登录失败，请重试')
   } finally {
     loading.value = false
   }

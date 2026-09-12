@@ -12,7 +12,6 @@ const ACCESS_TOKEN_KEY = 'heritage_access_token'
 const REFRESH_TOKEN_KEY = 'heritage_refresh_token'
 const USER_KEY = 'heritage_user'
 const MENU_TREE_KEY = 'heritage_menu_tree'
-const DESKTOP_AUTH_KEY = 'desktop_local_auth'
 
 function safeParse(json, fallback = null) {
   if (!json) {
@@ -67,13 +66,14 @@ export const useAuthStore = defineStore('system_auth', {
       this.menuTree = []
       this.persistAuth()
 
-      // Ensure desktop session authorization is revoked on logout.
+      // 清理历史遗留的"桌面本地授权标记"（旧版本曾用它绕过登录），
+      // 确保退出后不会残留任何免登录状态。
       if (typeof window !== 'undefined') {
         if (window.sessionStorage) {
-          window.sessionStorage.removeItem(DESKTOP_AUTH_KEY)
+          window.sessionStorage.removeItem('desktop_local_auth')
         }
         if (window.localStorage) {
-          window.localStorage.removeItem(DESKTOP_AUTH_KEY)
+          window.localStorage.removeItem('desktop_local_auth')
         }
       }
     },

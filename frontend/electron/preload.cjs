@@ -19,20 +19,20 @@ contextBridge.exposeInMainWorld('desktopData', {
 })
 
 contextBridge.exposeInMainWorld('electronAPI', {
-  login: async (username, password) => {
+  // 登录成功后由渲染进程调用：通知主进程切换到主窗口。
+  // 注意：凭据校验与 JWT 签发都在渲染进程通过后端 /api/v1/system/login/ 完成，
+  // 主进程不再接触用户名/密码，只做窗口管理。
+  notifyLoginSucceeded: async () => {
     try {
-      const response = await ipcRenderer.invoke('auth:login', {
-        username,
-        password,
-      })
+      const response = await ipcRenderer.invoke('auth:login-succeeded')
       return {
         success: Boolean(response?.success),
-        message: String(response?.message || (response?.success ? '登录成功' : '登录失败')),
+        message: String(response?.message || (response?.success ? '已进入主界面' : '进入主界面失败')),
       }
     } catch (error) {
       return {
         success: false,
-        message: String(error?.message || '登录请求失败'),
+        message: String(error?.message || '登录状态同步失败'),
       }
     }
   },

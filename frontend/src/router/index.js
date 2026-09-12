@@ -26,24 +26,12 @@ import AboutView from '../views/system/about/AboutView.vue'
 import DataManagementView from '../views/system/data/DataManagementView.vue'
 import { useAuthStore } from '../stores/system/authStore'
 
-const DESKTOP_AUTH_KEY = 'desktop_local_auth'
-
 function hasElectronBridge() {
   return typeof window !== 'undefined' && Boolean(window.electronAPI)
 }
 
-function getDesktopAuthStorage() {
-  if (typeof window === 'undefined' || !window.sessionStorage) {
-    return null
-  }
-  return window.sessionStorage
-}
-
-function isDesktopAuthorized() {
-  const storage = getDesktopAuthStorage()
-  return hasElectronBridge() && Boolean(storage) && storage.getItem(DESKTOP_AUTH_KEY) === '1'
-}
-
+// 桌面登录窗口：Electron 主进程以 /login?login_window=1 打开独立小窗，
+// 该窗口本身不需要登录态，直接放行，避免与下面的鉴权重定向形成死循环。
 function isDesktopLoginWindowRoute(route) {
   return hasElectronBridge() && route.path === '/login' && route.query.login_window === '1'
 }
@@ -100,22 +88,8 @@ router.beforeEach(async (to) => {
     return '/login'
   }
 
-  if (to.query.desktop_auth === '1' && hasElectronBridge()) {
-    const storage = getDesktopAuthStorage()
-    if (storage) {
-      storage.setItem(DESKTOP_AUTH_KEY, '1')
-    }
-    // Clean up legacy persistent flag to avoid login bypass after app restart.
-    localStorage.removeItem(DESKTOP_AUTH_KEY)
-  }
-
-  if (isDesktopAuthorized()) {
-    if (to.path === '/login') {
-      return '/dashboard'
-    }
-    return true
-  }
-
+  // 统一以真实 JWT 判定登录态：authStore 从 localStorage 读取令牌并校验，
+  // 不再存在任何"桌面本地授权标记"绕过路径。
   const authStore = useAuthStore()
   await authStore.restoreSession()
 

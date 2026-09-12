@@ -2,7 +2,8 @@
 
 本文记录离线版（`offline` / v1.2.11）在当前 Windows 机器上的开发调试环境搭建方式、
 已验证的可用链路，以及搭建与加固过程中发现并修复的缺陷（第 5 节为环境阻断类问题，
-第 6 节为"静态服务与 DEBUG 耦合 + 本机越权"的安全解耦改造）。
+第 6 节为"静态服务与 DEBUG 耦合 + 本机越权"的安全解耦改造，第 7 节为 Electron
+桌面登录链路从假登录改为真实 JWT 的修复）。
 
 ## 1. 工具链
 
@@ -116,6 +117,7 @@ cd frontend ; npm run build
 | `smoke_http.py` | 起真实 Django，验证 SPA 回退、离线瓦片、前端产物、JWT 登录、鉴权拒绝 |
 | `smoke_vite_dev.py` | 同时起 Django + Vite，验证热更新开发链路（含瓦片代理） |
 | `audit_debug_bypass.py` | 三段式回归：鉴权默认拒绝、DEBUG=0 静态仍可用、显式开关恢复放行 |
+| `smoke_desktop_login.py` | 桌面登录链路回归：向导密码登录签发 JWT、解锁收紧接口、refresh 续期、test/test 后门已移除 |
 
 当前实测结果（Django 6.1.1 / Python 3.13.15 / Node 24.21.0）：
 
@@ -126,6 +128,7 @@ e2e_first_run.py       IS ENCRYPTED: True / admin groups: ['超级管理员'] /
 smoke_http.py          SMOKE SUMMARY: 10/10 passed
 smoke_vite_dev.py      DEV-SMOKE SUMMARY: 4/4 passed
 audit_debug_bypass.py  AUDIT SUMMARY: 13/13 passed
+smoke_desktop_login.py DESKTOP-LOGIN SUMMARY: 12/12 passed
 manage.py check        no issues（非桌面模式）
 manage.py check        no issues (1 silenced)（HERITAGE_DESKTOP_MODE=1）
 manage.py test core    Ran 15 tests ... OK
@@ -225,9 +228,54 @@ DEBUG 模式的 SQL 日志包装器内，桌面版 `desktop_backend.py` 又硬�
 > `static/` 下 1303 个文件仅含前端产物、瓦片与 Django admin 静态资源，
 > 不含密钥/数据库/环境文件（`key.bin` 在 `config/`、库在 `data/`，均不在其中）。
 
-## 7. 仍待处理
+## 7. Electron 桌面登录链路修复
 
-登录链路问题（Electron 硬编码 `test/test`、IPC 登录不签发 JWT）与 v1.2.12 合并计划
-仍按 `docs/offline-sync-playbook.md` 推进；本次改动只解决"静态服务与 DEBUG 耦合"
-和"DEBUG 隐式越权"两件事，未触碰 Electron 本地登录实现。
+### 7.1 问题
+
+鉴权收紧后，桌面端仍走"假登录"，导致登录后拿不到 JWT、所有管理接口 401：
+
+- `frontend/electron/main.cjs` 的 `auth:login` IPC 用硬编码 scrypt 比对
+  `test/test`（`LOCAL_ADMIN_HASH`）与遗留 `admin/admin123`，**从不调用后端**，
+  因此永远不签发 JWT。
+- `frontend/src/views/Login.vue` 登录成功后只在 `sessionStorage` 写
+  `desktop_local_auth=1`，并跳 `/dashboard?desktop_auth=1`。
+- `frontend/src/router/index.js` 的 `isDesktopAuthorized()` 把该标记当作"已登录"，
+  **绕过全部鉴权**，渲染进程始终没有 token。
+
+### 7.2 修复
+
+1. `main.cjs`：删除 `crypto` 依赖、`LOCAL_ADMIN_*` 常量、`derivePasswordHash` /
+   `safeCompareHash` / `verifyLocalAdmin`，以及 `auth:login` IPC。主进程不再接触
+   用户名/密码。新增 `auth:login-succeeded` IPC，仅做窗口切换（开主窗、关登录窗）。
+   `desktopLoginPassed` 改为 `loginWindowAuthenticated`，只用于决定"关闭登录窗时是否退出"，
+   不参与任何权限判定。主窗入口路由去掉 `?desktop_auth=1`。
+2. `preload.cjs`：`electronAPI.login(username,password)` 替换为
+   `electronAPI.notifyLoginSucceeded()`。
+3. `Login.vue`：`handleLogin` 改为调用 `authStore.login()`（真实
+   `POST /api/v1/system/login/`），成功后写 localStorage，再按 `login_window` 决定
+   是通知主进程切窗还是按 `redirect` 路由。移除 `desktop_local_auth` 标记与
+   `?desktop_auth=1` 兜底跳转；用户名占位符由"例如：test"改为"请输入用户名"。
+4. `router/index.js`：删除 `DESKTOP_AUTH_KEY` / `getDesktopAuthStorage` /
+   `isDesktopAuthorized` 及 `beforeEach` 中的 `desktop_auth` 绕过分支。登录态一律由
+   `authStore.isAuthenticated`（即 localStorage 中的 JWT）判定。仅保留
+   `isDesktopLoginWindowRoute` 放行登录小窗本身，避免与鉴权重定向死循环。
+5. `authStore.js`：`clearAuth` 仍清理历史遗留的 `desktop_local_auth`（一次性迁移），
+   但不再有任何写入路径。
+
+登录窗口与主窗口同源、共享默认 session（无 `partition` 隔离），故登录窗写入的
+localStorage 令牌对主窗口可见。
+
+### 7.3 验证
+
+`scripts/dev/smoke_desktop_login.py`（DEBUG=0 桌面模式）实测 12/12：
+向导密码 `admin` 登录返回 access/refresh → 令牌解锁 `system/version`、
+`heritage/sites` → refresh 续期成功 → `test/test`、`admin/test` 均 401 →
+匿名请求 401。前端 `npm run build` 通过，新 bundle 已不含 `desktop_auth` 绕过、
+保留 `/api/v1/system/login/`。
+
+## 8. 仍待处理
+
+v1.2.12 合并与迁移编号重排仍按 `docs/offline-sync-playbook.md` 推进。
+本次登录链路修复未触碰 `system/auth/LoginView.vue`（该组件当前未被路由引用，
+属孤儿文件；如需启用可后续将其接入 `/login`）。
 
