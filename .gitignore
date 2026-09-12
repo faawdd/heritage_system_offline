@@ -18,7 +18,15 @@ frontend/.vite/
 # 本地开发/调试产物（勿提交）
 /.smoke-runtime/
 /.probe-runtime/
+/.smoke-login/
+/.smoke-projects/
 /dem_tiles/
+/logs/
+# 临时分析脚本与转储（勿提交）
+/_*.py
+/_*.txt
+/_*.diff
+/_*.vue
 
 # private runtime/user data (repo root only)
 /data/

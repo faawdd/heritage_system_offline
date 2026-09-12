@@ -5,10 +5,12 @@ import uuid
 import zipfile
 import csv
 import re
+import logging
 import concurrent.futures
 from types import SimpleNamespace
 from pathlib import Path
 from datetime import timedelta, datetime
+from urllib.parse import quote
 
 from django.conf import settings
 from django.core.cache import cache
@@ -25,6 +27,7 @@ from core import views as legacy_views
 from core.models import HeritagePhoto, HeritageSite, ImmovableHeritage, InspectionRecord, KmlUploadRecord, LandUseProjectApproval, ProjectAudit
 from core.permission_decorators import can_modify_core_data
 from core.permissions.api_permissions import IsManagementAdmin
+from core.services import data_sync
 from core.services.heritage_service import (
     get_heritage_detail_payload,
     get_heritage_map_points,
@@ -40,6 +43,8 @@ from scripts.sipu_immovable_to_base_csv import (
     fetch_all_rows,
     write_csv,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _unwrap_legacy_view(view_func):
@@ -412,12 +417,182 @@ class ProjectControlsAPIView(APIView):
         return _call_legacy_view(legacy_views.land_project_controls_api, request, project_id)
 
 
+class ProjectLinkKmlRecordAPIView(APIView):
+    """把已有 KML 叠加检查记录关联到项目（在线版新增端点的 JWT 包装）。"""
+
+    permission_classes = [IsManagementAdmin]
+
+    def post(self, request, project_id):
+        return _call_legacy_view(legacy_views.land_project_link_kml_record_api, request, project_id)
+
+
+class ProjectDocumentsArchiveAPIView(APIView):
+    """把项目全部归档公文打包为 ZIP 下载。"""
+
+    permission_classes = [IsManagementAdmin]
+
+    def get(self, request, project_id):
+        return _call_legacy_view(legacy_views.land_project_documents_archive_api, request, project_id)
+
+
+class ProjectDocumentDownloadAPIView(APIView):
+    """下载单份归档公文。"""
+
+    permission_classes = [IsManagementAdmin]
+
+    def get(self, request, project_id, document_id):
+        return _call_legacy_view(
+            legacy_views.land_project_document_download_api, request, project_id, document_id
+        )
+
+
+class ProjectDocumentDeleteAPIView(APIView):
+    """删除归档公文（已结案项目不允许删除）。"""
+
+    permission_classes = [IsManagementAdmin]
+
+    def post(self, request, project_id, document_id):
+        return _call_legacy_view(
+            legacy_views.land_project_document_delete_api, request, project_id, document_id
+        )
+
+
+class ProjectGenerateDocumentAPIView(APIView):
+    """按前端 JSON 渲染公文模板并返回 DOCX。"""
+
+    permission_classes = [IsManagementAdmin]
+
+    def post(self, request, project_id):
+        return _call_legacy_view(legacy_views.land_project_generate_document_api, request, project_id)
+
+
 class SystemVersionAPIView(APIView):
     permission_classes = [IsManagementAdmin]
 
     def get(self, request):
         payload = get_system_version_payload()
         return Response({'success': True, 'data': payload})
+
+
+class SipuBoundaryImportStartAPIView(APIView):
+    """系统管理-数据管理：按用户手动提供的四普 Cookie，创建后台导入任务（立即返回，避免网关504超时）。"""
+
+    permission_classes = [IsManagementAdmin]
+
+    def post(self, request):
+        cookie = (request.data.get('cookie') or '').strip()
+        if not cookie:
+            return Response({'success': False, 'message': '请先填写四普系统的 Cookie。'}, status=400)
+
+        scope = (request.data.get('scope') or 'missing').strip()
+        if scope not in {'missing', 'all'}:
+            scope = 'missing'
+        user_county = (request.data.get('user_county') or '').strip()
+
+        def _parse_int(key, default, min_value, max_value):
+            try:
+                value = int(request.data.get(key) or default)
+            except (TypeError, ValueError):
+                value = default
+            return max(min_value, min(max_value, value))
+
+        limit = _parse_int('limit', 0, 0, 100000)
+        page_size = _parse_int('page_size', 80, 1, 500)
+        max_workers = _parse_int('max_workers', 8, 1, 32)
+
+        try:
+            job_id = legacy_views.start_sipu_boundary_import_job(
+                request.user, cookie, scope=scope, user_county=user_county,
+                limit=limit, page_size=page_size, max_workers=max_workers,
+            )
+        except Exception:
+            logger.exception('创建四普文物矢量图导入任务失败')
+            return Response({'success': False, 'message': '创建导入任务失败，请稍后重试'}, status=500)
+
+        return Response({'success': True, 'data': {'job_id': str(job_id)}})
+
+
+class SipuBoundaryImportStatusAPIView(APIView):
+    """查询四普边界导入任务进度，供前端轮询展示进度条。"""
+
+    permission_classes = [IsManagementAdmin]
+
+    def get(self, request, job_id):
+        status_payload = legacy_views.get_sipu_boundary_import_job_status(job_id)
+        if not status_payload:
+            return Response({'success': False, 'message': '任务不存在'}, status=404)
+        return Response({'success': True, 'data': status_payload})
+
+
+class DataSyncOptionsAPIView(APIView):
+    """在线/离线数据同步：返回可同步数据集及当前记录数。"""
+
+    permission_classes = [IsManagementAdmin]
+
+    def get(self, request):
+        return Response({
+            'success': True,
+            'data': {
+                'datasets': data_sync.get_dataset_overview(),
+                'default_datasets': data_sync.DEFAULT_DATASETS,
+                'package_version': data_sync.PACKAGE_VERSION,
+                'system_version': get_system_version_payload().get('version', ''),
+            },
+        })
+
+
+class DataSyncExportAPIView(APIView):
+    """在线/离线数据同步：导出 ZIP 数据包。"""
+
+    permission_classes = [IsManagementAdmin]
+
+    def post(self, request):
+        datasets = request.data.getlist('datasets') if hasattr(request.data, 'getlist') else request.data.get('datasets')
+        include_media = str(request.data.get('include_media', '1')).lower() not in {'0', 'false', 'no', 'off'}
+
+        try:
+            filename, content = data_sync.build_export_package(datasets, include_media=include_media)
+        except data_sync.DataSyncError as exc:
+            return Response({'success': False, 'message': str(exc)}, status=400)
+        except Exception:
+            logger.exception('导出同步数据包失败')
+            return Response({'success': False, 'message': '导出数据包失败，请稍后重试'}, status=500)
+
+        response = HttpResponse(content, content_type='application/zip')
+        response['Content-Disposition'] = f"attachment; filename*=UTF-8''{quote(filename, safe='')}"
+        return response
+
+
+class DataSyncImportAPIView(APIView):
+    """在线/离线数据同步：导入 ZIP 数据包。"""
+
+    permission_classes = [IsManagementAdmin]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        upload = request.FILES.get('package')
+        if not upload:
+            return Response({'success': False, 'message': '请先选择要导入的 ZIP 数据包。'}, status=400)
+        if not (upload.name or '').lower().endswith('.zip'):
+            return Response({'success': False, 'message': '仅支持导入 .zip 格式的同步数据包。'}, status=400)
+
+        datasets = request.data.getlist('datasets') if hasattr(request.data, 'getlist') else request.data.get('datasets')
+        mode = (request.data.get('mode') or data_sync.IMPORT_MODE_MERGE).strip()
+        import_media = str(request.data.get('import_media', '1')).lower() not in {'0', 'false', 'no', 'off'}
+
+        try:
+            report = data_sync.apply_import_package(upload, datasets=datasets, mode=mode, import_media=import_media)
+        except data_sync.DataSyncError as exc:
+            return Response({'success': False, 'message': str(exc)}, status=400)
+        except Exception:
+            logger.exception('导入同步数据包失败')
+            return Response({'success': False, 'message': '导入数据包失败，请检查数据包是否完整'}, status=500)
+
+        message = (
+            f"导入完成：写入 {report['imported_count']} 条记录"
+            f"，跳过 {report['skipped_count']} 条，附件 {report['media_count']} 个。"
+        )
+        return Response({'success': True, 'message': message, 'data': report})
 
 
 class DashboardOverviewAPIView(APIView):
@@ -629,7 +804,7 @@ class HeritageSiteManageListAPIView(APIView):
             {
                 'id': item.id,
                 'name': item.name,
-                'preview_url': f'/mobile/collect/{item.id}/preview/?mode=view',
+                'preview_url': legacy_views.build_heritage_preview_entry_url(request.user, item.id),
                 'sip_code': item.sip_code,
                 'category': item.category,
                 'category_label': item.get_category_display(),
@@ -958,7 +1133,7 @@ class ImmovableHeritageListAPIView(APIView):
                 {
                     'id': item.id,
                     'name': item.name,
-                    'preview_url': f'/mobile/collect/{item.id}/preview/?mode=view',
+                    'preview_url': legacy_views.build_heritage_preview_entry_url(request.user, item.id),
                     'sip_code': item.survey_code,
                     'survey_code': item.survey_code,
                     'former_name': item.former_name,
@@ -2535,17 +2710,13 @@ class GisKmlManagementActionAPIView(APIView):
         if action == 'export_conflict_kml':
             return legacy_views._build_conflict_sites_kml(combined_conflicts, threshold, records)
 
-        cookie = (request.data.get('sipu_cookie') or '').strip()
-        if not cookie:
-            return Response({'success': False, 'message': '请先填写四普系统的 Cookie。'}, status=400)
         if not combined_conflicts:
             return Response({'success': False, 'message': '所选文件中未发现冲突文物点，无需导出边界。'}, status=400)
-        user_county = (request.data.get('sipu_county') or '').strip()
 
         if action == 'export_boundary_points':
-            return legacy_views._build_boundary_points_csv(combined_conflicts, records, cookie, user_county)
+            return legacy_views._build_boundary_points_csv(combined_conflicts, records)
         if action == 'export_boundary_kmz':
-            return legacy_views._build_boundary_points_kmz(combined_conflicts, records, cookie, user_county)
+            return legacy_views._build_boundary_points_kmz(combined_conflicts, records)
 
         return Response(
             {

@@ -9,6 +9,7 @@ from .models import (
     Coordinate,
     KmlUploadRecord,
     LandUseProjectApproval,
+    LandUseProjectDocument,
     LandUseProjectFieldPhoto,
     LandUseProjectOperationLog,
 )
@@ -16,8 +17,15 @@ from .ovkml_converter import parse_ovkml, build_csv_outputs
 from .land_project_services import (
     verify_project_spatial_safety,
     build_project_media_path,
+    build_workflow_guide,
+    get_current_step_key,
     get_status_controls,
     apply_workflow_action,
+    link_project_kml_record,
+    resolve_workflow_path,
+    sync_project_kml_record,
+    ALLOWED_DOCUMENT_EXTENSIONS,
+    DOCUMENT_NUM_FIELDS,
 )
 import base64
 import hashlib
@@ -28,6 +36,8 @@ from datetime import datetime, date
 from urllib.parse import quote, urlsplit, urlunsplit, parse_qsl, urlencode
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth import get_user_model, login as auth_login
+from rest_framework.decorators import api_view, permission_classes
+from core.permissions.api_permissions import IsManagementAdmin
 from django.db import OperationalError, ProgrammingError
 from django.db.models import Count, Q
 from django.http import JsonResponse, HttpResponse, HttpResponseForbidden, FileResponse
@@ -88,6 +98,10 @@ def _build_payload_doc_nums(payload):
         'region_approval_num',
         'city_final_reply_num',
         'final_reply_to_company',
+        'state_council_approval_num',
+        'involves_kanerjing',
+        'requires_state_council_approval',
+        'protection_measures_confirmed',
     ]
     result = {}
     for key in keys:
@@ -113,6 +127,39 @@ def _record_land_project_operation(project, user, action, payload=None, status_b
 def _b64url_decode(value):
     padding = '=' * (-len(value) % 4)
     return base64.urlsafe_b64decode((value + padding).encode('utf-8'))
+
+
+def _b64url_encode(raw_bytes):
+    return base64.urlsafe_b64encode(raw_bytes).rstrip(b'=').decode('utf-8')
+
+
+def build_collect_entry_token(user, expires_in=1800):
+    """生成与 fastapi_server 兼容的短时签名令牌，供 mobile_collect_entry_view 建立 Django 会话使用。
+
+    前端 SPA 走 JWT 鉴权，不会自动携带 Django Session Cookie；直接新开标签页访问
+    需要 Session 登录的预览页会被 @login_required 拦回登录页。这里复用现有的
+    token 登录入口（mobile_collect_entry_view），为当前已通过 JWT 鉴权的用户签发
+    一个短时有效的一次性令牌，用于建立浏览器新标签页的 Django Session。
+    """
+    payload = {
+        'user_id': user.id,
+        'username': user.username,
+        'exp': int(timezone.now().timestamp()) + expires_in,
+    }
+    payload_str = _b64url_encode(json.dumps(payload, separators=(',', ':')).encode('utf-8'))
+    signature = hmac.new(
+        settings.SECRET_KEY.encode('utf-8'),
+        payload_str.encode('utf-8'),
+        hashlib.sha256,
+    ).hexdigest()
+    return f'{payload_str}.{signature}'
+
+
+def build_heritage_preview_entry_url(user, site_id, mode='view'):
+    """构造带登录令牌的采集登记表预览入口 URL，避免新标签页因缺少 Session 而无法访问。"""
+    token = build_collect_entry_token(user)
+    next_path = f'/mobile/collect/{site_id}/preview/?mode={mode}'
+    return f'/mobile/collect-entry/?{urlencode({"token": token, "next": next_path})}'
 
 
 def _decode_fastapi_token(token):
@@ -194,8 +241,7 @@ def mobile_collect_entry_view(request):
     if not user:
         return HttpResponseForbidden('用户不存在或已禁用')
 
-    is_admin = user.is_superuser or user.groups.filter(name='管理员').exists() or user.groups.filter(name='超级管理员').exists()
-    if not is_admin:
+    if not is_management_admin(user):
         return HttpResponseForbidden('当前账号无权使用不可移动文物采集管理')
 
     auth_login(request, user, backend='django.contrib.auth.backends.ModelBackend')
@@ -246,25 +292,19 @@ def heritage_detail_view(request, pk):
 
 @staff_member_required
 def heritage_boundary_export_view(request, pk):
-    """单个不可移动文物边界导出（四普系统）：支持 CSV / KMZ。"""
+    """单个不可移动文物边界导出（使用本系统已存储的范围坐标）：支持 CSV / KMZ。"""
     heritage = get_object_or_404(HeritageSite, pk=pk)
 
     if request.method != 'POST':
         return redirect('heritage_detail', pk=pk)
 
     action = (request.POST.get('action') or '').strip()
-    cookie = (request.POST.get('sipu_cookie') or '').strip()
-    user_county = (request.POST.get('sipu_county') or '').strip()
-
-    if not cookie:
-        messages.error(request, '请先填写四普系统 Cookie，再执行单文物边界导出。')
-        return redirect('heritage_detail', pk=pk)
 
     combined_conflicts = [{
         'feature_source': '单文物导出',
         'site_id': heritage.id,
         'site_name': heritage.name,
-        'site_level': heritage.level,
+        'site_level': heritage.get_level_display(),
         'site_longitude': heritage.longitude,
         'site_latitude': heritage.latitude,
     }]
@@ -273,10 +313,10 @@ def heritage_boundary_export_view(request, pk):
     selected_records = [type('ExportRecord', (), {'title': heritage.name})()]
 
     if action == 'export_single_boundary_csv':
-        return _build_boundary_points_csv(combined_conflicts, selected_records, cookie, user_county)
+        return _build_boundary_points_csv(combined_conflicts, selected_records)
 
     if action == 'export_single_boundary_kmz':
-        return _build_boundary_points_kmz(combined_conflicts, selected_records, cookie, user_county)
+        return _build_boundary_points_kmz(combined_conflicts, selected_records)
 
     messages.error(request, '未知导出操作。')
     return redirect('heritage_detail', pk=pk)
@@ -627,24 +667,63 @@ def _is_point_in_polygon(lon, lat, polygon_rings):
     return True
 
 
+def _parse_boundary_rings(zone_text):
+    """解析 HeritageSite 的环列表字段（body_boundary/protection_zone/control_zone）为 [[(lon,lat),...],...]。"""
+    if not zone_text:
+        return []
+    try:
+        parsed = json.loads(zone_text)
+    except Exception:
+        return []
+    if not isinstance(parsed, list):
+        return []
+
+    rings = []
+    for raw_ring in parsed:
+        if not isinstance(raw_ring, list):
+            continue
+        ring = []
+        for item in raw_ring:
+            if isinstance(item, (list, tuple)) and len(item) >= 2:
+                try:
+                    ring.append((float(item[0]), float(item[1])))
+                except (TypeError, ValueError):
+                    continue
+        if len(ring) >= 3:
+            rings.append(ring)
+    return rings
+
+
 def _load_conflict_site_points():
     rows = HeritageSite.objects.exclude(longitude__isnull=True).exclude(latitude__isnull=True).values(
-        'id', 'name', 'level', 'longitude', 'latitude'
+        'id', 'name', 'level', 'longitude', 'latitude', 'body_boundary'
     )
     site_points = []
     for row in rows:
         try:
-            site_points.append(
-                {
-                    'id': row['id'],
-                    'name': row['name'],
-                    'level': row['level'],
-                    'longitude': float(row['longitude']),
-                    'latitude': float(row['latitude']),
-                }
-            )
+            lon = float(row['longitude'])
+            lat = float(row['latitude'])
         except (TypeError, ValueError):
             continue
+
+        boundary_rings = _parse_boundary_rings(row['body_boundary'])
+        bbox = (lon, lat, lon, lat)
+        if boundary_rings:
+            lons = [pt[0] for ring in boundary_rings for pt in ring] + [lon]
+            lats = [pt[1] for ring in boundary_rings for pt in ring] + [lat]
+            bbox = (min(lons), min(lats), max(lons), max(lats))
+
+        site_points.append(
+            {
+                'id': row['id'],
+                'name': row['name'],
+                'level': row['level'],
+                'longitude': lon,
+                'latitude': lat,
+                'boundary_rings': boundary_rings,
+                'bbox': bbox,
+            }
+        )
     return site_points
 
 
@@ -674,8 +753,15 @@ def _build_site_spatial_index(site_points, cell_deg):
         lat = site.get('latitude')
         if lon is None or lat is None:
             continue
-        key = (int(math.floor(lon / cell_deg)), int(math.floor(lat / cell_deg)))
-        index.setdefault(key, []).append(site)
+        # 按文物边界（若有）的完整 bbox 入索引，避免大面积文物因只用点坐标索引而被逐排遗漏。
+        min_lon, min_lat, max_lon, max_lat = site.get('bbox') or (lon, lat, lon, lat)
+        min_x = int(math.floor(min_lon / cell_deg))
+        max_x = int(math.floor(max_lon / cell_deg))
+        min_y = int(math.floor(min_lat / cell_deg))
+        max_y = int(math.floor(max_lat / cell_deg))
+        for x in range(min_x, max_x + 1):
+            for y in range(min_y, max_y + 1):
+                index.setdefault((x, y), []).append(site)
     return index
 
 
@@ -694,11 +780,64 @@ def _query_candidate_sites(site_index, bbox, threshold_m, cell_deg):
     min_y = int(math.floor((min_lat - lat_pad) / cell_deg))
     max_y = int(math.floor((max_lat + lat_pad) / cell_deg))
 
+    seen_ids = set()
     rows = []
     for x in range(min_x, max_x + 1):
         for y in range(min_y, max_y + 1):
-            rows.extend(site_index.get((x, y), []))
+            for site in site_index.get((x, y), []):
+                if site['id'] in seen_ids:
+                    continue
+                seen_ids.add(site['id'])
+                rows.append(site)
     return rows
+
+
+def _point_in_any_ring(lon, lat, rings):
+    return any(_is_point_in_ring(lon, lat, ring) for ring in rings)
+
+
+def _distance_point_to_rings_m(lon, lat, rings):
+    best = float('inf')
+    for ring in rings:
+        best = min(best, _distance_to_polygon_boundary_m(lon, lat, [ring]))
+    return best
+
+
+def _distance_linestring_to_rings_m(line_coords, rings):
+    """近似计算折线与文物边界环之间的最短距离（基于顶点采样，兼容现有算法精度水平）。"""
+    if not line_coords or not rings:
+        return float('inf')
+
+    best = float('inf')
+    for lon, lat in line_coords:
+        best = min(best, _distance_point_to_rings_m(lon, lat, rings))
+    for ring in rings:
+        for lon, lat in ring:
+            best = min(best, _distance_to_linestring_m(lon, lat, line_coords))
+    return best
+
+
+def _distance_polygon_to_rings_m(polygon_coords, rings):
+    """近似计算 KML 面要素与文物边界环之间的最短距离（顶点采样）。"""
+    best = float('inf')
+    for ring in polygon_coords or []:
+        for lon, lat in ring:
+            best = min(best, _distance_point_to_rings_m(lon, lat, rings))
+    for ring in rings:
+        for lon, lat in ring:
+            best = min(best, _distance_to_polygon_boundary_m(lon, lat, polygon_coords or []))
+    return best
+
+
+def _polygon_intersects_rings(polygon_coords, rings):
+    """近似判断 KML 面要素是否与文物边界环重叠（互相包含顶点采样，非严格拓扑相交）。"""
+    outer_ring = (polygon_coords or [[]])[0]
+    if any(_point_in_any_ring(lon, lat, rings) for lon, lat in outer_ring):
+        return True
+    for ring in rings:
+        if ring and _is_point_in_polygon(ring[0][0], ring[0][1], polygon_coords or []):
+            return True
+    return False
 
 
 def _analyze_conflicts(features, threshold_m, site_points=None):
@@ -724,12 +863,47 @@ def _analyze_conflicts(features, threshold_m, site_points=None):
         for site in candidate_sites:
             site_lon = site['longitude']
             site_lat = site['latitude']
+            boundary_rings = site.get('boundary_rings') or []
 
             matched = False
             relation = ''
             distance_m = None
 
-            if feature_type == 'Point' and isinstance(coords, (list, tuple)) and len(coords) >= 2:
+            if boundary_rings:
+                # 文物点已导入本体边界范围：改用边界多边形而非单点坐标进行叠加判断。
+                if feature_type == 'Point' and isinstance(coords, (list, tuple)) and len(coords) >= 2:
+                    lon, lat = float(coords[0]), float(coords[1])
+                    inside = _point_in_any_ring(lon, lat, boundary_rings)
+                    distance_m = 0.0 if inside else _distance_point_to_rings_m(lon, lat, boundary_rings)
+                    matched = inside or (math.isfinite(distance_m) and distance_m <= threshold)
+                    relation = '点位于文物本体边界内' if inside else '点距文物本体边界最短距离'
+                elif feature_type == 'LineString':
+                    distance_m = _distance_linestring_to_rings_m(coords or [], boundary_rings)
+                    matched = math.isfinite(distance_m) and distance_m <= threshold
+                    relation = '线距文物本体边界最短距离'
+                elif feature_type == 'MultiLineString':
+                    min_distance = float('inf')
+                    for line_coords in (coords or []):
+                        min_distance = min(min_distance, _distance_linestring_to_rings_m(line_coords, boundary_rings))
+                    distance_m = min_distance
+                    matched = math.isfinite(distance_m) and distance_m <= threshold
+                    relation = '线距文物本体边界最短距离'
+                elif feature_type == 'Polygon':
+                    inside = _polygon_intersects_rings(coords or [], boundary_rings)
+                    boundary_distance = _distance_polygon_to_rings_m(coords or [], boundary_rings)
+                    distance_m = boundary_distance
+                    matched = inside or (math.isfinite(boundary_distance) and boundary_distance <= threshold)
+                    relation = '面与文物本体边界重叠' if inside else '面距文物本体边界最短距离'
+                elif feature_type == 'MultiPolygon':
+                    inside = any(_polygon_intersects_rings(polygon, boundary_rings) for polygon in (coords or []))
+                    boundary_distance = min(
+                        (_distance_polygon_to_rings_m(polygon, boundary_rings) for polygon in (coords or [])),
+                        default=float('inf'),
+                    )
+                    distance_m = boundary_distance
+                    matched = inside or (math.isfinite(boundary_distance) and boundary_distance <= threshold)
+                    relation = '面与文物本体边界重叠' if inside else '面距文物本体边界最短距离'
+            elif feature_type == 'Point' and isinstance(coords, (list, tuple)) and len(coords) >= 2:
                 lon, lat = float(coords[0]), float(coords[1])
                 distance_m = _haversine_m(site_lat, site_lon, lat, lon)
                 matched = distance_m <= threshold
@@ -1055,17 +1229,248 @@ def _sipu_fetch_boundary_points(cul_rid: str, cookie: str) -> list:
     return boundary
 
 
-def _build_boundary_points_csv(combined_conflicts, selected_records, cookie: str, user_county: str = '') -> HttpResponse:
+def _sipu_fetch_mapdata_rings(cul_rid: str, cookie: str) -> dict:
+    """通过四普系统"文物矢量图"接口，获取本体范围/保护范围/建控地带的多边形环列表。"""
+    import urllib.request
+    import urllib.parse
+
+    url = f'{_SIPU_BASE}/api/mapdata/list'
+    body = urllib.parse.urlencode({'id': cul_rid, 'table': '5'}).encode('utf-8')
+    req = urllib.request.Request(
+        url,
+        data=body,
+        method='POST',
+        headers={
+            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            'X-Requested-With': 'XMLHttpRequest',
+            'Accept': 'application/json, text/javascript, */*; q=0.01',
+            'Cookie': cookie,
+            'Host': _SIPU_HOST,
+            'Origin': _SIPU_BASE,
+            'Referer': f'{_SIPU_BASE}/tBBdataBasicController.do?viewDetail&id={urllib.parse.quote(cul_rid)}',
+            'User-Agent': 'Mozilla/5.0 (compatible; HeritageSystem/1.0)',
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            raw = resp.read()
+        payload = json.loads(raw.decode('utf-8', errors='replace'))
+    except Exception:
+        return {'body': [], 'protection': [], 'control': []}
+
+    items = ((payload.get('data') or {}).get('data')) or []
+    body_rings, protection_rings, control_rings = [], [], []
+
+    def _extract_rings(geojson_text):
+        try:
+            geom = json.loads(geojson_text)
+        except Exception:
+            return []
+        rings = []
+        geom_type = geom.get('type')
+        if geom_type == 'Polygon':
+            candidates = geom.get('coordinates') or []
+        elif geom_type == 'MultiPolygon':
+            candidates = [ring for polygon in (geom.get('coordinates') or []) for ring in polygon]
+        else:
+            candidates = []
+        for ring in candidates:
+            if isinstance(ring, list) and len(ring) >= 3:
+                rings.append([[round(float(pt[0]), 7), round(float(pt[1]), 7)] for pt in ring])
+        return rings
+
+    for item in items:
+        rings = _extract_rings(item.get('geojson'))
+        region_type = item.get('region_type') or ''
+        if '本体' in region_type:
+            body_rings.extend(rings)
+        elif '保护' in region_type:
+            protection_rings.extend(rings)
+        elif '建' in region_type or '控' in region_type:
+            control_rings.extend(rings)
+
+    return {'body': body_rings, 'protection': protection_rings, 'control': control_rings}
+
+
+def start_sipu_boundary_import_job(user, cookie: str, scope: str = 'missing', user_county: str = '', limit: int = 0,
+                                    page_size: int = 80, max_workers: int = 8):
+    """创建导入任务记录并在后台线程中执行，立即返回 job_id 避免网关504超时。"""
+    import threading
+    from core.models import SipuImportJob
+
+    job = SipuImportJob.objects.create(created_by=user if getattr(user, 'is_authenticated', False) else None)
+    thread = threading.Thread(
+        target=_run_sipu_boundary_import_job,
+        args=(job.id, cookie, scope, user_county, limit, page_size, max_workers),
+        daemon=True,
+    )
+    thread.start()
+    return job.id
+
+
+def get_sipu_boundary_import_job_status(job_id):
+    from core.models import SipuImportJob
+
+    job = SipuImportJob.objects.filter(id=job_id).first()
+    if not job:
+        return None
+    return {
+        'job_id': str(job.id),
+        'status': job.status,
+        'total': job.total,
+        'processed': job.processed,
+        'matched': job.matched,
+        'unmatched_count': job.unmatched_count,
+        'no_geometry_count': job.no_geometry_count,
+        'unmatched': job.unmatched_items,
+        'no_geometry': job.no_geometry_items,
+        'error_message': job.error_message,
+    }
+
+
+def _run_sipu_boundary_import_job(job_id, cookie: str, scope: str, user_county: str, limit: int,
+                                   page_size: int, max_workers: int):
+    """后台线程实体：按页（默认80条/页）分页拉取文物点，页内并发调用四普接口，逐页写入。"""
+    import tempfile
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from django.core.management import call_command
+    from django.core.paginator import Paginator
+    from django.db import connections
+    from core.models import SipuImportJob
+
+    job = SipuImportJob.objects.get(id=job_id)
+
+    def _process_site(site):
+        candidates = _sipu_search_culrid(site['name'], cookie, user_county)
+        matched = next((c for c in candidates if c.get('name') == site['name']), None)
+        if matched is None and len(candidates) == 1:
+            matched = candidates[0]
+
+        if not matched:
+            return {
+                'kind': 'unmatched',
+                'id': site['id'],
+                'name': site['name'],
+                'candidates': [c.get('name') for c in candidates],
+            }
+
+        rings = _sipu_fetch_mapdata_rings(matched['id'], cookie)
+        if not (rings['body'] or rings['protection'] or rings['control']):
+            return {'kind': 'no_geometry', 'id': site['id'], 'name': site['name']}
+
+        return {
+            'kind': 'matched',
+            'id': site['id'],
+            'culrid': matched['id'],
+            'matchedName': matched.get('name'),
+            **rings,
+        }
+
+    try:
+        queryset = HeritageSite.objects.all().order_by('id')
+        if scope != 'all':
+            queryset = queryset.filter(Q(body_boundary__isnull=True) | Q(body_boundary=''))
+        if limit and limit > 0:
+            queryset = queryset[:limit]
+
+        site_rows = list(queryset.values('id', 'name'))
+        job.total = len(site_rows)
+        job.save(update_fields=['total', 'updated_at'])
+
+        processed = 0
+        matched_count = 0
+        unmatched_items = []
+        no_geometry_items = []
+
+        # 自动翻页：每页固定 page_size 条，页内多线程并发请求四普接口，避免一次性长耗时导入触发网关504。
+        paginator = Paginator(site_rows, page_size)
+        for page_number in paginator.page_range:
+            page_sites = paginator.page(page_number).object_list
+            page_records = []
+
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = [executor.submit(_process_site, site) for site in page_sites]
+                for future in as_completed(futures):
+                    result = future.result()
+                    page_records.append(result)
+                    processed += 1
+                    if result['kind'] == 'matched':
+                        matched_count += 1
+                    elif result['kind'] == 'unmatched':
+                        unmatched_items.append({'id': result['id'], 'name': result['name'], 'candidates': result['candidates']})
+                    else:
+                        no_geometry_items.append({'id': result['id'], 'name': result['name']})
+
+                    job.processed = processed
+                    job.matched = matched_count
+                    job.unmatched_count = len(unmatched_items)
+                    job.no_geometry_count = len(no_geometry_items)
+                    job.unmatched_items = unmatched_items
+                    job.no_geometry_items = no_geometry_items
+                    job.save(update_fields=[
+                        'processed', 'matched', 'unmatched_count', 'no_geometry_count',
+                        'unmatched_items', 'no_geometry_items', 'updated_at',
+                    ])
+
+            matched_records = [r for r in page_records if r['kind'] == 'matched']
+
+            # 首页若全部未匹配，很可能是 Cookie 失效或“行政区划代码”填写有误（错误取值会导致检索永远返回0条），
+            # 而非真的 622 条都对不上；这里做一次去掉 user_county 的复检，尽早给出明确失败原因而非跑完全量才发现。
+            if page_number == 1 and user_county and matched_records == [] and page_sites:
+                probe_site = page_sites[0]
+                probe_candidates = _sipu_search_culrid(probe_site['name'], cookie, '')
+                if any(c.get('name') == probe_site['name'] for c in probe_candidates):
+                    raise RuntimeError(
+                        f'“行政区划代码”（{user_county}）填写有误导致检索始终返回0条结果，请清空该字段后重试'
+                    )
+
+            if matched_records:
+                with tempfile.NamedTemporaryFile('w', suffix='.ndjson', delete=False, encoding='utf-8') as tmp_file:
+                    tmp_path = tmp_file.name
+                    for r in matched_records:
+                        tmp_file.write(json.dumps({
+                            'id': r['id'],
+                            'culrid': r['culrid'],
+                            'matchedName': r['matchedName'],
+                            'body': r['body'],
+                            'protection': r['protection'],
+                            'control': r['control'],
+                        }, ensure_ascii=False) + '\n')
+                try:
+                    call_command('import_sipu_boundary', tmp_path)
+                finally:
+                    try:
+                        os.remove(tmp_path)
+                    except OSError:
+                        pass
+
+        job.status = SipuImportJob.STATUS_SUCCESS
+        job.save(update_fields=['status', 'updated_at'])
+    except Exception as exc:
+        logging.getLogger(__name__).exception('四普边界导入任务失败: job_id=%s', job_id)
+        job.status = SipuImportJob.STATUS_FAILED
+        job.error_message = str(exc)
+        job.save(update_fields=['status', 'error_message', 'updated_at'])
+    finally:
+        connections.close_all()
+
+
+_BOUNDARY_ZONE_FIELDS = (
+    ('body_boundary', '本体边界'),
+    ('protection_zone', '保护范围'),
+    ('control_zone', '建控地带'),
+)
+
+
+def _collect_local_boundary_sites(combined_conflicts):
+    """按来源KML文件聚合冲突文物，并从本系统读取已存储的范围坐标。
+
+    返回 [(来源文件, [{'site': HeritageSite|None, 'name', 'level', 'zones': [(类型, [环, ...]), ...]}, ...]), ...]
     """
-    对冲突文物点按文件分组，逐个调用四普系统接口获取边界坐标，
-    导出为一张 CSV 表格（含文件分组列）。
-    """
-    # 按来源 KML 文件聚合冲突文物（site_id 去重）
     from collections import OrderedDict
 
-    # 建立 {feature_source: [site_id, ...]} 映射（保序、去重）
-    source_sites: dict = OrderedDict()
-    site_meta: dict = {}  # site_id -> {name, level, longitude, latitude}
+    source_sites = OrderedDict()
+    site_meta = {}
 
     for row in combined_conflicts:
         src = row.get('feature_source') or '未知来源'
@@ -1079,82 +1484,78 @@ def _build_boundary_points_csv(combined_conflicts, selected_records, cookie: str
             site_meta[sid] = {
                 'name': row.get('site_name', ''),
                 'level': row.get('site_level', ''),
-                'longitude': row.get('site_longitude', ''),
-                'latitude': row.get('site_latitude', ''),
             }
 
+    all_ids = {sid for ids in source_sites.values() for sid in ids}
+    site_map = {site.id: site for site in HeritageSite.objects.filter(id__in=all_ids)}
+
+    grouped = []
+    for src, site_ids in source_sites.items():
+        entries = []
+        for sid in site_ids:
+            meta = site_meta[sid]
+            site = site_map.get(sid)
+            zones = []
+            if site is not None:
+                for field_name, zone_label in _BOUNDARY_ZONE_FIELDS:
+                    rings = HeritageSite._load_polygon_rings(getattr(site, field_name, None))
+                    rings = [ring for ring in rings if len(ring) >= 3]
+                    if rings:
+                        zones.append((zone_label, rings))
+            entries.append({
+                'site': site,
+                'name': (site.name if site else meta['name']) or '未命名文物',
+                'level': (site.get_level_display() if site else meta['level']) or '',
+                'sip_code': site.sip_code if site else '',
+                'zones': zones,
+            })
+        grouped.append((src, entries))
+    return grouped
+
+
+def _build_boundary_points_csv(combined_conflicts, selected_records, cookie: str = '', user_county: str = '') -> HttpResponse:
+    """
+    对冲突文物点按文件分组，直接读取本系统已存储的文物范围坐标，
+    导出为一张 CSV 表格（含文件分组列）。
+    """
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow([
-        '来源KML文件', '文物名称', '文物级别', '四普文物名称',
-        '序号', '点描述', '备注',
-        '纬度(十进制)', '经度(十进制)', '海拔',
-        '纬度度', '纬度分', '纬度秒',
-        '经度度', '经度分', '经度秒',
-        '出界标记', '距出界距离(m)',
+        '来源KML文件', '文物名称', '文物级别', '四普编号',
+        '范围类型', '区块序号', '点序号',
+        '经度(十进制)', '纬度(十进制)', '备注',
     ])
 
-    # 用于缓存 site_id -> culRid 映射，避免重复搜索
-    cul_rid_cache: dict = {}
-
-    for src, site_ids in source_sites.items():
-        for sid in site_ids:
-            meta = site_meta[sid]
-            site_name = meta['name']
-
-            # 查找 culRid
-            if sid in cul_rid_cache:
-                cul_rid, sipu_name = cul_rid_cache[sid]
-            else:
-                candidates = _sipu_search_culrid(site_name, cookie, user_county)
-                # 精确匹配文物名称；若无精确匹配则取第一条
-                matched = next((c for c in candidates if c.get('name') == site_name), None)
-                if matched is None and candidates:
-                    matched = candidates[0]
-                if matched:
-                    cul_rid = matched.get('id') or ''
-                    sipu_name = matched.get('name') or ''
-                else:
-                    cul_rid = ''
-                    sipu_name = ''
-                cul_rid_cache[sid] = (cul_rid, sipu_name)
-
-            if not cul_rid:
+    for src, entries in _collect_local_boundary_sites(combined_conflicts):
+        for entry in entries:
+            if entry['site'] is None:
                 writer.writerow([
-                    src, site_name, meta['level'], '（四普系统未找到该文物）',
-                    '', '', '', '', '', '', '', '', '', '', '', '', '', '',
+                    src, entry['name'], entry['level'], '',
+                    '', '', '', '', '', '（本系统中未找到该文物档案）',
+                ])
+                continue
+            if not entry['zones']:
+                writer.writerow([
+                    src, entry['name'], entry['level'], entry['sip_code'],
+                    '', '', '', '', '', '（该文物暂无已存储的范围坐标）',
                 ])
                 continue
 
-            points = _sipu_fetch_boundary_points(cul_rid, cookie)
-            if not points:
-                writer.writerow([
-                    src, site_name, meta['level'], sipu_name,
-                    '', '', '', '', '', '', '', '', '', '', '', '', '（无边界点数据）', '',
-                ])
-                continue
-
-            for pt in points:
-                writer.writerow([
-                    src,
-                    site_name,
-                    meta['level'],
-                    sipu_name,
-                    pt.get('counter', ''),
-                    pt.get('pointDesc', ''),
-                    pt.get('remark', ''),
-                    pt.get('lat', ''),
-                    pt.get('lng', ''),
-                    pt.get('altitude', ''),
-                    pt.get('latitude1', ''),
-                    pt.get('latitude2', ''),
-                    pt.get('latitude3', ''),
-                    pt.get('longitude1', ''),
-                    pt.get('longitude2', ''),
-                    pt.get('longitude3', ''),
-                    pt.get('outBody', ''),
-                    pt.get('distanceOut', ''),
-                ])
+            for zone_label, rings in entry['zones']:
+                for ring_index, ring in enumerate(rings, start=1):
+                    for point_index, (lon, lat) in enumerate(ring, start=1):
+                        writer.writerow([
+                            src,
+                            entry['name'],
+                            entry['level'],
+                            entry['sip_code'],
+                            zone_label,
+                            ring_index,
+                            point_index,
+                            f'{lon:.10f}',
+                            f'{lat:.10f}',
+                            '',
+                        ])
 
     date_str = timezone.now().strftime('%Y%m%d')
     if selected_records and len(selected_records) == 1:
@@ -1170,120 +1571,32 @@ def _build_boundary_points_csv(combined_conflicts, selected_records, cookie: str
     return response
 
 
-def _build_boundary_points_kmz(combined_conflicts, selected_records, cookie: str, user_county: str = '') -> HttpResponse:
+def _build_boundary_points_kmz(combined_conflicts, selected_records, cookie: str = '', user_county: str = '') -> HttpResponse:
     """
-    将冲突文物点在四普系统中的边界点（measurePointType=1）导出为 KMZ。
-    每个文物点按边界点顺序闭合成面，并以文物名称命名 Placemark。
+    将冲突文物点在本系统中已存储的范围坐标导出为 KMZ。
+    每个文物点按范围类型生成 Placemark，多区块合并为 MultiGeometry。
     """
-    from collections import OrderedDict
-
-    source_sites: dict = OrderedDict()
-    site_meta: dict = {}
-
-    for row in combined_conflicts:
-        src = row.get('feature_source') or '未知来源'
-        sid = row.get('site_id')
-        if not sid:
-            continue
-        source_sites.setdefault(src, [])
-        if sid not in source_sites[src]:
-            source_sites[src].append(sid)
-        if sid not in site_meta:
-            site_meta[sid] = {
-                'name': row.get('site_name', ''),
-                'level': row.get('site_level', ''),
-            }
-
-    def _point_order_key(item):
-        for key in ('snNuM', 'counter'):
-            value = item.get(key)
-            try:
-                return int(value)
-            except (TypeError, ValueError):
-                continue
-        return 0
-
-    def _to_lonlat(item):
-        try:
-            lon = float(item.get('lng'))
-            lat = float(item.get('lat'))
-        except (TypeError, ValueError):
-            return None
-        return lon, lat
-
-    cul_rid_cache: dict = {}
     polygons = []
 
-    for src, site_ids in source_sites.items():
-        for sid in site_ids:
-            meta = site_meta[sid]
-            site_name = meta.get('name') or '未命名文物'
-
-            if sid in cul_rid_cache:
-                cul_rid, sipu_name = cul_rid_cache[sid]
-            else:
-                candidates = _sipu_search_culrid(site_name, cookie, user_county)
-                matched = next((c for c in candidates if c.get('name') == site_name), None)
-                if matched is None and candidates:
-                    matched = candidates[0]
-                if matched:
-                    cul_rid = matched.get('id') or ''
-                    sipu_name = matched.get('name') or site_name
-                else:
-                    cul_rid = ''
-                    sipu_name = site_name
-                cul_rid_cache[sid] = (cul_rid, sipu_name)
-
-            if not cul_rid:
-                continue
-
-            points = _sipu_fetch_boundary_points(cul_rid, cookie)
-            if not points:
-                continue
-
-            # 按 groupLink 分区，避免多块墓地被错误串接成一个面
-            grouped_points = {}
-            for item in points:
-                group_key = str(item.get('groupLink') or '1')
-                grouped_points.setdefault(group_key, []).append(item)
-
-            rings = []
-            for group_key, group_items in grouped_points.items():
-                ordered = sorted(group_items, key=_point_order_key)
-                ring = []
-                for item in ordered:
-                    lonlat = _to_lonlat(item)
-                    if lonlat is None:
-                        continue
-                    ring.append(lonlat)
-
-                # 多边形至少需要3个点
-                if len(ring) < 3:
+    for src, entries in _collect_local_boundary_sites(combined_conflicts):
+        for entry in entries:
+            for zone_label, raw_rings in entry['zones']:
+                rings = []
+                for ring_index, ring in enumerate(raw_rings, start=1):
+                    coords = list(ring)
+                    if coords[0] != coords[-1]:
+                        coords.append(coords[0])
+                    rings.append({'group_key': str(ring_index), 'coords': coords})
+                if not rings:
                     continue
-
-                # 闭合线环
-                if ring[0] != ring[-1]:
-                    ring.append(ring[0])
-
-                rings.append({
-                    'group_key': group_key,
-                    'coords': ring,
+                polygons.append({
+                    'name': f"{entry['name']}-{zone_label}" if len(entry['zones']) > 1 else entry['name'],
+                    'source': src,
+                    'site_level': entry['level'],
+                    'sip_code': entry['sip_code'],
+                    'zone_label': zone_label,
+                    'rings': rings,
                 })
-
-            if not rings:
-                continue
-
-            polygons.append({
-                'name': sipu_name or site_name,
-                'source': src,
-                'site_level': meta.get('level', ''),
-                'cul_rid': cul_rid,
-                'rings': rings,
-            })
-
-    if not polygons:
-        # 无可导出多边形时，返回空 KML 文档，避免下载报错
-        polygons = []
 
     date_str = timezone.now().strftime('%Y%m%d')
     if selected_records and len(selected_records) == 1:
@@ -1299,23 +1612,32 @@ def _build_boundary_points_kmz(combined_conflicts, selected_records, cookie: str
     doc = ET.SubElement(kml_root, f'{{{ns}}}Document')
     ET.SubElement(doc, f'{{{ns}}}name').text = kmz_name
 
-    # 奥维可读的面样式（红边半透明填充）
-    style = ET.SubElement(doc, f'{{{ns}}}Style')
-    style.set('id', 'conflictBoundaryPolygon')
-    line_style = ET.SubElement(style, f'{{{ns}}}LineStyle')
-    ET.SubElement(line_style, f'{{{ns}}}color').text = 'ff0000ff'
-    ET.SubElement(line_style, f'{{{ns}}}width').text = '2'
-    poly_style = ET.SubElement(style, f'{{{ns}}}PolyStyle')
-    ET.SubElement(poly_style, f'{{{ns}}}color').text = '4d0000ff'
+    # 奥维可读的面样式：按范围类型区分颜色（AABBGGRR）
+    zone_style_ids = {
+        '本体边界': ('boundaryBody', 'ff0000ff', '4d0000ff'),
+        '保护范围': ('boundaryProtection', 'ff00a5ff', '4d00a5ff'),
+        '建控地带': ('boundaryControl', 'ffff9900', '4dff9900'),
+    }
+    for style_id, line_color, fill_color in zone_style_ids.values():
+        style = ET.SubElement(doc, f'{{{ns}}}Style')
+        style.set('id', style_id)
+        line_style = ET.SubElement(style, f'{{{ns}}}LineStyle')
+        ET.SubElement(line_style, f'{{{ns}}}color').text = line_color
+        ET.SubElement(line_style, f'{{{ns}}}width').text = '2'
+        poly_style = ET.SubElement(style, f'{{{ns}}}PolyStyle')
+        ET.SubElement(poly_style, f'{{{ns}}}color').text = fill_color
 
     for item in polygons:
         pm = ET.SubElement(doc, f'{{{ns}}}Placemark')
         ET.SubElement(pm, f'{{{ns}}}name').text = item['name']
-        ET.SubElement(pm, f'{{{ns}}}styleUrl').text = '#conflictBoundaryPolygon'
+        style_id = zone_style_ids.get(item['zone_label'], zone_style_ids['本体边界'])[0]
+        ET.SubElement(pm, f'{{{ns}}}styleUrl').text = f'#{style_id}'
         total_points = sum(max(len(r['coords']) - 1, 0) for r in item['rings'])
         ET.SubElement(pm, f'{{{ns}}}description').text = (
             f"来源KML: {item['source']}\n"
             f"文物级别: {item['site_level']}\n"
+            f"四普编号: {item['sip_code']}\n"
+            f"范围类型: {item['zone_label']}\n"
             f"区块数: {len(item['rings'])}\n"
             f"边界点数: {total_points}"
         )
@@ -1602,15 +1924,7 @@ def land_project_list_api(request):
         overlap_rows = item.overlapped_relics_info if isinstance(item.overlapped_relics_info, list) else []
         has_high_level_overlap = any((row or {}).get('site_level') in {'GB', 'SB'} for row in overlap_rows)
         is_feasible_by_level = not has_high_level_overlap
-        if not item.is_overlap_artifact:
-            workflow_path = 'DIRECT_REPLY'
-            workflow_advice = '未涉及文物，走标准复函流程。'
-        elif is_feasible_by_level:
-            workflow_path = 'ARCHAEOLOGY_FLOW'
-            workflow_advice = '涉及文物且可行，走市局上报与考古调查流程。'
-        else:
-            workflow_path = 'DIRECT_REPLY'
-            workflow_advice = '涉及高等级文物，不可行，走不予同意复函流程。'
+        item_path, item_advice = resolve_workflow_path(item)
 
         rows.append({
             'id': str(item.id),
@@ -1620,15 +1934,41 @@ def land_project_list_api(request):
             'receive_date': item.receive_date.isoformat() if item.receive_date else '',
             'status': item.status,
             'status_label': item.get_status_display(),
+            'current_step': get_current_step_key(item),
             'is_overlap_artifact': item.is_overlap_artifact,
+            'overlap_count': len(overlap_rows),
             'has_high_level_overlap': has_high_level_overlap,
             'is_feasible_by_level': is_feasible_by_level,
-            'workflow_path': workflow_path,
-            'workflow_advice': workflow_advice,
+            'spatial_check_at': item.spatial_check_at.strftime('%Y-%m-%d %H:%M') if item.spatial_check_at else '',
+            'kml_record_id': item.kml_record_id,
+            'workflow_path': item_path,
+            'workflow_advice': item_advice,
+            'is_archived': item.status == LandUseProjectApproval.STATUS_ARCHIVED,
             'updated_at': item.updated_at.strftime('%Y-%m-%d %H:%M') if item.updated_at else '',
         })
 
-    return JsonResponse({'success': True, 'rows': rows})
+    summary_source = LandUseProjectApproval.objects.all()
+    status_counts = {
+        code: summary_source.filter(status=code).count()
+        for code, _label in LandUseProjectApproval.STATUS_CHOICES
+    }
+    total = summary_source.count()
+    archived = status_counts.get(LandUseProjectApproval.STATUS_ARCHIVED, 0)
+    summary = {
+        'total': total,
+        'in_progress': total - archived,
+        'archived': archived,
+        'pending_precheck': status_counts.get(LandUseProjectApproval.STATUS_RECEIVED, 0),
+        'overlap': summary_source.filter(is_overlap_artifact=True).exclude(
+            status=LandUseProjectApproval.STATUS_ARCHIVED
+        ).count(),
+        'status_counts': [
+            {'status': code, 'label': label, 'count': status_counts.get(code, 0)}
+            for code, label in LandUseProjectApproval.STATUS_CHOICES
+        ],
+    }
+
+    return JsonResponse({'success': True, 'rows': rows, 'summary': summary})
 
 
 @staff_member_required
@@ -1666,15 +2006,47 @@ def land_project_detail_api(request, project_id):
         for item in project.operation_logs.select_related('operator').all()[:200]
     ]
 
+    document_rows = [
+        {
+            'id': document.id,
+            'category': document.category,
+            'category_label': document.get_category_display(),
+            'doc_num': document.doc_num,
+            'title': document.title,
+            'issued_date': document.issued_date.isoformat() if document.issued_date else '',
+            'file_name': document.file_name,
+            'file_size': document.file_size,
+            'note': document.note,
+            'uploaded_by': document.uploaded_by.username if document.uploaded_by else '系统',
+            'uploaded_at': document.uploaded_at.strftime('%Y-%m-%d %H:%M'),
+            'download_url': f'/api/v1/projects/{project.id}/documents/{document.id}/download/',
+        }
+        for document in project.documents.select_related('uploaded_by').all()
+    ]
+
     overlap_rows = project.overlapped_relics_info if isinstance(project.overlapped_relics_info, list) else []
     has_high_level_overlap = any((row or {}).get('site_level') in {'GB', 'SB'} for row in overlap_rows)
     is_feasible_by_level = not has_high_level_overlap
-    if not project.is_overlap_artifact:
-        workflow_advice = '未涉及文物，可直接向项目方出具不涉及文物标准复函。'
-    elif is_feasible_by_level:
-        workflow_advice = '涉及文物但未触及自治区及以上级别，可按流程上报市局并进入考古调查。'
-    else:
-        workflow_advice = '涉及自治区及以上级别文物，项目不可行，应直接向项目方出具不予同意复函。'
+    guide = build_workflow_guide(project)
+
+    kml_record = project.kml_record
+    kml_record_payload = None
+    map_conflicts = []
+    if kml_record is not None:
+        kml_record_payload = {
+            'id': kml_record.id,
+            'title': kml_record.title,
+            'threshold_m': kml_record.threshold_m,
+            'feature_count': kml_record.feature_count,
+            'conflict_count': kml_record.conflict_count,
+            'updated_at': kml_record.updated_at.strftime('%Y-%m-%d %H:%M') if kml_record.updated_at else '',
+        }
+        # 原始冲突明细供地图图层复用（与 KML 叠加检查页字段一致）。
+        try:
+            report = json.loads(kml_record.report_json) if kml_record.report_json else {}
+            map_conflicts = report.get('conflicts') or []
+        except (ValueError, TypeError):
+            map_conflicts = []
 
     return JsonResponse({
         'success': True,
@@ -1685,13 +2057,20 @@ def land_project_detail_api(request, project_id):
             'incoming_doc_date': project.incoming_doc_date.isoformat() if project.incoming_doc_date else '',
             'receive_date': project.receive_date.isoformat() if project.receive_date else '',
             'kml_file_path': project.kml_file_path,
+            'kml_record': kml_record_payload,
+            'kml_record_id': kml_record.id if kml_record else None,
+            'map_conflicts': map_conflicts,
+            'spatial_check_at': project.spatial_check_at.strftime('%Y-%m-%d %H:%M') if project.spatial_check_at else '',
+            'spatial_check_threshold_m': project.spatial_check_threshold_m,
+            'spatial_feature_count': project.spatial_feature_count,
             'misc_zip_path': project.misc_zip_path,
             'misc_zip_url': f"/api/land-projects/{project.id}/download-misc-zip/" if project.misc_zip_path else '',
             'is_overlap_artifact': project.is_overlap_artifact,
             'overlapped_relics_info': project.overlapped_relics_info,
             'is_feasible_by_level': is_feasible_by_level,
             'has_high_level_overlap': has_high_level_overlap,
-            'workflow_advice': workflow_advice,
+            'workflow_advice': guide['advice'],
+            'guide': guide,
             'status': project.status,
             'status_label': project.get_status_display(),
             'field_check_date': project.field_check_date.isoformat() if project.field_check_date else '',
@@ -1702,8 +2081,17 @@ def land_project_detail_api(request, project_id):
             'region_approval_num': project.region_approval_num,
             'city_final_reply_num': project.city_final_reply_num,
             'final_reply_to_company': project.final_reply_to_company,
+            'involves_kanerjing': project.involves_kanerjing,
+            'kanerjing_protection_plan_path': project.kanerjing_protection_plan_path,
+            'water_department_opinion': project.water_department_opinion,
+            'requires_state_council_approval': project.requires_state_council_approval,
+            'state_council_approval_num': project.state_council_approval_num,
+            'protection_measures_note': project.protection_measures_note,
+            'protection_measures_confirmed': project.protection_measures_confirmed,
             'controls': get_status_controls(project.status, project),
             'field_photos': photo_rows,
+            'documents': document_rows,
+            'documents_archive_url': f'/api/v1/projects/{project.id}/documents/archive/' if document_rows else '',
             'operation_logs': operation_logs,
             'created_at': project.created_at.strftime('%Y-%m-%d %H:%M'),
             'updated_at': project.updated_at.strftime('%Y-%m-%d %H:%M'),
@@ -1874,6 +2262,13 @@ def land_project_upload_api(request, project_id):
         saved_path = default_storage.save(relative_path, upload_file)
         project.kml_file_path = saved_path
         project.save(update_fields=['kml_file_path', 'updated_at'])
+
+        kml_record_id = None
+        try:
+            kml_record_id = sync_project_kml_record(project, user=request.user).id
+        except Exception:
+            logger.exception('项目KML同步为叠加检查记录失败: project_id=%s', project.id)
+
         _record_land_project_operation(
             project=project,
             user=request.user,
@@ -1882,11 +2277,12 @@ def land_project_upload_api(request, project_id):
                 'file_type': file_type,
                 'original_filename': filename,
                 'saved_path': saved_path,
+                'kml_record_id': kml_record_id,
             },
             status_before=status_before,
             status_after=project.status,
         )
-        return JsonResponse({'success': True, 'file_path': saved_path})
+        return JsonResponse({'success': True, 'file_path': saved_path, 'kml_record_id': kml_record_id})
 
     if file_type == 'field_photo':
         status_before = project.status
@@ -1934,6 +2330,62 @@ def land_project_upload_api(request, project_id):
         )
         return JsonResponse({'success': True, 'file_path': saved_path})
 
+    if file_type == 'official_doc':
+        category = (request.POST.get('category') or '').strip()
+        valid_categories = {code for code, _label in LandUseProjectDocument.CATEGORY_CHOICES}
+        if category not in valid_categories:
+            return JsonResponse({'success': False, 'message': '请选择正确的公文类别'}, status=400)
+        if not filename.lower().endswith(ALLOWED_DOCUMENT_EXTENSIONS):
+            return JsonResponse({'success': False, 'message': '公文仅支持 PDF / DOCX / DOC 格式'}, status=400)
+
+        issued_date_text = (request.POST.get('issued_date') or '').strip()
+        issued_date = None
+        if issued_date_text:
+            try:
+                issued_date = datetime.strptime(issued_date_text, '%Y-%m-%d').date()
+            except ValueError:
+                return JsonResponse({'success': False, 'message': '成文日期格式应为 YYYY-MM-DD'}, status=400)
+
+        status_before = project.status
+        relative_path = build_project_media_path(project, os.path.join('documents', category), filename)
+        saved_path = default_storage.save(relative_path, upload_file)
+
+        document = LandUseProjectDocument.objects.create(
+            project=project,
+            category=category,
+            doc_num=(request.POST.get('doc_num') or '').strip(),
+            title=(request.POST.get('title') or '').strip(),
+            issued_date=issued_date,
+            file_path=saved_path,
+            file_name=filename,
+            file_size=upload_file.size or 0,
+            note=(request.POST.get('note') or '').strip(),
+            uploaded_by=request.user if request.user.is_authenticated else None,
+        )
+
+        # 有文号且项目对应字段为空时自动回填，避免重复录入。
+        num_field = DOCUMENT_NUM_FIELDS.get(category)
+        if num_field and document.doc_num and not getattr(project, num_field, ''):
+            setattr(project, num_field, document.doc_num)
+            project.save(update_fields=[num_field, 'updated_at'])
+
+        _record_land_project_operation(
+            project=project,
+            user=request.user,
+            action='upload_official_doc',
+            payload={
+                'file_type': file_type,
+                'category': category,
+                'category_label': document.get_category_display(),
+                'doc_num': document.doc_num,
+                'original_filename': filename,
+                'saved_path': saved_path,
+            },
+            status_before=status_before,
+            status_after=project.status,
+        )
+        return JsonResponse({'success': True, 'document_id': document.id, 'file_path': saved_path})
+
     if file_type == 'archaeology_report':
         if not filename.lower().endswith('.pdf'):
             return JsonResponse({'success': False, 'message': '考古调查报告仅支持PDF'}, status=400)
@@ -1956,7 +2408,131 @@ def land_project_upload_api(request, project_id):
         )
         return JsonResponse({'success': True, 'file_path': saved_path})
 
-    return JsonResponse({'success': False, 'message': 'file_type 必须为 kml/misc_zip/field_photo/archaeology_report'}, status=400)
+    if file_type == 'kanerjing_plan':
+        if not filename.lower().endswith('.pdf'):
+            return JsonResponse({'success': False, 'message': '坎儿井保护加固方案仅支持PDF'}, status=400)
+        status_before = project.status
+        relative_path = build_project_media_path(project, 'kanerjing', filename)
+        saved_path = default_storage.save(relative_path, upload_file)
+        project.kanerjing_protection_plan_path = saved_path
+        project.save(update_fields=['kanerjing_protection_plan_path', 'updated_at'])
+        _record_land_project_operation(
+            project=project,
+            user=request.user,
+            action='upload_kanerjing_plan',
+            payload={
+                'file_type': file_type,
+                'original_filename': filename,
+                'saved_path': saved_path,
+            },
+            status_before=status_before,
+            status_after=project.status,
+        )
+        return JsonResponse({'success': True, 'file_path': saved_path})
+
+    return JsonResponse({'success': False, 'message': 'file_type 必须为 kml/misc_zip/field_photo/archaeology_report/kanerjing_plan/official_doc'}, status=400)
+
+
+@staff_member_required
+def land_project_document_download_api(request, project_id, document_id):
+    """下载单份归档公文。"""
+    if not is_management_admin(request.user):
+        return JsonResponse({'success': False, 'message': '无权限'}, status=403)
+
+    document = LandUseProjectDocument.objects.filter(id=document_id, project_id=project_id).first()
+    if not document:
+        return JsonResponse({'success': False, 'message': '公文不存在'}, status=404)
+    if not default_storage.exists(document.file_path):
+        return JsonResponse({'success': False, 'message': '公文文件不存在或已被移除'}, status=404)
+
+    try:
+        file_handler = default_storage.open(document.file_path, 'rb')
+    except Exception:
+        logger.exception('打开公文失败: document_id=%s', document_id)
+        return JsonResponse({'success': False, 'message': '文件读取失败'}, status=500)
+
+    download_name = document.file_name or os.path.basename(document.file_path)
+    return FileResponse(file_handler, as_attachment=True, filename=download_name)
+
+
+@csrf_exempt
+@require_POST
+@staff_member_required
+def land_project_document_delete_api(request, project_id, document_id):
+    """删除归档公文（已归档结案的项目不允许删除）。"""
+    if not is_management_admin(request.user):
+        return JsonResponse({'success': False, 'message': '无权限'}, status=403)
+
+    document = LandUseProjectDocument.objects.filter(id=document_id, project_id=project_id).first()
+    if not document:
+        return JsonResponse({'success': False, 'message': '公文不存在'}, status=404)
+    if document.project.status == LandUseProjectApproval.STATUS_ARCHIVED:
+        return JsonResponse({'success': False, 'message': '项目已结案归档，公文档案不可删除'}, status=400)
+
+    project = document.project
+    payload = {
+        'category': document.category,
+        'category_label': document.get_category_display(),
+        'doc_num': document.doc_num,
+        'file_name': document.file_name,
+    }
+    if default_storage.exists(document.file_path):
+        default_storage.delete(document.file_path)
+    document.delete()
+
+    _record_land_project_operation(
+        project=project,
+        user=request.user,
+        action='delete_official_doc',
+        payload=payload,
+        status_before=project.status,
+        status_after=project.status,
+    )
+    return JsonResponse({'success': True})
+
+
+@staff_member_required
+def land_project_documents_archive_api(request, project_id):
+    """把项目全部归档公文打包为 ZIP 下载。"""
+    if not is_management_admin(request.user):
+        return JsonResponse({'success': False, 'message': '无权限'}, status=403)
+
+    project = LandUseProjectApproval.objects.filter(id=project_id).first()
+    if not project:
+        return JsonResponse({'success': False, 'message': '项目不存在'}, status=404)
+
+    documents = list(project.documents.all().order_by('category', 'uploaded_at'))
+    if not documents:
+        return JsonResponse({'success': False, 'message': '当前项目尚无归档公文'}, status=404)
+
+    buffer = io.BytesIO()
+    manifest_lines = [f'项目名称：{project.project_name}', f'项目单位：{project.company_name}', '']
+    with zipfile.ZipFile(buffer, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+        used_names = set()
+        for index, document in enumerate(documents, start=1):
+            if not default_storage.exists(document.file_path):
+                continue
+            extension = os.path.splitext(document.file_name or document.file_path)[1] or '.pdf'
+            label = document.get_category_display()
+            parts = [f'{index:02d}', label]
+            if document.doc_num:
+                parts.append(document.doc_num)
+            member_name = re.sub(r'[\\/:*?"<>|]+', '_', '-'.join(parts)) + extension
+            while member_name in used_names:
+                member_name = f'{os.path.splitext(member_name)[0]}_1{extension}'
+            used_names.add(member_name)
+
+            with default_storage.open(document.file_path, 'rb') as fp:
+                archive.writestr(member_name, fp.read())
+            manifest_lines.append(
+                f'{member_name}\t文号：{document.doc_num or "-"}\t成文日期：{document.issued_date or "-"}'
+            )
+        archive.writestr('公文清单.txt', '\n'.join(manifest_lines))
+
+    zip_name = f'{project.project_name}-公文档案.zip'
+    response = HttpResponse(buffer.getvalue(), content_type='application/zip')
+    response['Content-Disposition'] = f"attachment; filename*=UTF-8''{quote(zip_name, safe='')}"
+    return response
 
 
 @staff_member_required
@@ -1997,8 +2573,14 @@ def verify_project_spatial_safety_api(request, project_id):
 
     status_before = project.status
 
+    raw_threshold = request.GET.get('threshold_m') or request.POST.get('threshold_m')
     try:
-        result = verify_project_spatial_safety(project_id)
+        threshold_m = int(raw_threshold) if raw_threshold else None
+    except (TypeError, ValueError):
+        threshold_m = None
+
+    try:
+        result = verify_project_spatial_safety(project_id, threshold_m=threshold_m, user=request.user)
         _record_land_project_operation(
             project=project,
             user=request.user,
@@ -2006,6 +2588,8 @@ def verify_project_spatial_safety_api(request, project_id):
             payload={
                 'is_overlap_artifact': result.get('is_overlap_artifact', False),
                 'overlapped_count': len(result.get('overlapped_relics_info') or []),
+                'threshold_m': result.get('threshold_m'),
+                'feature_count': result.get('feature_count'),
             },
             status_before=status_before,
             status_after=result.get('status', project.status),
@@ -2017,6 +2601,45 @@ def verify_project_spatial_safety_api(request, project_id):
         return JsonResponse({'success': False, 'message': '空间核验失败，请检查KML与空间数据'}, status=500)
 
     return JsonResponse({'success': True, 'data': result})
+
+
+@csrf_exempt
+@require_POST
+@staff_member_required
+def land_project_link_kml_record_api(request, project_id):
+    """把已有的 KML 叠加检查记录关联到项目，实现两处功能共用同一份选址数据。"""
+    if not is_management_admin(request.user):
+        return JsonResponse({'success': False, 'message': '无权限'}, status=403)
+
+    project = LandUseProjectApproval.objects.filter(id=project_id).first()
+    if not project:
+        return JsonResponse({'success': False, 'message': '项目不存在'}, status=404)
+
+    try:
+        payload = _load_json_payload(request)
+    except ValueError as exc:
+        return JsonResponse({'success': False, 'message': str(exc)}, status=400)
+
+    record_id = payload.get('kml_record_id')
+    record = KmlUploadRecord.objects.filter(id=record_id).first() if record_id else None
+    if not record:
+        return JsonResponse({'success': False, 'message': '指定的KML叠加检查记录不存在'}, status=404)
+
+    status_before = project.status
+    try:
+        link_project_kml_record(project, record)
+    except ValueError as exc:
+        return JsonResponse({'success': False, 'message': str(exc)}, status=400)
+
+    _record_land_project_operation(
+        project=project,
+        user=request.user,
+        action='link_kml_record',
+        payload={'kml_record_id': record.id, 'kml_record_title': record.title},
+        status_before=status_before,
+        status_after=project.status,
+    )
+    return JsonResponse({'success': True, 'data': {'kml_record_id': record.id, 'kml_file_path': project.kml_file_path}})
 
 
 @staff_member_required
@@ -2840,9 +3463,11 @@ def _build_group_rows(queryset, group_field, choices_map):
     return rows
 
 
-@staff_member_required
+@api_view(['GET'])
+@permission_classes([IsManagementAdmin])
 def heritage_classification_stats_api(request):
     """文物分类统计 API：按数据库真实字段自动分组统计，并保持旧结构兼容。"""
+    # 前端 SPA 使用 JWT 鉴权而非 Django Session，需走 DRF 权限而非 staff_member_required。
     category = request.GET.get('category', '').strip()
     level = request.GET.get('level', '').strip()
     township = request.GET.get('township', '').strip()
@@ -2937,9 +3562,11 @@ def heritage_classification_stats_api(request):
     })
 
 
-@staff_member_required
+@api_view(['GET'])
+@permission_classes([IsManagementAdmin])
 def heritage_stats_api(request):
     """统计数据 API 端点"""
+    # 前端 SPA 使用 JWT 鉴权而非 Django Session，需走 DRF 权限而非 staff_member_required。
     total = HeritageSite.objects.count()
     national = HeritageSite.objects.filter(level='GB').count()
     regional = HeritageSite.objects.filter(level='SB').count()
@@ -3032,9 +3659,11 @@ def dem_elevation_lookup_api(request):
         }
     )
 
-@staff_member_required
+@api_view(['GET'])
+@permission_classes([IsManagementAdmin])
 def heritage_stats_by_category_api(request):
     """按类别统计的 API 端点"""
+    # 前端 SPA 使用 JWT 鉴权而非 Django Session，需走 DRF 权限而非 staff_member_required。
     category_stats = HeritageSite.objects.values('category').annotate(count=Count('id'))
     
     labels = []
@@ -3057,9 +3686,11 @@ def kanerjing_list_view(request):
     """旧坎儿井专项管理页已迁移到 Vue，保留兼容入口。"""
     return redirect('/static/frontend/heritage/kanerjing')
 
-@staff_member_required
+@api_view(['GET'])
+@permission_classes([IsManagementAdmin])
 def kanerjing_stats_api(request):
     """坎儿井统计 API - 基于名称包含'坎儿井'进行筛选"""
+    # 前端 SPA 使用 JWT 鉴权而非 Django Session，需走 DRF 权限而非 staff_member_required。
     kanerjing_sites = HeritageSite.filter_kanerjing()
     total = kanerjing_sites.count()
     

@@ -165,6 +165,11 @@ const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
 const authStore = useAuthStore()
+// 离线版后台入口：走本地 SSO 路由 /system/admin（AdminEntryView 调用
+// POST /api/v1/system/admin-entry/ 建立会话后再跳转 /admin/home/），
+// 不再使用在线版硬编码的 https://beichenhome.top:9081/admin。
+// 该路径不以 /admin/ 开头，不会被下面的菜单过滤器误删。
+const DJANGO_ADMIN_URL = '/system/admin'
 const THEME_MODE_KEY = 'heritage_theme_mode'
 const SIDEBAR_COLLAPSE_KEY = 'heritage_sidebar_collapsed'
 const themeMode = ref('system')
@@ -242,6 +247,7 @@ const staticMenuGroups = [
       { label: '数据管理', to: '/system/data-management' },
       { label: '关于系统', to: '/system/about' },
       { label: 'DeepSeek配置', to: '/system/ai-config' },
+      { label: '后台管理', to: DJANGO_ADMIN_URL },
       { label: '菜单管理', to: '/system/menus' }
     ]
   }
@@ -286,7 +292,8 @@ function ensureHeritageEntries(groups = []) {
   const requiredSystemItems = [
     { label: '数据管理', to: '/system/data-management' },
     { label: '关于系统', to: '/system/about' },
-    { label: 'DeepSeek配置', to: '/system/ai-config' }
+    { label: 'DeepSeek配置', to: '/system/ai-config' },
+    { label: '后台管理', to: DJANGO_ADMIN_URL }
   ]
   if (isSuperAdminUser()) {
     requiredSystemItems.push({ label: '菜单管理', to: '/system/menus' })

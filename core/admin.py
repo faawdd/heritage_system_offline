@@ -4,6 +4,7 @@ from .models import (
     InspectionRecord,
     ProjectAudit,
     LandUseProjectApproval,
+    LandUseProjectDocument,
     LandUseProjectFieldPhoto,
     LandUseProjectOperationLog,
     Coordinate,
@@ -12,6 +13,7 @@ from .models import (
     KmlUploadRecord,
     ImmovableHeritage,
     HeritagePhoto,
+    SipuImportJob,
 )
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin, GroupAdmin as BaseGroupAdmin
@@ -631,6 +633,13 @@ class LandUseProjectFieldPhotoInline(admin.TabularInline):
     readonly_fields = ('uploaded_at',)
 
 
+class LandUseProjectDocumentInline(admin.TabularInline):
+    model = LandUseProjectDocument
+    extra = 0
+    fields = ('category', 'doc_num', 'title', 'issued_date', 'file_name', 'uploaded_at')
+    readonly_fields = ('uploaded_at',)
+
+
 @admin.register(LandUseProjectApproval)
 class LandUseProjectApprovalAdmin(admin.ModelAdmin):
     list_display = (
@@ -646,7 +655,7 @@ class LandUseProjectApprovalAdmin(admin.ModelAdmin):
     search_fields = ('project_name', 'company_name', 'final_reply_to_company')
     readonly_fields = ('created_at', 'updated_at', 'overlapped_relics_info')
     date_hierarchy = 'receive_date'
-    inlines = [LandUseProjectFieldPhotoInline]
+    inlines = [LandUseProjectFieldPhotoInline, LandUseProjectDocumentInline]
 
     fieldsets = (
         ('收文登记', {
@@ -672,11 +681,16 @@ class LandUseProjectApprovalAdmin(admin.ModelAdmin):
                 'archaeology_report_path',
                 'region_approval_num',
                 'city_final_reply_num',
+                'involves_kanerjing',
+                'kanerjing_protection_plan_path',
+                'water_department_opinion',
+                'requires_state_council_approval',
+                'state_council_approval_num',
             ),
             'classes': ('collapse',),
         }),
         ('办结归档', {
-            'fields': ('final_reply_to_company', 'created_at', 'updated_at'),
+            'fields': ('final_reply_to_company', 'protection_measures_note', 'protection_measures_confirmed', 'created_at', 'updated_at'),
             'classes': ('collapse',),
         }),
     )
@@ -707,6 +721,36 @@ class LandUseProjectOperationLogAdmin(admin.ModelAdmin):
         'status_before',
         'status_after',
         'created_at',
+    )
+
+@admin.register(SipuImportJob)
+class SipuImportJobAdmin(admin.ModelAdmin):
+    list_display = (
+        'id',
+        'status',
+        'total',
+        'processed',
+        'matched',
+        'unmatched_count',
+        'no_geometry_count',
+        'created_by',
+        'created_at',
+    )
+    list_filter = ('status', 'created_at')
+    readonly_fields = (
+        'id',
+        'status',
+        'total',
+        'processed',
+        'matched',
+        'unmatched_count',
+        'no_geometry_count',
+        'unmatched_items',
+        'no_geometry_items',
+        'error_message',
+        'created_by',
+        'created_at',
+        'updated_at',
     )
 
 @admin.register(Coordinate)

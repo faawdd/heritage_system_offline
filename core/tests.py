@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.test import TestCase
 from django.urls import reverse
 
@@ -8,11 +9,15 @@ from .models import HeritageSite
 class HeritageDashboardKanerjingFilterTests(TestCase):
 	def setUp(self):
 		user_model = get_user_model()
+		# 该视图在合并 v1.2.12 后改用 IsManagementAdmin（要求超级管理员或管理员组），
+		# 因此测试账号需要显式加入管理员组，否则会被 403 拦截。
+		admin_group, _ = Group.objects.get_or_create(name='管理员')
 		self.user = user_model.objects.create_user(
 			username='staff_user',
 			password='test-pass-123',
 			is_staff=True,
 		)
+		self.user.groups.add(admin_group)
 		self.client.force_login(self.user)
 		self.url = reverse('heritage_classification_stats_api')
 
