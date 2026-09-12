@@ -18,7 +18,7 @@ def noop_reverse(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('core', '0025_landuseprojectapproval_workflow_extra_fields'),
+        ('core', '0026_landuseprojectapproval_workflow_extra_fields'),
     ]
 
     operations = [

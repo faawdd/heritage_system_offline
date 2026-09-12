@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('core', '0024_rename_core_heritag_heritag_26948d_idx_core_herita_heritag_634100_idx_and_more'),
+        ('core', '0025_rename_core_heritag_heritag_26948d_idx_core_herita_heritag_634100_idx_and_more'),
     ]
 
     # 0024 已将索引重命名操作改为 no-op：不同环境/Django版本下自动索引名的哈希可能不一致，
