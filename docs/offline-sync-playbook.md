@@ -1,16 +1,21 @@
 # 离线版（offline 分支）同步与修复手册
 
 > 生成时间：2026-09-12。记录 `offline` 分支与在线版（`origin/master` / `v1.2.12`）的分叉现状、
-> 已完成的止血修复，以及尚未执行的阶段 2 合并方案。
+> 已完成的止血修复，以及阶段 2 合并的**实际执行结果**。
+>
+> **当前状态：阶段 1 与阶段 2 均已完成。** 阶段 2 合并提交为 `bfd9c67`，
+> 全过程与验证结果见第 7 节；第 3、4 节保留为决策依据与背景（其中"未执行"等措辞已过期）。
 
 ## 1. 仓库拓扑现状
 
 | 引用 | commit | 日期 | 含义 |
 |---|---|---|---|
-| `offline`（当前 HEAD） | `f62028d` / tag `v1.2.11` | 2026-08-04 | **已完成阶段 1 止血** |
+| `offline`（当前 HEAD） | `bfd9c67` | 2026-09-13 | **阶段 1 + 阶段 2 均已完成**（已合入 v1.2.12） |
+| `offline`（阶段 1 末端） | `95e9eef` / tag `v1.2.11` 之后 | 2026-09-12 | 合并前状态，回滚点 |
 | `backup/offline-v1.2.4` | `0ff901b` / tag `v1.2.4` | 2026-08-03 | 止血前原始状态（回滚点） |
 | `fix/offline-v1.2.11` | `f62028d` | 2026-08-04 | 保护分支，防止悬空标签丢失 |
-| `feat/online-v1.2.12` | `fcdb456` | 2026-09-02 | 在线版新功能线（含 `origin/master` 全部提交） |
+| `feat/online-v1.2.12-clean` | `66f6f51` | 2026-09-13 | 净化后的在线线（**本次合并的父 2**） |
+| `feat/online-v1.2.12` | `fcdb456` | 2026-09-02 | 在线版新功能线原始头（**含敏感文件，勿外发**） |
 | `origin/master` | `bee7f24` | 2026-08-03 | 在线版旧头 |
 
 两条线的共同祖先是 `53b1eee`（merge-base）。
@@ -38,6 +43,11 @@
 已验证：`python -m py_compile` 通过；`git status` 干净。
 
 ## 3. 阶段 1 遗留问题（v1.2.11 未覆盖，需自行修复）
+
+> **状态更新（2026-09-13）**：本节问题 **1、2、3、5、6、7、10 已在 Stage 1 修复并提交**
+> （`d9ac9a6` / `202ef2b` / `d3856d1` / `95e9eef`），修复细节见 `docs/dev-environment.md`
+> 第 5–7 节。**问题 4（向导密码落盘时序）与问题 9（备份不含 `key.bin` / uploads）仍未处理**，
+> 见第 7.6 节。以下内容保留为根因分析依据。
 
 这些是**登录不可用的真正根因**，fast-forward 并不能解决：
 
@@ -87,9 +97,9 @@
     `static/frontend/assets/index-BZHQs0e8.js` 内搜 `/static/tiles` → **MISS**，
     `system/admin`、`admin-entry` → **MISS**。即打包进安装包的 JS 是旧版，
 
-## 4. 阶段 2（未执行）：合并 v1.2.12 在线版功能
+## 4. 阶段 2：合并 v1.2.12 在线版功能（已完成，见第 7 节）
 
-### 4.1 为什么被中止
+### 4.1 当初为何被中止
 
 `git merge --no-commit --no-ff v1.2.12` 产生 **18 个冲突文件 / 约 64 个冲突块**，其中包含
 **整段模板级冲突**（`ProjectDetailView.vue` 单块跨 522 行、`ProjectListView.vue` 6 块、
@@ -244,6 +254,128 @@ cd frontend && npm run desktop:pack
 ```bash
 git checkout offline
 git reset --hard backup/offline-v1.2.4     # 回到止血前（v1.2.4）
-git reset --hard v1.2.11                   # 回到当前已验证状态
+git reset --hard v1.2.11                   # 回到阶段 1 完成态
+git reset --hard 95e9eef                   # 回到阶段 2 合并前（Stage 1 全部修复）
 ```
+
+## 7. 阶段 2 实际执行记录（2026-09-13 完成）
+
+### 7.1 提交拓扑
+
+| 项 | 值 |
+|---|---|
+| 合并提交 | `bfd9c67`（`offline` 当前 HEAD） |
+| 父 1 | `95e9eef` — 离线 Stage 1 末端（真实登录链前端重建） |
+| 父 2 | `66f6f51` — `feat/online-v1.2.12-clean`（净化后的在线线） |
+| 在线原始头 | `fcdb456` / tag `v1.2.12` |
+| merge-base | `53b1eee` |
+| 变更规模 | 40 个文件（含 `static/frontend/**` 重建产物） |
+
+Stage 1 的四个提交：`d9ac9a6`（Django 6.1 SQLCipher 兼容 + 静态检查 + Vite 瓦片代理 +
+DEBUG/静态/鉴权解耦）、`202ef2b`（前端重建）、`d3856d1`（Electron 假登录改真实后端 JWT）、
+`95e9eef`（登录链前端重建）。
+
+### 7.2 净化分支 `feat/online-v1.2.12-clean`
+
+从 `v1.2.12` 切出，用一次清理提交（`66f6f51`）从跟踪中移除：
+
+- `.env`（含 `DJANGO_SECRET_KEY`）
+- `beichenhome.top/1778466805/` 下 TLS 私钥与证书（`.key` / `.crt` / `fullchain.crt` / `issuer_certificate.crt`）
+- `db.sqlite3` 及两个 `.bak` / `local_before_migrate_backup`
+- `config/key.bin`、`data/database.db` ← **最高危**：在线新增，若合入会随离线安装包分发
+- `templates/admin/index.html.bak`
+
+> ⚠️ **这只是"新提交中删除"，原始在线历史仍含全部敏感文件。**
+> TLS 私钥与 `DJANGO_SECRET_KEY` 必须视为已泄露并轮换；若要对外分享在线历史，
+> 需 `git filter-repo` 重写。详见第 7.6 节。
+
+### 7.3 迁移重排（已落地）
+
+在线 `0025..0030` → `0026..0031`，并把 `0026` 的 dependency 指向离线 `0025`，
+形成单一主干：
+
+```
+core.0024_rename_..._and_more
+  └─ core.0025_rename_..._and_more            (offline, 11×RenameIndex)
+       └─ core.0026_landuseprojectapproval_workflow_extra_fields
+            └─ core.0027_backfill_involves_kanerjing
+                 └─ core.0028_heritagesite_body_boundary
+                      └─ core.0029_sipu_import_job
+                           └─ core.0030_land_project_kml_record
+                                └─ core.0031_land_project_document
+```
+
+验证：`migrate --plan` 单链无分叉；`makemigrations --check --dry-run` → `No changes detected`。
+第 4.3 节担心的"离线 `0025` 是 RenameIndex、在线 `0026+` 新建同名索引二次冲突"未发生。
+
+### 7.4 冲突解决实际落点
+
+第 4.2 节的 A–H 方案全部按原计划执行，其中三处与预案有出入：
+
+| 文件 | 预案 | 实际 |
+|---|---|---|
+| `core/api/views.py` | 补 5 个包装类 | ✅ 照做，`smoke_project_api.py` 已验证 |
+| `core/views.py` | 取在线算法超集 | ✅ 并复核离线专用函数全部保留 |
+| `core/land_project_services.py` | 取在线版 | ✅ 额外清除自动合并产生的**重复常量** |
+| `router/index.js` | 保留离线 Login + 在线路由 | ✅ 并恢复 `AdminEntryView` → `/system/admin` |
+| `systemApi.js` | 取在线版 | ✅ 额外**恢复 `enterDjangoAdmin()`**（在线版没有） |
+| `AppLayout.vue` | 合并菜单 | ✅ 额外把 `DJANGO_ADMIN_URL` 重定义为 `/system/admin`，消除未定义常量与生产 URL 泄漏 |
+| `ProjectDetailView.vue` | 手工融合 | ⚠️ **改为整体取在线版**：后端已返回在线 `guide`/`todos`/`documents` 结构，离线 step-nav 属不兼容死代码，手工融合只会留下永不执行的分支 |
+| `DataManagementView.vue` | add/add 择一 | ⚠️ **手工三方合并**：离线 CSV 导入 + 桌面备份恢复 与在线 DataSyncPanel + Sipu 边界导入属互补功能，全部保留 |
+| `desktop-release.yml` | 离线为主 + 挑拣在线步骤 | ✅ 保留无 macOS 矩阵，移除在线引入的 macOS 死步骤，保留 `Validate desktop runtime layout` / `Smoke test backend executable` |
+| `core/tests.py` | — | ⚠️ **计划外**：合并后 `heritage_classification_stats_api` 改用 `IsManagementAdmin`，测试用户需加入「管理员」组 |
+
+`system/urls.py`、`system/views.py`、`requirements.txt` 未列入原冲突清单，但自动合并结果需复核：
+在线新增（`DeepSeekConfigAPIView`、`_mask_secret`、`openai>=1.35.0`）与离线新增
+（`_ensure_system_roles`、`_normalize_admin_only_group_ids`、`SystemPublicConfigAPIView`、
+`keyring`、`cryptography`、`waitress`）**双方均完整保留**，无覆盖丢失。
+
+### 7.5 验证矩阵（全部在合并后重跑）
+
+| 验证项 | 命令 | 结果 |
+|---|---|---|
+| 配置检查 | `manage.py check`（普通 + `HERITAGE_DESKTOP_MODE=1`） | 0 issues |
+| 迁移一致性 | `makemigrations --check --dry-run` | No changes detected |
+| 迁移链 | `migrate --plan` | 单主干 0024→0031 |
+| 单元/加密回归 | `manage.py test core` | 15 passed |
+| 首次启动端到端 | `scripts/dev/e2e_first_run.py` | 加密库 + `key.bin` + 角色组 + 向导密码 OK；`test/test` 登录 = False；错误密钥读取被拒 |
+| 越权审计 | `scripts/dev/audit_debug_bypass.py` | 13/13 |
+| 桌面登录链 | `scripts/dev/smoke_desktop_login.py` | 12/12 |
+| HTTP 冒烟 | `scripts/dev/smoke_http.py` | 10/10 |
+| Vite 开发代理 | `scripts/dev/smoke_vite_dev.py` | 4/4 |
+| **在线端点 JWT 可用性** | `scripts/dev/smoke_project_api.py`（本次新增） | 11/11 |
+| Electron IPC 契约 | 脚本比对 main.cjs / preload.cjs / 调用方 | 10 通道双向匹配，无后门残留 |
+| 前端产物新鲜度 | 源文件 mtime vs `static/frontend/index.html` | 0 个更新源文件 |
+
+`smoke_project_api.py` 是本次为验证第 4.2-A 节而新增的常驻脚本，覆盖：
+`projects/create/`、`documents/archive/`、`controls/`、项目详情、`link-kml-record/`、
+`documents/generate/`、`data-sync/options/`、`sipu-boundary-import/status/` 在 **JWT Bearer**
+下不被 401/403 拦截且路由确已注册（区分业务层 JSON 404 与 Django 路由 HTML 404），
+匿名访问仍为 401。
+
+> 踩坑记录：该脚本首版把 `land_project_create_api` 的返回当成嵌套 `data.id` 解析，
+> 实际是**顶层** `project_id`（`core/views.py:2229`）。pid 取空后所有断言打在空 URL 上得到
+> 404，而"非 403 即通过"的判据把这种假阳性全放过了。现已改为 pid 取不到即硬失败，
+> 并校验 content-type。
+
+### 7.6 遗留安全与运维事项
+
+1. **轮换密钥**：`beichenhome.top` TLS 私钥、`DJANGO_SECRET_KEY`、历史中出现过的 DB 凭据与管理员口令。
+2. **历史清理决策**：`feat/online-v1.2.12-clean` 只保证"新提交无敏感文件"，
+   `feat/online-v1.2.12` / `origin/master` / `v1.2.12` 标签的历史 blob 仍含私钥。
+   对外分享前需 `git filter-repo` 或仅推送净化分支与 `offline`。
+3. **Electron GUI 无法在无头环境验证**，仍需人工桌面冒烟（见第 7.7 节）。
+4. 第 3 节问题 4（向导密码落盘时序）、问题 9（备份不含 `key.bin` 与 uploads）**尚未处理**，
+   属独立于本次合并的离线缺陷。
+
+### 7.7 待人工执行的桌面冒烟
+
+```powershell
+powershell -File scripts\start_offline.ps1 -Mode desktop
+```
+
+逐项确认：首次向导建加密库与 `key.bin`；向导设置的口令可登录且 `test/test` 不可登录；
+JWT 落 localStorage 并被 axios 携带；离线天地图瓦片出图；`/system/admin` 可进 Django Admin；
+数据管理页四组功能并存（CSV 导入 / 桌面备份恢复 / DataSyncPanel / 四普边界导入）；
+退出登录回到登录窗并清 token。
 

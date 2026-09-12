@@ -118,8 +118,9 @@ cd frontend ; npm run build
 | `smoke_vite_dev.py` | 同时起 Django + Vite，验证热更新开发链路（含瓦片代理） |
 | `audit_debug_bypass.py` | 三段式回归：鉴权默认拒绝、DEBUG=0 静态仍可用、显式开关恢复放行 |
 | `smoke_desktop_login.py` | 桌面登录链路回归：向导密码登录签发 JWT、解锁收紧接口、refresh 续期、test/test 后门已移除 |
+| `smoke_project_api.py` | v1.2.12 新增项目端点在 JWT 下不被 401/403、路由确已注册、匿名仍 401（合并回归） |
 
-当前实测结果（Django 6.1.1 / Python 3.13.15 / Node 24.21.0）：
+当前实测结果（Django 6.1.1 / Python 3.13.15 / Node 24.21.0，合并 `bfd9c67` 后重跑）：
 
 ```
 verify_python_env.py   ALL_PY_CHECKS_PASSED
@@ -129,10 +130,12 @@ smoke_http.py          SMOKE SUMMARY: 10/10 passed
 smoke_vite_dev.py      DEV-SMOKE SUMMARY: 4/4 passed
 audit_debug_bypass.py  AUDIT SUMMARY: 13/13 passed
 smoke_desktop_login.py DESKTOP-LOGIN SUMMARY: 12/12 passed
+smoke_project_api.py   PROJECT-API SUMMARY: 11/11 passed
 manage.py check        no issues（非桌面模式）
 manage.py check        no issues (1 silenced)（HERITAGE_DESKTOP_MODE=1）
 manage.py test core    Ran 15 tests ... OK
 manage.py makemigrations --check --dry-run   No changes detected
+manage.py migrate --plan   单主干 core.0024 → 0025 → 0026..0031
 ```
 
 ## 5. 搭建过程中发现并修复的缺陷
@@ -273,9 +276,51 @@ localStorage 令牌对主窗口可见。
 匿名请求 401。前端 `npm run build` 通过，新 bundle 已不含 `desktop_auth` 绕过、
 保留 `/api/v1/system/login/`。
 
-## 8. 仍待处理
+## 8. v1.2.12 合并后新增的在线能力
 
-v1.2.12 合并与迁移编号重排仍按 `docs/offline-sync-playbook.md` 推进。
-本次登录链路修复未触碰 `system/auth/LoginView.vue`（该组件当前未被路由引用，
-属孤儿文件；如需启用可后续将其接入 `/login`）。
+合并提交 `bfd9c67` 已把在线功能线并入，日常开发会碰到以下新增内容。
+
+### 8.1 新增后端接口（均需 JWT + `IsManagementAdmin`）
+
+| 接口 | 方法 | 说明 |
+| --- | --- | --- |
+| `/api/v1/projects/<uuid>/documents/archive/` | GET | 项目全部归档公文打包 ZIP |
+| `/api/v1/projects/<uuid>/documents/<int>/download/` | GET | 单份公文下载 |
+| `/api/v1/projects/<uuid>/documents/<int>/delete/` | POST | 删除单份公文 |
+| `/api/v1/projects/<uuid>/documents/generate/` | POST | 由模板生成立项公文 |
+| `/api/v1/projects/<uuid>/link-kml-record/` | POST | 把 KML 叠加检查记录关联到项目 |
+| `/api/v1/system/data-sync/options/` | GET | 在线/离线数据包同步选项 |
+| `/api/v1/system/sipu-boundary-import/status/<uuid>/` | GET | 四普边界导入任务状态 |
+| `/api/v1/system/ai-config/deepseek/` | GET/PUT | DeepSeek 配置（密钥以 `_mask_secret` 掩码返回） |
+
+这些端点在离线版**必须走 `core/api/views.py` 的 DRF 包装类**。在线版直接指向带
+`@staff_member_required` 的 legacy 视图（仅认 session），桌面端带 JWT 访问会全线 403。
+新增同类端点时请沿用 `_call_legacy_view()` 包装，并同步补 `smoke_project_api.py` 断言。
+
+### 8.2 新增迁移
+
+`core.0026..0031`（在线 `0025..0030` 重编号而来），依赖链接在离线 `0025` 之后。
+拉取本分支后需重跑 `manage.py migrate`；已有加密库的桌面安装由启动流程自动迁移。
+
+### 8.3 新增依赖
+
+`requirements.txt` 增加 `openai>=1.35.0`（DeepSeek 配置功能）。当前 venv 已装 3.13.0。
+离线侧原有的 `keyring`、`cryptography`、`waitress` 保留。SQLCipher 依赖仍在
+`requirements-sqlcipher.txt`，两者都要装。
+
+### 8.4 前端页面变化
+
+- `ProjectDetailView.vue` 改为在线的 guide/todos/documents 驱动结构，离线 step-nav 已移除。
+- `DataManagementView.vue` 同时保留离线 CSV 导入 + 桌面备份恢复，与在线 DataSyncPanel +
+  四普边界导入。
+- 新增 `components/system/DataSyncPanel.vue`、`views/system/admin/DeepSeekConfigView.vue`。
+- Django Admin 入口在桌面版走 `/system/admin`（`AdminEntryView`），不再是生产域名。
+
+## 9. 仍待处理
+
+- 人工桌面冒烟（无头环境无法验证 Electron GUI）：见 `docs/offline-sync-playbook.md` 第 7.7 节。
+- 密钥轮换与在线历史清理：见同文档第 7.6 节。
+- 向导密码落盘时序、备份未含 `config/key.bin` 与 `userData/uploads`：Stage 1 未覆盖的离线缺陷。
+- `frontend/src/views/system/auth/LoginView.vue` 仍是未被路由引用的孤儿文件（本次合并未触碰），
+  后续决定接入 `/login` 或删除。
 
