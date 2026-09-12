@@ -20,6 +20,7 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.http import HttpResponse
 from django.views.generic import RedirectView
+from django.views.static import serve
 from core.views import (heritage_map_view, heritage_dashboard_view, heritage_stats_api,
                         heritage_stats_by_category_api, admin_index_view,
                         admin_direct_entry_block_view,
@@ -108,3 +109,38 @@ urlpatterns = [
     # Fallback non-backend paths to SPA entry to avoid backend 404.
     re_path(r'^(?!api/|admin/|static/|media/|mobile/|app-download/|download/).+$', frontend_spa_entry_view, name='frontend_spa_fallback'),
 ] + static(settings.STATIC_URL, document_root=settings.STATIC_ROOT) + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+
+# ---------------------------------------------------------------------------
+# 桌面/离线模式：显式提供静态与媒体资源，与 DJANGO_DEBUG 解耦
+# ---------------------------------------------------------------------------
+# 背景：上面的 django.conf.urls.static.static() 在 settings.DEBUG 为假时直接返回空列表
+# （见 django/conf/urls/static.py），因此离线桌面版此前只能依赖 desktop_backend.py
+# 硬编码 DJANGO_DEBUG='1' 才能加载前端产物与 static/tiles/tianditu 离线瓦片。
+# 而 DEBUG=1 会连带打开 SQL 日志、错误详情页等调试行为，历史上还配合
+# IsManagementAdmin 的 localhost 放行造成本机越权读取。
+# 这里在桌面模式下无条件注册 serve 路由，使静态资源可用性与 DEBUG 彻底无关，
+# 从而允许桌面版以 DEBUG=0 运行。
+#
+# 说明：STATIC_ROOT 在桌面模式下即 APP_DIR/static，已包含 frontend/、tiles/、
+# admin/、app_showcase/ 等全部随包静态资源，故单条 ^static/ 路由即可覆盖
+# （含 static/tiles 与潜在的 static/dem_tiles）。
+# DEM_TILES_DIR（BASE_DIR/dem_tiles）位于 static/ 之外，仅由 utils/dem_handler.py
+# 用 rasterio 在服务端读取，不经 HTTP 暴露，因此无需也不应注册路由。
+#
+# 线上部署（DESKTOP_MODE=0）保持原样：静态资源由 Web 服务器直接提供，
+# 不新增 Django 侧路由，避免改变既有部署契约。
+if settings.DESKTOP_MODE:
+    urlpatterns += [
+        re_path(
+            r'^static/(?P<path>.*)$',
+            serve,
+            {'document_root': settings.STATIC_ROOT},
+            name='desktop_static_serve',
+        ),
+        re_path(
+            r'^media/(?P<path>.*)$',
+            serve,
+            {'document_root': settings.MEDIA_ROOT},
+            name='desktop_media_serve',
+        ),
+    ]

@@ -67,8 +67,9 @@ def _resolve_public_base_url(request=None) -> str:
         except Exception:
             pass
 
-    # Debug/offline mode defaults to local host to avoid leaking production URLs.
-    if settings.DEBUG:
+    # 桌面/离线模式与调试模式一律回落到本机地址，避免把线上域名泄漏进离线包，
+    # 也避免桌面版在 DEBUG=0 后错误地返回生产 URL。
+    if settings.DEBUG or getattr(settings, 'DESKTOP_MODE', False):
         return 'http://127.0.0.1:8000'
     return 'https://beichenhome.top:9081'
 

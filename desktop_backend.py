@@ -142,7 +142,12 @@ def main() -> int:
     port = int(os.environ.get('BACKEND_PORT', '8000'))
 
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'heritage_system.settings')
-    os.environ['DJANGO_DEBUG'] = '1'
+    # DEBUG 不再硬编码为 '1'：
+    #   1) 静态资源与离线瓦片已由 heritage_system/urls.py 中桌面模式专属的 serve 路由提供，
+    #      不再依赖 django.conf.urls.static.static() 的 DEBUG 开关；
+    #   2) DEBUG=1 会打开 SQL 日志与错误详情页（可能回显敏感信息），
+    #      仅在本机调试（HERITAGE_OFFLINE_DEBUG=1）时才启用。
+    os.environ['DJANGO_DEBUG'] = '1' if OFFLINE_DEBUG_MODE else '0'
     os.environ.setdefault('DJANGO_FORCE_HTTPS', '0')
     os.environ['HERITAGE_DESKTOP_MODE'] = '1'
     os.environ['HERITAGE_APP_DIR'] = str(app_dir)

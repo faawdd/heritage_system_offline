@@ -167,6 +167,11 @@ async function run() {
       DJANGO_DEBUG: '1',
       DJANGO_FORCE_HTTPS: '0',
       DJANGO_WEB_BASE_URL: backendOrigin,
+      // 桌面开发模式走 runserver（非 HERITAGE_DESKTOP_MODE），静态资源仍依赖
+      // django.conf.urls.static.static() 的 DEBUG 开关，故此处保留 DEBUG=1。
+      // 鉴权放行已不再由 DEBUG 隐式触发，这里显式开启本机调试兜底，
+      // 使 Vite 热更新下无需每次走登录即可访问管理接口。
+      HERITAGE_DEV_ALLOW_LOCAL_BYPASS: '1',
     }
   )
 

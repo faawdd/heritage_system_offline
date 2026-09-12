@@ -243,13 +243,20 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = '/static/'
-# 开发环境：指定静态文件查找目录
+# 开发环境：指定静态文件查找目录（runserver 的 StaticFilesHandler 依赖 finders 命中此目录）
 STATICFILES_DIRS = [
     os.path.join(APP_DIR, 'static'),
 ]
 # 生产环境：collectstatic命令收集静态文件的目标目录
 if DESKTOP_MODE:
+    # 桌面版不执行 collectstatic：前端产物与离线瓦片已随包放在 APP_DIR/static，
+    # 由 heritage_system.urls 中的 static(STATIC_URL, document_root=STATIC_ROOT) 就地服务。
     STATIC_ROOT = os.path.join(APP_DIR, 'static')
+    # 此时 STATIC_ROOT 与 STATICFILES_DIRS[0] 有意指向同一目录：
+    # 同一份文件既要被 finders 命中（开发态 runserver），又要作为 STATIC_ROOT 直接对外服务（打包态 waitress）。
+    # Django 的 staticfiles.E002 只针对“collectstatic 会把源目录收进自身”这一误用场景，
+    # 桌面版不会执行 collectstatic，因此该告警在此为误报，显式静音以保持 manage.py check 通过。
+    SILENCED_SYSTEM_CHECKS = ['staticfiles.E002']
 else:
     STATIC_ROOT = os.path.join(APP_DIR, 'staticfiles')
 
