@@ -398,9 +398,28 @@
         URL.revokeObjectURL(link.href)
       }
 
+      function buildStatePayload() {
+        // 只回传真正有值的字段：空串会被主进程当成“用户清空”，
+        // 把默认数据/日志目录覆盖掉，界面就会显示 “-” 并报 `mkdir ''` 的假失败。
+        const payload = {}
+        if (currentConfig.dataDir) {
+          payload.dataDir = currentConfig.dataDir
+        }
+        if (currentConfig.logDir) {
+          payload.logDir = currentConfig.logDir
+        }
+        if (currentConfig.backendPort) {
+          payload.backendPort = currentConfig.backendPort
+        }
+        if (currentConfig.systemRegion) {
+          payload.systemRegion = currentConfig.systemRegion
+        }
+        return payload
+      }
+
       async function loadState(options = {}) {
         const preservePortInput = !!options.preservePortInput
-        const state = await window.desktopInit.getState(currentConfig)
+        const state = await window.desktopInit.getState(buildStatePayload())
         const checks = state.checks || {}
         const config = state.config || {}
 

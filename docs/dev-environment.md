@@ -3,7 +3,8 @@
 本文记录离线版（`offline` / v1.2.11）在当前 Windows 机器上的开发调试环境搭建方式、
 已验证的可用链路，以及搭建与加固过程中发现并修复的缺陷（第 5 节为环境阻断类问题，
 第 6 节为"静态服务与 DEBUG 耦合 + 本机越权"的安全解耦改造，第 7 节为 Electron
-桌面登录链路从假登录改为真实 JWT 的修复）。
+桌面登录链路从假登录改为真实 JWT 的修复，第 9 节为桌面启动初始化链路
+（"每次启动都要重新初始化"的向导循环）与单实例锁的修复）。
 
 ## 1. 工具链
 
@@ -119,6 +120,7 @@ cd frontend ; npm run build
 | `audit_debug_bypass.py` | 三段式回归：鉴权默认拒绝、DEBUG=0 静态仍可用、显式开关恢复放行 |
 | `smoke_desktop_login.py` | 桌面登录链路回归：向导密码登录签发 JWT、解锁收紧接口、refresh 续期、test/test 后门已移除 |
 | `smoke_project_api.py` | v1.2.12 新增项目端点在 JWT 下不被 401/403、路由确已注册、匿名仍 401（合并回归） |
+| `smoke_electron_startup.cjs` | 桌面启动初始化链路（无需 GUI）：向导配置落盘、数据库缺失不再弹向导、重复启动提示、单实例锁 |
 
 当前实测结果（Django 6.1.1 / Python 3.13.15 / Node 24.21.0，合并 `bfd9c67` 后重跑）：
 
@@ -131,6 +133,7 @@ smoke_vite_dev.py      DEV-SMOKE SUMMARY: 4/4 passed
 audit_debug_bypass.py  AUDIT SUMMARY: 13/13 passed
 smoke_desktop_login.py DESKTOP-LOGIN SUMMARY: 12/12 passed
 smoke_project_api.py   PROJECT-API SUMMARY: 11/11 passed
+smoke_electron_startup.cjs  ELECTRON-STARTUP SUMMARY: 20/20 passed
 manage.py check        no issues（非桌面模式）
 manage.py check        no issues (1 silenced)（HERITAGE_DESKTOP_MODE=1）
 manage.py test core    Ran 15 tests ... OK
@@ -316,11 +319,71 @@ localStorage 令牌对主窗口可见。
 - 新增 `components/system/DataSyncPanel.vue`、`views/system/admin/DeepSeekConfigView.vue`。
 - Django Admin 入口在桌面版走 `/system/admin`（`AdminEntryView`），不再是生产域名。
 
-## 9. 仍待处理
+## 9. 桌面启动初始化链路修复（“每次启动都要重新初始化”）
+
+### 9.1 问题
+
+现象：向导填写完成、提示“初始化成功”，重启桌面版仍然弹初始化向导；再填一次、再重启
+还是弹，用户永远进不到业务界面。而**真正的失败原因（后端没起来）被这个循环掩盖**。
+
+三个独立缺陷叠加：
+
+1. **`requiresInitialization()` 用 `database.db` 是否存在作判据**（v1.2.11 的 `0795906` 引入）。
+   该文件并不由向导创建，而是后端启动时建库/迁移（`bootstrap_sqlcipher_database`）
+   才出现。所以只要这一次后端没跑起来（首次解包慢、被杀软拦截、后端崩溃、
+   `HERITAGE_DB_FILE` 被系统环境变量指到别处），下次启动就判定“未初始化” → 又弹向导，
+   形成死循环。
+2. **向导把空串当成“用户清空”**。`wizard.html` 首次加载时 `currentConfig.dataDir/logDir`
+   还是空串，`desktop-init:get-state` 用 `{...current, ...payload}` 整份合并后
+   默认数据/日志目录被空串覆盖，向导界面显示 “-” 并报 `mkdir ''` 的假失败，
+   用户以为“路径校验不通过、配置没生效”。
+3. **没有单实例锁**。向导保存完成到后端就绪之间没有任何窗口，用户会重复点击桌面图标：
+   第二个实例又跑一遍初始化检测（此时 `database.db` 尚未创建）→ 再弹一个向导窗口，
+   进一步强化“配置没保存”的错觉。
+
+### 9.2 修复
+
+`frontend/electron/main.cjs`：
+
+- `requiresInitialization()` 去掉 `database.db` 判据，只看“配置是否已由向导确认过”
+  （`initialized` + `systemNameConfigured` + 非空 `dataDir`）；数据库缺失交由后端自愈重建。
+- 新增 `pickProvidedConfigFields()`，`desktop-init:get-state` 只接受非空字段；
+  `desktop-init:complete` 的 `dataDir/logDir` 同样改为 `trim()` 后为空即回落当前值。
+- 新增 `backendExitInfo` + `wireBackendProcess()`：监听后端 `exit`/`error`，
+  `waitForBackendReady()` 在后端进程已退出时立即返回失败（不再空等到超时）；
+  新增 `describeBackendStartupFailure()`，把 exit code/signal、`backend.log` 路径与末尾 20 行、
+  以及“已完成的初始化配置会保留，无需再次初始化”一并报给用户。
+- 后端就绪等待上限由硬编码 30 秒改为 90 秒（`HERITAGE_BACKEND_READY_TIMEOUT_MS` 可覆盖），
+  避免机械盘首启被误判成启动失败。
+- 显式下发 `HERITAGE_DB_FILE`，避免系统环境变量残留使真实数据库路径与判定/校验路径不一致。
+- 新增 `app.requestSingleInstanceLock()` 与 `second-instance` → `focusPrimaryWindow()`：
+  已有窗口就还原/聚焦，还没有窗口（首启就绪前）则提示“系统正在启动，请稍候”。
+
+`frontend/electron/wizard.html`：新增 `buildStatePayload()`，`loadState()` 只回传有值的字段。
+
+### 9.3 验证
+
+`scripts/dev/smoke_electron_startup.cjs`（新增，无需 GUI）用假 electron 运行时加载**真实的**
+`main.cjs`，四个场景 **20/20** 通过：
+
+| 场景 | 断言 |
+| --- | --- |
+| `first` | 打开向导；向导回传空目录不覆盖默认 `dataDir/logDir`；只回传非空字段同样通过校验；保存后 `initialized=true` 且目录保留；`database.db` 确实不存在；后端退出时弹失败框且含 exit code、`backend.log` 路径、末尾日志与“无需再次初始化”；随后退出 |
+| `second` | **配置已保存但 `database.db` 缺失时不再弹向导**（核心回归），仍给出可诊断的后端失败信息 |
+| `second-instance` | 重复点击图标不重跑初始化检测，提示“系统正在启动” |
+| `locked` | 拿不到单实例锁时直接退出：不建窗口、不弹错误框、不启动后端 |
+
+> 说明：脚本用 `node.exe` 冒充打包后的 `heritage_backend.exe`（它不是后端，会立即自行退出），
+> 因此能**确定性**复现“后端进程提前退出”分支，不依赖真实后端与 Windows GUI。
+> 渲染层与真实后端的联动仍需人工桌面冒烟，见 `docs/offline-sync-playbook.md` 第 7.7 节。
+
+## 10. 仍待处理
 
 - 人工桌面冒烟（无头环境无法验证 Electron GUI）：见 `docs/offline-sync-playbook.md` 第 7.7 节。
+  其中主进程侧的启动/初始化分支已由 `scripts/dev/smoke_electron_startup.cjs` 覆盖，
+  待人工验证的只剩渲染层与真实后端的联动。
 - 密钥轮换与在线历史清理：见同文档第 7.6 节。
 - 向导密码落盘时序、备份未含 `config/key.bin` 与 `userData/uploads`：Stage 1 未覆盖的离线缺陷。
 - `frontend/src/views/system/auth/LoginView.vue` 仍是未被路由引用的孤儿文件（本次合并未触碰），
-  后续决定接入 `/login` 或删除。
+    后续决定接入 `/login` 或删除。
 

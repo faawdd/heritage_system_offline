@@ -35,6 +35,7 @@
 | `key.bin` 丢失 → 硬崩溃 | `6f9e55f` | `connection.py` `_should_fallback_without_key` / `_open_plain_sqlite` |
 | 配置/密钥写进只读安装目录（Program Files） | `f62028d` | `main.cjs` `userRuntimeRoot` → `app.getPath('userData')`，新增 `HERITAGE_UPLOAD_DIR` / `HERITAGE_BACKUP_DIR` |
 | 数据目录被清空后跳过向导 | `0795906` | `main.cjs` `requiresInitialization` 增加 `hasDatabase` 判断 |
+| ⚠️ 上一条**已回退**（该判据会导致“每次启动都重新初始化”） | 本次（见 `docs/dev-environment.md` 第 9 节） | `main.cjs` `requiresInitialization` 不再看 `database.db`；新增向导字段过滤、后端退出诊断与单实例锁；回归脚本 `scripts/dev/smoke_electron_startup.cjs` |
 | 登录窗被路由守卫重定向 | `0795906` | `main.cjs` `/login?login_window=1` + `router/index.js` `isDesktopLoginWindowRoute` |
 | Windows 包名错误导致 `pip install` 失败 | `d61e716` | `requirements-sqlcipher.txt` `sqlcipher3-binary` → `sqlcipher3` |
 | 离线瓦片缺失 / 只到 z13 | `536b643` / `dce7aa7` | `static/tiles/tianditu/**`（约 1200 张）、`DEFAULT_ZOOM_MAX = 18`、`scripts/refresh_tianditu_tiles.sh` |
@@ -344,6 +345,7 @@ core.0024_rename_..._and_more
 | HTTP 冒烟 | `scripts/dev/smoke_http.py` | 10/10 |
 | Vite 开发代理 | `scripts/dev/smoke_vite_dev.py` | 4/4 |
 | **在线端点 JWT 可用性** | `scripts/dev/smoke_project_api.py`（本次新增） | 11/11 |
+| **桌面启动初始化链路** | `scripts/dev/smoke_electron_startup.cjs`（本次新增，无需 GUI） | ELECTRON-STARTUP 20/20 |
 | Electron IPC 契约 | 脚本比对 main.cjs / preload.cjs / 调用方 | 10 通道双向匹配，无后门残留 |
 | 前端产物新鲜度 | 源文件 mtime vs `static/frontend/index.html` | 0 个更新源文件 |
 
@@ -365,10 +367,17 @@ core.0024_rename_..._and_more
    `feat/online-v1.2.12` / `origin/master` / `v1.2.12` 标签的历史 blob 仍含私钥。
    对外分享前需 `git filter-repo` 或仅推送净化分支与 `offline`。
 3. **Electron GUI 无法在无头环境验证**，仍需人工桌面冒烟（见第 7.7 节）。
+   主进程侧的启动/初始化分支已由 `scripts/dev/smoke_electron_startup.cjs` 无头覆盖
+   （向导配置落盘、`database.db` 缺失不再弹向导、重复启动提示、单实例锁 20/20），
+   待人工确认的只剩渲染层与真实后端的联动。
 4. 第 3 节问题 4（向导密码落盘时序）、问题 9（备份不含 `key.bin` 与 uploads）**尚未处理**，
    属独立于本次合并的离线缺陷。
 
 ### 7.7 待人工执行的桌面冒烟
+
+> 无头环境下，主进程的启动/初始化分支已由 `scripts/dev/smoke_electron_startup.cjs` 覆盖
+> （见 `docs/dev-environment.md` 第 9 节）；本节只需验证下面这些**依赖真实渲染层**的项。
+
 
 ```powershell
 powershell -File scripts\start_offline.ps1 -Mode desktop

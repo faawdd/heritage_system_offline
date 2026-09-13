@@ -12,6 +12,15 @@ const BACKEND_PORT = Number(process.env.BACKEND_PORT || 18000)
 const CONFIG_FILE_NAME = 'desktop-config.json'
 const DEFAULT_SYSTEM_NAME = '文物管理系统（离线版）'
 
+// 后端就绪等待时长（可用 HERITAGE_BACKEND_READY_TIMEOUT_MS 覆盖）。
+// 首次启动需要解包 PyInstaller runtime 并执行数据库迁移，
+// 在机械盘、首次被杀软扫描的机器上会明显超过 30 秒；
+// 过短会把“启动慢”误判成“启动失败”，用户重开时又回到初始化向导。
+const BACKEND_READY_TIMEOUT_MS = (() => {
+  const raw = Number(process.env.HERITAGE_BACKEND_READY_TIMEOUT_MS)
+  return Number.isFinite(raw) && raw > 0 ? raw : 90000
+})()
+
 let backendProcess = null
 let backendLogStream = null
 let mainWindow = null
@@ -19,6 +28,9 @@ let loginWindow = null
 let initWizardWindow = null
 let runtimeConfig = null
 let bootstrapAdminPassword = ''
+// 后端进程在“就绪之前”退出的现场信息（exit code / signal / spawn 错误）。
+// 用于把“后端启动失败”尽快、可诊断地报给用户，而不是空等到超时后再报笼统错误。
+let backendExitInfo = null
 // 登录窗口是否已通过真实后端登录（渲染进程拿到 JWT 后通知主进程）。
 // 仅用于决定"关闭登录窗口"时是否应退出应用，不参与任何权限判定。
 let loginWindowAuthenticated = false
@@ -48,6 +60,37 @@ function normalizeSystemRegion(value = '') {
   return String(value || '').trim()
 }
 
+function pickProvidedConfigFields(payload = {}) {
+  // 只接受向导真正填写过的字段，空值一律视为“未提供”。
+  // 向导渲染进程首次加载时会把自己那份（dataDir/logDir 为空串）配置一起回传，
+  // 若直接整份合并，默认的数据/日志目录会被空串覆盖，
+  // 界面会显示 “-” 并报 `mkdir ''` 的假失败（用户会以为路径校验不通过）。
+  const source = payload || {}
+  const provided = {}
+
+  const dataDir = String(source.dataDir || '').trim()
+  if (dataDir) {
+    provided.dataDir = dataDir
+  }
+
+  const logDir = String(source.logDir || '').trim()
+  if (logDir) {
+    provided.logDir = logDir
+  }
+
+  const backendPort = Number(source.backendPort)
+  if (Number.isFinite(backendPort) && backendPort > 0) {
+    provided.backendPort = backendPort
+  }
+
+  const systemRegion = normalizeSystemRegion(source.systemRegion)
+  if (systemRegion) {
+    provided.systemRegion = systemRegion
+  }
+
+  return provided
+}
+
 function buildSystemName(systemRegion = '') {
   const normalizedRegion = normalizeSystemRegion(systemRegion)
   return normalizedRegion ? `${normalizedRegion}文物管理系统` : DEFAULT_SYSTEM_NAME
@@ -66,11 +109,24 @@ function normalizeDesktopConfig(rawConfig = {}) {
   }
 }
 
+function getDatabaseFilePath(config = {}) {
+  const normalized = normalizeDesktopConfig(config)
+  const dataDir = String(normalized.dataDir || '').trim()
+  if (!dataDir) {
+    return ''
+  }
+  return path.join(dataDir, 'database.db')
+}
+
 function requiresInitialization(config = {}) {
   const normalized = normalizeDesktopConfig(config)
-  const dbFilePath = path.join(String(normalized.dataDir || ''), 'database.db')
-  const hasDatabase = Boolean(dbFilePath) && fs.existsSync(dbFilePath)
-  return !normalized.initialized || !normalized.systemNameConfigured || !hasDatabase
+  // 注意：不能用 database.db 是否存在作为判据。
+  // 数据库文件由后端在启动时创建/迁移（bootstrap_sqlcipher_database）：
+  // 首次启动解包较慢、后端启动失败、数据库被放到其它路径时，该文件都会“暂时或永久缺失”。
+  // 若据此要求重新初始化，用户填完配置后每次启动都会再看到初始化向导，
+  // 真正的错误（后端启动失败）反而被这个“向导循环”掩盖。
+  // 因此这里只判断“配置是否已由向导确认过”，数据库缺失交由后端自愈重建。
+  return !normalized.initialized || !normalized.systemNameConfigured || !String(normalized.dataDir || '').trim()
 }
 
 function ensureDirectoryExists(dirPath) {
@@ -231,11 +287,60 @@ function canConnect(url) {
   })
 }
 
-async function waitForBackendReady(port, timeoutMs = 30000) {
+function readBackendLogTail(logDir, maxLines = 20) {
+  const normalizedLogDir = String(logDir || '').trim()
+  if (!normalizedLogDir) {
+    return ''
+  }
+
+  try {
+    const logFile = path.join(normalizedLogDir, 'backend.log')
+    if (!fs.existsSync(logFile)) {
+      return ''
+    }
+
+    const lines = fs.readFileSync(logFile, 'utf-8').split(/\r?\n/).filter((line) => line.trim())
+    return lines.slice(-maxLines).join('\n')
+  } catch (_error) {
+    return ''
+  }
+}
+
+function describeBackendStartupFailure(config = {}) {
+  const parts = []
+
+  if (backendExitInfo) {
+    const signalText = backendExitInfo.signal ? `，signal: ${backendExitInfo.signal}` : ''
+    parts.push(`后端进程已退出（exit code: ${backendExitInfo.code ?? '-'}${signalText}）。`)
+    if (backendExitInfo.error) {
+      parts.push(`错误：${String(backendExitInfo.error.message || backendExitInfo.error)}`)
+    }
+  } else {
+    parts.push(`后端服务未在 ${Math.round(BACKEND_READY_TIMEOUT_MS / 1000)} 秒内就绪。`)
+  }
+
+  const logDir = String(config.logDir || '').trim()
+  if (logDir) {
+    parts.push(`日志文件：${path.join(logDir, 'backend.log')}`)
+    const logTail = readBackendLogTail(logDir)
+    if (logTail) {
+      parts.push(`最近日志（末尾 20 行）：\n${logTail}`)
+    }
+  }
+
+  parts.push('可重新点击桌面图标重试；已完成的初始化配置会保留，无需再次初始化。')
+  return parts.join('\n')
+}
+
+async function waitForBackendReady(port, timeoutMs = BACKEND_READY_TIMEOUT_MS) {
   const healthUrl = `http://${BACKEND_HOST}:${port}/api/v1/health/`
   const deadline = Date.now() + timeoutMs
 
   while (Date.now() < deadline) {
+    if (backendExitInfo) {
+      // 后端进程已经结束，继续等待没有意义，尽快返回以给出可诊断的错误。
+      return false
+    }
     if (await canConnect(healthUrl)) {
       return true
     }
@@ -273,6 +378,28 @@ function closeLogStream() {
   backendLogStream = null
 }
 
+function wireBackendProcess() {
+  backendExitInfo = null
+
+  if (!backendProcess) {
+    return
+  }
+
+  if (backendProcess.stdout && backendLogStream) {
+    backendProcess.stdout.pipe(backendLogStream, { end: false })
+  }
+  if (backendProcess.stderr && backendLogStream) {
+    backendProcess.stderr.pipe(backendLogStream, { end: false })
+  }
+
+  backendProcess.once('error', (error) => {
+    backendExitInfo = { code: null, signal: '', error }
+  })
+  backendProcess.once('exit', (code, signal) => {
+    backendExitInfo = { code, signal: signal || '', error: null }
+  })
+}
+
 function startBackend(config) {
   ensureLogStream(config.logDir)
 
@@ -303,6 +430,10 @@ function startBackend(config) {
     HERITAGE_LOG_DIR: config.logDir,
     HERITAGE_UPLOAD_DIR: uploadDir,
     HERITAGE_BACKUP_DIR: backupDir,
+    // 显式下发数据库文件路径：后端优先使用 HERITAGE_DB_FILE，
+    // 若系统环境里残留了该变量，数据库会被写到别处，
+    // 启动前的数据目录校验/就绪判定就会与实际数据文件不一致（表现为反复进入初始化向导）。
+    HERITAGE_DB_FILE: getDatabaseFilePath(config),
     DJANGO_DEBUG: '1',
     DJANGO_FORCE_HTTPS: '0',
     DJANGO_WEB_BASE_URL: `http://${BACKEND_HOST}:${config.backendPort}`,
@@ -328,12 +459,7 @@ function startBackend(config) {
       windowsHide: true,
     })
 
-    if (backendProcess.stdout && backendLogStream) {
-      backendProcess.stdout.pipe(backendLogStream, { end: false })
-    }
-    if (backendProcess.stderr && backendLogStream) {
-      backendProcess.stderr.pipe(backendLogStream, { end: false })
-    }
+    wireBackendProcess()
     return
   }
 
@@ -347,12 +473,7 @@ function startBackend(config) {
     windowsHide: true,
   })
 
-  if (backendProcess.stdout && backendLogStream) {
-    backendProcess.stdout.pipe(backendLogStream, { end: false })
-  }
-  if (backendProcess.stderr && backendLogStream) {
-    backendProcess.stderr.pipe(backendLogStream, { end: false })
-  }
+  wireBackendProcess()
 }
 
 function stopBackend() {
@@ -560,9 +681,11 @@ function setupAuthIpc() {
 function setupInitIpc() {
   ipcMain.handle('desktop-init:get-state', async (_event, payload = {}) => {
     const current = loadDesktopConfig()
+    // 只接受向导真正填写过的字段：否则向导回传的空串会把默认数据/日志目录覆盖掉，
+    // 界面就会显示 “-” 并报 `mkdir ''` 的假失败，用户以为配置没生效。
     const merged = {
       ...current,
-      ...payload,
+      ...pickProvidedConfigFields(payload),
     }
     const state = await buildInitState(merged)
     return state
@@ -592,8 +715,8 @@ function setupInitIpc() {
     const chosenPort = Number(payload.backendPort || current.backendPort || BACKEND_PORT)
     const merged = {
       ...current,
-      dataDir: String(payload.dataDir || current.dataDir),
-      logDir: String(payload.logDir || current.logDir),
+      dataDir: String(payload.dataDir || '').trim() || current.dataDir,
+      logDir: String(payload.logDir || '').trim() || current.logDir,
       openImportAfterInit: Boolean(payload.openImportAfterInit),
       initialized: true,
       backendPort: chosenPort,
@@ -870,7 +993,29 @@ function openInitWizard() {
   })
 }
 
-app.whenReady().then(async () => {
+function focusPrimaryWindow() {
+  const target = [initWizardWindow, loginWindow, mainWindow].find((win) => win && !win.isDestroyed())
+
+  if (target) {
+    if (typeof target.isMinimized === 'function' && target.isMinimized()) {
+      target.restore()
+    }
+    target.show()
+    target.focus()
+    return
+  }
+
+  // 首次启动时后端就绪前还没有任何窗口：此时重复点击桌面图标必须给出明确反馈，
+  // 否则用户会以为“没启动/配置没保存”，反复启动并反复看到初始化向导。
+  dialog.showMessageBox({
+    type: 'info',
+    title: '系统正在启动',
+    message: '系统正在启动中，请稍候。后端服务就绪后会自动打开窗口。',
+    buttons: ['确定'],
+  })
+}
+
+async function bootstrapApplication() {
   try {
     setupApplicationMenu()
     setupInitIpc()
@@ -896,7 +1041,7 @@ app.whenReady().then(async () => {
 
       const ok = await waitForBackendReady(runtimeConfig.backendPort)
       if (!ok) {
-        throw new Error(`后端服务未在限定时间内就绪，请检查日志文件：${path.join(runtimeConfig.logDir, 'backend.log')}`)
+        throw new Error(describeBackendStartupFailure(runtimeConfig))
       }
 
       if (runtimeConfig?.bootstrapAdminPassword) {
@@ -914,7 +1059,20 @@ app.whenReady().then(async () => {
     dialog.showErrorBox('离线桌面版启动失败', String(error?.message || error))
     app.quit()
   }
-})
+}
+
+// 单实例锁：完成初始化向导后、后端就绪前界面没有任何窗口，用户往往会再次点击桌面图标；
+// 若允许第二个实例启动，它会重跑一遍初始化检测（此时数据库尚未创建）并又弹一次初始化向导，
+// 造成“配置填了但每次启动都要重填”的错觉。
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    focusPrimaryWindow()
+  })
+
+  app.whenReady().then(bootstrapApplication)
+}
 
 app.on('window-all-closed', () => {
   stopBackend()
