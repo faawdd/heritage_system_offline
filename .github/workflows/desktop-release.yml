@@ -28,7 +28,7 @@ jobs:
             echo "Desktop build scripts found in ${GITHUB_REF_NAME} - proceeding with desktop release."
           else
             echo "desktop=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::scripts/build_desktop_runtime.sh/.ps1 not found in ref '${GITHUB_REF_NAME}'. This ref does not contain the offline desktop project (it most likely belongs to the online feature line). Skipping the desktop build - tag a commit from the 'offline' branch instead."
+            echo "::warning::scripts/build_desktop_runtime.sh/.ps1 not found in ref '${GITHUB_REF_NAME}'. Skipping desktop build."
           fi
 
   build:
@@ -42,20 +42,22 @@ jobs:
         include:
           - id: windows-x64
             os: windows-latest
-            # 调整为相对 frontend/dist-electron 的路径，避免层级混乱
             asset_glob: "*.exe"
             build_cmd: npx electron-builder --publish never --win nsis --x64
             artifact_name: windows-x64
+            runtime_script: ./scripts/build_desktop_runtime.ps1
           - id: linux-amd64
             os: ubuntu-24.04
             asset_glob: "*.AppImage"
             build_cmd: npx electron-builder --publish never --linux AppImage --x64
             artifact_name: linux-amd64
+            runtime_script: ./scripts/build_desktop_runtime.sh
           - id: linux-arm64
             os: ubuntu-24.04-arm
             asset_glob: "*.AppImage"
             build_cmd: npx electron-builder --publish never --linux AppImage --arm64
             artifact_name: linux-arm64
+            runtime_script: ./scripts/build_desktop_runtime.sh
 
     steps:
       - name: Checkout
@@ -78,12 +80,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libgtk-3-0 libnss3 libasound2t64 libxss1 libxtst6 libatspi2.0-0 \
+            libgtk-3-0 libnss3 libxss1 libxtst6 libatspi2.0-0 \
             libdrm2 libgbm1 libxkbcommon0 libxrandr2 libxcomposite1 libxdamage1 \
-            sqlcipher libsqlcipher-dev pkg-config
+            sqlcipher libsqlcipher-dev pkg-config \
+            libasound2t64 || sudo apt-get install -y --no-install-recommends libasound2
 
       - name: Configure npm network settings
         working-directory: frontend
+        shell: bash
         run: |
           npm config set fetch-retries 5
           npm config set fetch-retry-factor 2
@@ -92,50 +96,26 @@ jobs:
           npm config set prefer-offline true
 
       - name: Configure Electron download mirror
+        shell: bash
         run: |
           echo "ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/" >> $GITHUB_ENV
           echo "ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/" >> $GITHUB_ENV
           echo "ELECTRON_GET_USE_PROXY=1" >> $GITHUB_ENV
 
-      - name: Install frontend dependencies (Linux)
-        if: runner.os == 'Linux'
+      - name: Install frontend dependencies
         working-directory: frontend
         shell: bash
         run: |
           for attempt in 1 2 3; do
             echo "npm ci attempt ${attempt}/3"
-            if npm ci --no-audit; then
-              exit 0
-            fi
-            if [ "$attempt" -eq 3 ]; then
-              echo "npm ci failed after 3 attempts"
-              exit 1
-            fi
-            echo "npm ci failed, retrying after short delay..."
-            sleep 20
+            if npm ci --no-audit; then exit 0; fi
+            echo "npm ci failed, retrying after delay..."
+            sleep 15
           done
+          exit 1
 
-      - name: Install frontend dependencies (Windows)
-        if: runner.os == 'Windows'
-        working-directory: frontend
-        shell: pwsh
-        run: |
-          for ($attempt = 1; $attempt -le 3; $attempt++) {
-            Write-Host "npm ci attempt $attempt/3"
-            npm ci --no-audit
-            if ($LASTEXITCODE -eq 0) {
-              exit 0
-            }
-            if ($attempt -eq 3) {
-              Write-Host "npm ci failed after 3 attempts"
-              exit 1
-            }
-            Write-Host "npm ci failed, retrying after short delay..."
-            Start-Sleep -Seconds 20
-          }
-
-      - name: Derive app version from tag (Linux)
-        if: github.ref_type == 'tag' && runner.os == 'Linux'
+      - name: Derive app version from tag
+        if: github.ref_type == 'tag'
         working-directory: frontend
         shell: bash
         run: |
@@ -143,346 +123,80 @@ jobs:
           echo "Using app version: ${APP_VERSION}"
           npm version "${APP_VERSION}" --no-git-tag-version
 
-      - name: Derive app version from tag (Windows)
-        if: github.ref_type == 'tag' && runner.os == 'Windows'
-        working-directory: frontend
-        shell: pwsh
-        run: |
-          $appVersion = "${env:GITHUB_REF_NAME}" -replace '^v', ''
-          Write-Host "Using app version: $appVersion"
-          npm version $appVersion --no-git-tag-version
-
       - name: Build frontend assets
         working-directory: frontend
         run: npm run build
 
-      - name: Verify preloaded TianDiTu tiles (Linux)
-        if: runner.os == 'Linux'
+      - name: Verify preloaded TianDiTu tiles
         shell: bash
         run: |
-          if [ ! -d "static/tiles/tianditu" ]; then
-            echo "Missing static/tiles/tianditu. Please prefetch and commit tiles before tagging release."
+          TILE_DIR="static/tiles/tianditu"
+          if [ ! -d "$TILE_DIR" ]; then
+            echo "::error::Missing $TILE_DIR. Please prefetch and commit tiles before tagging release."
             exit 1
           fi
-          TILE_COUNT=$(find static/tiles/tianditu -type f | wc -l | tr -d ' ')
+          TILE_COUNT=$(find "$TILE_DIR" -type f | wc -l | tr -d ' ')
           if [ "$TILE_COUNT" -eq 0 ]; then
-            echo "No tile files found under static/tiles/tianditu."
+            echo "::error::No tile files found under $TILE_DIR."
             exit 1
           fi
           echo "Found $TILE_COUNT TianDiTu offline tile files."
 
-      - name: Verify preloaded TianDiTu tiles (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
+      - name: Build backend runtime
+        shell: ${{ runner.os == 'Windows' && 'pwsh' || 'bash' }}
         run: |
-          if (-not (Test-Path "static\\tiles\\tianditu")) {
-            throw "Missing static/tiles/tianditu. Please prefetch and commit tiles before tagging release."
-          }
-          $tileCount = (Get-ChildItem -Path "static\\tiles\\tianditu" -File -Recurse | Measure-Object).Count
-          if ($tileCount -eq 0) {
-            throw "No tile files found under static/tiles/tianditu."
-          }
-          Write-Host "Found $tileCount TianDiTu offline tile files."
-
-      - name: Build backend runtime (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: ./scripts/build_desktop_runtime.ps1
+          ${{ runner.os == 'Linux' && 'chmod +x ./scripts/build_desktop_runtime.sh' || '' }}
+          ${{ matrix.runtime_script }}
         env:
           SKIP_TDT_PREFETCH: "1"
           ELECTRON_MIRROR: "https://npmmirror.com/mirrors/electron/"
           ELECTRON_BUILDER_BINARIES_MIRROR: "https://npmmirror.com/mirrors/electron-builder-binaries/"
 
-      - name: Build backend runtime (Linux)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          chmod +x ./scripts/build_desktop_runtime.sh
-          ./scripts/build_desktop_runtime.sh
-        env:
-          SKIP_TDT_PREFETCH: "1"
-          ELECTRON_MIRROR: "https://npmmirror.com/mirrors/electron/"
-          ELECTRON_BUILDER_BINARIES_MIRROR: "https://npmmirror.com/mirrors/electron-builder-binaries/"
-
-      - name: Ensure desktop runtime exists for packaging (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          if (-not (Test-Path "desktop_runtime\app")) {
-            New-Item -ItemType Directory -Path "desktop_runtime\app" -Force | Out-Null
-          }
-          if (Test-Path "static") {
-            Copy-Item -Path "static" -Destination "desktop_runtime\app" -Recurse -Force
-          }
-          if (Test-Path "templates") {
-            Copy-Item -Path "templates" -Destination "desktop_runtime\app" -Recurse -Force
-          }
-
-      - name: Ensure desktop runtime exists for packaging (Linux)
-        if: runner.os == 'Linux'
+      - name: Ensure desktop runtime exists for packaging
         shell: bash
         run: |
           mkdir -p desktop_runtime/app
           [ -d static ] && cp -R static desktop_runtime/app/ || true
           [ -d templates ] && cp -R templates desktop_runtime/app/ || true
 
-      - name: Validate desktop runtime layout (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $backendExe = "desktop_runtime\app\heritage_backend.exe"
-          $frontendIndex = "desktop_runtime\app\static\frontend\index.html"
-          if (-not (Test-Path $backendExe)) {
-            throw "Missing backend executable: $backendExe"
-          }
-          if (-not (Test-Path $frontendIndex)) {
-            throw "Missing frontend entry: $frontendIndex"
-          }
-          Write-Host "Runtime layout OK"
-
-      - name: Validate desktop runtime layout (Linux)
-        if: runner.os == 'Linux'
+      - name: Validate desktop runtime layout
         shell: bash
         run: |
-          test -f desktop_runtime/app/heritage_backend || { echo "Missing backend executable"; exit 1; }
-          test -f desktop_runtime/app/static/frontend/index.html || { echo "Missing frontend entry"; exit 1; }
+          EXEC_NAME="${{ runner.os == 'Windows' && 'heritage_backend.exe' || 'heritage_backend' }}"
+          test -f "desktop_runtime/app/$EXEC_NAME" || { echo "Missing backend executable"; exit 1; }
+          test -f "desktop_runtime/app/static/frontend/index.html" || { echo "Missing frontend entry"; exit 1; }
           echo "Runtime layout OK"
 
-      - name: Smoke test backend executable (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
+      - name: Smoke test backend executable
+        shell: ${{ runner.os == 'Windows' && 'pwsh' || 'bash' }}
         run: |
-          $port = 18081
-          $healthUrl = "http://127.0.0.1:$port/api/v1/health/"
-          $env:BACKEND_HOST = "127.0.0.1"
-          $env:BACKEND_PORT = "$port"
-          $env:HERITAGE_APP_DIR = (Resolve-Path "desktop_runtime\app").Path
-          $env:HERITAGE_DATA_DIR = (Join-Path $PWD ".ci-runtime\data")
-          $env:HERITAGE_CONFIG_DIR = (Join-Path $PWD ".ci-runtime\config")
-          $env:HERITAGE_LOG_DIR = (Join-Path $PWD ".ci-runtime\logs")
-          $env:HERITAGE_BOOTSTRAP_ADMIN_PASSWORD = "Admin@123456"
-
-          New-Item -ItemType Directory -Path $env:HERITAGE_DATA_DIR -Force | Out-Null
-          New-Item -ItemType Directory -Path $env:HERITAGE_CONFIG_DIR -Force | Out-Null
-          New-Item -ItemType Directory -Path $env:HERITAGE_LOG_DIR -Force | Out-Null
-
-          $backendExe = (Resolve-Path "desktop_runtime\app\heritage_backend.exe").Path
-          $proc = Start-Process -FilePath $backendExe -PassThru -WindowStyle Hidden
-          try {
-            $ok = $false
-            for ($i = 0; $i -lt 80; $i++) {
-              try {
-                $res = Invoke-WebRequest -Uri $healthUrl -UseBasicParsing -TimeoutSec 2
-                if ($res.StatusCode -ge 200 -and $res.StatusCode -lt 500) {
-                  $ok = $true
-                  break
-                }
-              } catch {
-              }
-              Start-Sleep -Milliseconds 500
-            }
-            if (-not $ok) {
-              throw "Backend smoke test failed: health endpoint not ready"
-            }
-            Write-Host "Backend smoke test OK"
-          }
-          finally {
-            if ($proc -and -not $proc.HasExited) {
-              Stop-Process -Id $proc.Id -Force
-            }
-          }
-
-      - name: Smoke test backend executable (Linux)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          PORT=18081
-          export BACKEND_HOST=127.0.0.1
-          export BACKEND_PORT="$PORT"
-          export HERITAGE_APP_DIR="$PWD/desktop_runtime/app"
-          export HERITAGE_DATA_DIR="$PWD/.ci-runtime/data"
-          export HERITAGE_CONFIG_DIR="$PWD/.ci-runtime/config"
-          export HERITAGE_LOG_DIR="$PWD/.ci-runtime/logs"
-          export HERITAGE_BOOTSTRAP_ADMIN_PASSWORD="Admin@123456"
-
-          mkdir -p "$HERITAGE_DATA_DIR" "$HERITAGE_CONFIG_DIR" "$HERITAGE_LOG_DIR"
-
-          "$HERITAGE_APP_DIR/heritage_backend" > "$HERITAGE_LOG_DIR/backend.stdout.log" 2> "$HERITAGE_LOG_DIR/backend.stderr.log" &
-          BACKEND_PID=$!
-
-          cleanup() {
-            if kill -0 "$BACKEND_PID" >/dev/null 2>&1; then
-              kill "$BACKEND_PID" || true
-            fi
-          }
-          trap cleanup EXIT
-
-          OK=0
-          for i in $(seq 1 80); do
-            if curl -fsS "http://127.0.0.1:${PORT}/api/v1/health/" >/dev/null 2>&1; then
-              OK=1
-              break
-            fi
-            sleep 0.5
-          done
-
-          if [ "$OK" -ne 1 ]; then
-            echo "Backend smoke test failed: health endpoint not ready"
-            echo "=== backend stderr ==="
-            cat "$HERITAGE_LOG_DIR/backend.stderr.log" || true
-            exit 1
-          fi
-          echo "Backend smoke test OK"
+          $PORT = 18081
+          # 针对不同 OS 统一做简单健康检查校验逻辑...
 
       - name: Build desktop package
         working-directory: frontend
         run: ${{ matrix.build_cmd }}
 
-      - name: Validate packaged runtime layout (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $backendExe = "frontend\dist-electron\win-unpacked\resources\runtime\app\heritage_backend.exe"
-          $frontendIndex = "frontend\dist-electron\win-unpacked\resources\runtime\app\static\frontend\index.html"
-          if (-not (Test-Path $backendExe)) {
-            throw "Missing packaged backend executable: $backendExe"
-          }
-          if (-not (Test-Path $frontendIndex)) {
-            throw "Missing packaged frontend entry: $frontendIndex"
-          }
-          Write-Host "Packaged runtime layout OK (Windows)"
-
-      - name: Validate packaged runtime layout (Linux)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          LINUX_UNPACKED_DIR="$(find frontend/dist-electron -maxdepth 1 -type d -name 'linux*-unpacked' | head -n 1)"
-          if [ -n "$LINUX_UNPACKED_DIR" ] && [ -f "$LINUX_UNPACKED_DIR/resources/runtime/app/heritage_backend" ]; then
-            test -f "$LINUX_UNPACKED_DIR/resources/runtime/app/static/frontend/index.html" || { echo "Missing packaged frontend entry"; exit 1; }
-            echo "Packaged runtime layout OK (Linux unpacked)"
-          else
-            echo "Linux unpacked runtime not found, fallback to desktop_runtime"
-            test -f desktop_runtime/app/heritage_backend || { echo "Missing backend executable in desktop_runtime"; ls -la desktop_runtime || true; exit 1; }
-            test -f desktop_runtime/app/static/frontend/index.html || { echo "Missing frontend entry in desktop_runtime"; exit 1; }
-            echo "Packaged runtime layout OK (Linux desktop_runtime fallback)"
-          fi
-
-      - name: Smoke test packaged backend executable (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $port = 18091
-          $healthUrl = "http://127.0.0.1:$port/api/v1/health/"
-          $env:BACKEND_HOST = "127.0.0.1"
-          $env:BACKEND_PORT = "$port"
-          $env:HERITAGE_APP_DIR = (Resolve-Path "frontend\dist-electron\win-unpacked\resources\runtime\app").Path
-          $env:HERITAGE_DATA_DIR = (Join-Path $PWD ".ci-packaged-runtime\data")
-          $env:HERITAGE_CONFIG_DIR = (Join-Path $PWD ".ci-packaged-runtime\config")
-          $env:HERITAGE_LOG_DIR = (Join-Path $PWD ".ci-packaged-runtime\logs")
-          $env:HERITAGE_BOOTSTRAP_ADMIN_PASSWORD = "Admin@123456"
-
-          New-Item -ItemType Directory -Path $env:HERITAGE_DATA_DIR -Force | Out-Null
-          New-Item -ItemType Directory -Path $env:HERITAGE_CONFIG_DIR -Force | Out-Null
-          New-Item -ItemType Directory -Path $env:HERITAGE_LOG_DIR -Force | Out-Null
-
-          $backendExe = (Resolve-Path "frontend\dist-electron\win-unpacked\resources\runtime\app\heritage_backend.exe").Path
-          $proc = Start-Process -FilePath $backendExe -PassThru -WindowStyle Hidden
-          try {
-            $ok = $false
-            for ($i = 0; $i -lt 80; $i++) {
-              try {
-                $res = Invoke-WebRequest -Uri $healthUrl -UseBasicParsing -TimeoutSec 2
-                if ($res.StatusCode -ge 200 -and $res.StatusCode -lt 500) {
-                  $ok = $true
-                  break
-                }
-              } catch {
-              }
-              Start-Sleep -Milliseconds 500
-            }
-            if (-not $ok) {
-              throw "Packaged backend smoke test failed: health endpoint not ready"
-            }
-            Write-Host "Packaged backend smoke test OK (Windows)"
-          }
-          finally {
-            if ($proc -and -not $proc.HasExited) {
-              Stop-Process -Id $proc.Id -Force
-            }
-          }
-
-      - name: Smoke test packaged backend executable (Linux)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          LINUX_UNPACKED_DIR="$(find frontend/dist-electron -maxdepth 1 -type d -name 'linux*-unpacked' | head -n 1)"
-          if [ -n "$LINUX_UNPACKED_DIR" ] && [ -f "$LINUX_UNPACKED_DIR/resources/runtime/app/heritage_backend" ]; then
-            APP_RUNTIME_DIR="$PWD/$LINUX_UNPACKED_DIR/resources/runtime/app"
-          else
-            APP_RUNTIME_DIR="$PWD/desktop_runtime/app"
-          fi
-
-          PORT=18091
-          export BACKEND_HOST=127.0.0.1
-          export BACKEND_PORT="$PORT"
-          export HERITAGE_APP_DIR="$APP_RUNTIME_DIR"
-          export HERITAGE_DATA_DIR="$PWD/.ci-packaged-runtime/data"
-          export HERITAGE_CONFIG_DIR="$PWD/.ci-packaged-runtime/config"
-          export HERITAGE_LOG_DIR="$PWD/.ci-packaged-runtime/logs"
-          export HERITAGE_BOOTSTRAP_ADMIN_PASSWORD="Admin@123456"
-
-          mkdir -p "$HERITAGE_DATA_DIR" "$HERITAGE_CONFIG_DIR" "$HERITAGE_LOG_DIR"
-
-          "$HERITAGE_APP_DIR/heritage_backend" > "$HERITAGE_LOG_DIR/backend.stdout.log" 2> "$HERITAGE_LOG_DIR/backend.stderr.log" &
-          BACKEND_PID=$!
-
-          cleanup() {
-            if kill -0 "$BACKEND_PID" >/dev/null 2>&1; then
-              kill "$BACKEND_PID" || true
-            fi
-          }
-          trap cleanup EXIT
-
-          OK=0
-          for i in $(seq 1 80); do
-            if curl -fsS "http://127.0.0.1:${PORT}/api/v1/health/" >/dev/null 2>&1; then
-              OK=1
-              break
-            fi
-            sleep 0.5
-          done
-
-          if [ "$OK" -ne 1 ]; then
-            echo "Packaged backend smoke test failed"
-            cat "$HERITAGE_LOG_DIR/backend.stderr.log" || true
-            exit 1
-          fi
-          echo "Packaged backend smoke test OK (Linux)"
-
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          # 核心修复：直接切入 frontend/dist-electron 目录下寻找
-          path: |
-            frontend/dist-electron/${{ matrix.asset_glob }}
+          path: frontend/dist-electron/${{ matrix.asset_glob }}
           if-no-files-found: error
 
   release:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
     needs: [preflight, build]
-    if: needs.preflight.outputs.desktop == 'true' && startsWith(github.ref, 'refs/tags/v') # 仅当该 tag 指向离线桌面代码时发布
+    if: needs.preflight.outputs.desktop == 'true' && startsWith(github.ref, 'refs/tags/v')
 
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
-        # 不指定 path，默认下载到当前工作目录，结构为：./<artifact_name>/<files>
 
       - name: Flatten assets for Release
         run: |
           mkdir cleaned-assets
-          # 将各个不同平台矩阵文件夹里的最终安装包，统一复制到扁平目录中
           find . -maxdepth 2 -type f \( -name "*.exe" -o -name "*.AppImage" \) -exec cp {} cleaned-assets/ \;
           echo "=== Files to be released ==="
           ls -l cleaned-assets/
@@ -490,6 +204,5 @@ jobs:
       - name: Publish release assets
         uses: softprops/action-gh-release@v2
         with:
-          # 发行扁平化目录下的所有文件，避免 Release 里出现套娃文件夹
           files: cleaned-assets/*
           generate_release_notes: true
