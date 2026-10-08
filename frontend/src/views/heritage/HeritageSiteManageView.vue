@@ -2,7 +2,7 @@
   <section>
     <header class="page-header">
       <h1>不可移动文物管理</h1>
-      <p>管理基础文物档案（HeritageSite），支持查询、编辑以及 CSV 导入导出</p>
+      <p>管理文物档案、保护范围与建设控制地带坐标，支持查询、编辑及 CSV 导入导出</p>
     </header>
 
     <div class="toolbar card top-space">
@@ -137,12 +137,23 @@
         </el-form-item>
 
         <el-form-item label="保护范围坐标">
-          <el-input v-model="dialog.form.protection_zone" type="textarea" :rows="3" placeholder="JSON 字符串" />
+          <el-input
+            v-model="dialog.form.protection_zone"
+            type="textarea"
+            :rows="4"
+            placeholder="[[[经度,纬度],[经度,纬度],[经度,纬度]], ...]"
+          />
         </el-form-item>
 
         <el-form-item label="建控地带坐标">
-          <el-input v-model="dialog.form.control_zone" type="textarea" :rows="3" placeholder="JSON 字符串" />
+          <el-input
+            v-model="dialog.form.control_zone"
+            type="textarea"
+            :rows="4"
+            placeholder="[[[经度,纬度],[经度,纬度],[经度,纬度]], ...]"
+          />
         </el-form-item>
+        <p class="zone-format-hint">每个子数组是一处分离边界，坐标使用 WGS84/CGCS2000 经度、纬度顺序。</p>
       </el-form>
       <template #footer>
         <el-button @click="dialog.visible = false">取消</el-button>
@@ -285,7 +296,9 @@ async function submitEdit() {
     const payload = {
       ...dialog.form,
       longitude: Number(dialog.form.longitude),
-      latitude: Number(dialog.form.latitude)
+      latitude: Number(dialog.form.latitude),
+      protection_zone: normalizeZoneJson(dialog.form.protection_zone, '保护范围'),
+      control_zone: normalizeZoneJson(dialog.form.control_zone, '建控地带')
     }
 
     const result = await patchHeritageSiteManage(dialog.editId, payload)
@@ -301,6 +314,40 @@ async function submitEdit() {
   } finally {
     dialog.loading = false
   }
+}
+
+function normalizeZoneJson(value, label) {
+  const text = String(value || '').trim()
+  if (!text) {
+    return ''
+  }
+
+  let parsed
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    throw new Error(`${label}坐标不是有效的 JSON`)
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error(`${label}坐标必须是坐标环数组`)
+  }
+
+  const isSingleRing = Array.isArray(parsed[0]) && !Array.isArray(parsed[0][0]) && typeof parsed[0][0] !== 'object'
+  const sourceRings = isSingleRing ? [parsed] : parsed
+  const rings = sourceRings.map((ring) => {
+    if (!Array.isArray(ring) || ring.length < 3) {
+      throw new Error(`${label}每个边界至少需要 3 个坐标点`)
+    }
+    return ring.map((point) => {
+      const longitude = Number(Array.isArray(point) ? point[0] : point?.lon ?? point?.longitude)
+      const latitude = Number(Array.isArray(point) ? point[1] : point?.lat ?? point?.latitude)
+      if (!Number.isFinite(longitude) || !Number.isFinite(latitude) || Math.abs(longitude) > 180 || Math.abs(latitude) > 90) {
+        throw new Error(`${label}坐标须为有效经纬度，顺序为经度、纬度`)
+      }
+      return [longitude, latitude]
+    })
+  })
+  return JSON.stringify(rings)
 }
 
 async function handleExport() {

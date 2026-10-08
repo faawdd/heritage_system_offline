@@ -54,7 +54,9 @@ def _parse_zone(zone_text):
 
 def get_heritage_map_points():
     rows = []
-    for site in HeritageSite.objects.all().only('id', 'name', 'longitude', 'latitude', 'level', 'body_boundary'):
+    for site in HeritageSite.objects.all().only(
+        'id', 'name', 'longitude', 'latitude', 'level', 'body_boundary', 'protection_zone', 'control_zone'
+    ):
         try:
             lng = float(site.longitude)
             lat = float(site.latitude)
@@ -70,6 +72,8 @@ def get_heritage_map_points():
                 'level_label': site.get_level_display(),
                 # 本体边界环列表（[[[lon,lat],...],...]），供前端放大后渲染实际边界范围。
                 'body_boundary': _parse_zone(site.body_boundary),
+                'protection_zone': _parse_zone(site.protection_zone),
+                'control_zone': _parse_zone(site.control_zone),
             }
         )
     return rows

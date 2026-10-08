@@ -22,6 +22,8 @@
         <span class="toolbar-label">图层</span>
         <button type="button" class="toolbar-btn" :class="{ active: showKmlLayer }" @click="toggleKmlLayer">KML</button>
         <button type="button" class="toolbar-btn" :class="{ active: showHeritageLayer }" @click="toggleHeritageLayer">文物点</button>
+        <button type="button" class="toolbar-btn" :class="{ active: showProtectionLayer }" @click="toggleProtectionLayer">保护范围</button>
+        <button type="button" class="toolbar-btn" :class="{ active: showControlLayer }" @click="toggleControlLayer">建控地带</button>
         <button type="button" class="toolbar-btn" :class="{ active: showConflictLayer }" @click="toggleConflictLayer">冲突点</button>
         <button type="button" class="toolbar-btn" :class="{ active: showOverlapLayer }" @click="toggleOverlapLayer">叠加点</button>
       </div>
@@ -66,6 +68,14 @@
       <div class="legend-item">
         <span class="legend-dot dot-heritage"></span>
         <span>文物点（放大后渲染本体边界范围）</span>
+      </div>
+      <div class="legend-item">
+        <span class="legend-swatch swatch-protection"></span>
+        <span>文物保护范围</span>
+      </div>
+      <div class="legend-item">
+        <span class="legend-swatch swatch-control"></span>
+        <span>建设控制地带</span>
       </div>
       <div class="legend-item">
         <span class="legend-dot dot-conflict"></span>
@@ -140,6 +150,8 @@ const tips = ref([])
 const baseMode = ref('img')
 const showKmlLayer = ref(true)
 const showHeritageLayer = ref(true)
+const showProtectionLayer = ref(true)
+const showControlLayer = ref(true)
 const showConflictLayer = ref(true)
 const showOverlapLayer = ref(true)
 const measureMode = ref(false)
@@ -155,6 +167,8 @@ const conflictGroupOptions = ref([])
 const kmlSource = new VectorSource()
 const heritageSource = new VectorSource()
 const heritageBoundarySource = new VectorSource()
+const protectionZoneSource = new VectorSource()
+const controlZoneSource = new VectorSource()
 const conflictSource = new VectorSource()
 const conflictBoundarySource = new VectorSource()
 const overlapSource = new VectorSource()
@@ -164,6 +178,8 @@ const mapRef = ref(null)
 const kmlLayerRef = ref(null)
 const heritageLayerRef = ref(null)
 const heritageBoundaryLayerRef = ref(null)
+const protectionZoneLayerRef = ref(null)
+const controlZoneLayerRef = ref(null)
 const conflictLayerRef = ref(null)
 const conflictBoundaryLayerRef = ref(null)
 const overlapLayerRef = ref(null)
@@ -332,6 +348,20 @@ function heritageBoundaryStyle() {
   return new Style({
     stroke: new Stroke({ color: '#2563eb', width: 2 }),
     fill: new Fill({ color: 'rgba(37, 99, 235, 0.16)' })
+  })
+}
+
+function protectionZoneStyle() {
+  return new Style({
+    stroke: new Stroke({ color: '#f59e0b', width: 2.6, lineDash: [9, 5] }),
+    fill: new Fill({ color: 'rgba(245, 158, 11, 0.1)' })
+  })
+}
+
+function controlZoneStyle() {
+  return new Style({
+    stroke: new Stroke({ color: '#0f766e', width: 2.4, lineDash: [3, 4] }),
+    fill: new Fill({ color: 'rgba(15, 118, 110, 0.09)' })
   })
 }
 
@@ -1093,26 +1123,22 @@ function fitAll() {
   if (!mapRef.value) {
     return
   }
-  const extentA = kmlSource.getExtent()
-  const extentB = conflictSource.getExtent()
-  const hasA = extentA && Number.isFinite(extentA[0])
-  const hasB = extentB && Number.isFinite(extentB[0])
+  const extents = [kmlSource, conflictSource, protectionZoneSource, controlZoneSource]
+    .map((source) => source.getExtent())
+    .filter((extent) => extent && Number.isFinite(extent[0]))
 
-  if (!hasA && !hasB) {
+  if (extents.length === 0) {
     mapRef.value.getView().setCenter(fromLonLat([90.21, 42.84]))
     mapRef.value.getView().setZoom(9)
     return
   }
 
-  let extent = hasA ? extentA.slice() : extentB.slice()
-  if (hasA && hasB) {
-    extent = [
-      Math.min(extentA[0], extentB[0]),
-      Math.min(extentA[1], extentB[1]),
-      Math.max(extentA[2], extentB[2]),
-      Math.max(extentA[3], extentB[3])
-    ]
-  }
+  const extent = extents.reduce((combined, current) => [
+    Math.min(combined[0], current[0]),
+    Math.min(combined[1], current[1]),
+    Math.max(combined[2], current[2]),
+    Math.max(combined[3], current[3])
+  ], extents[0].slice())
 
   mapRef.value.getView().fit(extent, {
     padding: [24, 24, 24, 24],
@@ -1149,6 +1175,16 @@ function toggleKmlLayer() {
 function toggleHeritageLayer() {
   showHeritageLayer.value = !showHeritageLayer.value
   updateBoundaryZoomVisibility()
+}
+
+function toggleProtectionLayer() {
+  showProtectionLayer.value = !showProtectionLayer.value
+  protectionZoneLayerRef.value?.setVisible(showProtectionLayer.value)
+}
+
+function toggleControlLayer() {
+  showControlLayer.value = !showControlLayer.value
+  controlZoneLayerRef.value?.setVisible(showControlLayer.value)
 }
 
 function toggleConflictLayer() {
@@ -1194,6 +1230,8 @@ async function loadHeritageLayer() {
     const rows = result?.rows || []
     heritageSource.clear()
     heritageBoundarySource.clear()
+    protectionZoneSource.clear()
+    controlZoneSource.clear()
     siteBoundaryRingsMap.clear()
 
     rows.forEach((row) => {
@@ -1232,9 +1270,39 @@ async function loadHeritageLayer() {
         polygonFeature.setStyle(heritageBoundaryStyle())
         heritageBoundarySource.addFeature(polygonFeature)
       })
+
+      ;[
+        { key: 'protection_zone', source: protectionZoneSource, style: protectionZoneStyle },
+        { key: 'control_zone', source: controlZoneSource, style: controlZoneStyle }
+      ].forEach(({ key, source, style }) => {
+        const zoneRings = Array.isArray(row?.[key]) ? row[key] : []
+        zoneRings.forEach((zoneRing) => {
+          if (!Array.isArray(zoneRing) || zoneRing.length < 3) {
+            return
+          }
+          const coordinates = zoneRing
+            .map((point) => [Number(point?.[0]), Number(point?.[1])])
+            .filter((point) => Number.isFinite(point[0]) && Number.isFinite(point[1]))
+            .map((point) => fromLonLat(point))
+          if (coordinates.length < 3) {
+            return
+          }
+          if (distanceInMetersBy3857(coordinates[0], coordinates[coordinates.length - 1]) > 1) {
+            coordinates.push(coordinates[0].slice())
+          }
+          const feature = new Feature({ geometry: new Polygon([coordinates]) })
+          feature.set('site_id', siteId)
+          feature.set('site_name', siteName)
+          feature.set('isProtectionZone', key === 'protection_zone')
+          feature.set('isControlZone', key === 'control_zone')
+          feature.setStyle(style())
+          source.addFeature(feature)
+        })
+      })
     })
 
     updateBoundaryZoomVisibility()
+    fitAll()
   } catch (error) {
     tips.value.push('文物点图层加载失败，已跳过显示')
   }
@@ -1463,6 +1531,17 @@ function showHeritagePointPopup(feature, coordinate) {
   }
 }
 
+function showHeritageZonePopup(feature, coordinate) {
+  popupTitle.value = String(feature.get('site_name') || '文物保护范围')
+  popupContent.value = [
+    `文物ID: ${String(feature.get('site_id') || '-')}`,
+    `范围类型: ${feature.get('isControlZone') ? '建设控制地带' : '文物保护范围'}`,
+    geometrySummaryText(feature.getGeometry())
+  ].join('\n')
+  popupVisible.value = true
+  popupOverlayRef.value?.setPosition(coordinate)
+}
+
 function showConflictPointPopup(feature, coordinate) {
   const geometry = feature.getGeometry()
   const distanceM = Number(feature.get('distance_m'))
@@ -1499,6 +1578,8 @@ onMounted(() => {
   })
   const heritageLayer = new VectorLayer({ source: heritageSource })
   const heritageBoundaryLayer = new VectorLayer({ source: heritageBoundarySource })
+  const protectionZoneLayer = new VectorLayer({ source: protectionZoneSource })
+  const controlZoneLayer = new VectorLayer({ source: controlZoneSource })
   const conflictLayer = new VectorLayer({ source: conflictSource })
   const conflictBoundaryLayer = new VectorLayer({ source: conflictBoundarySource })
   const overlapLayer = new VectorLayer({ source: overlapSource })
@@ -1527,6 +1608,8 @@ onMounted(() => {
       kmlLayer,
       heritageLayer,
       heritageBoundaryLayer,
+      protectionZoneLayer,
+      controlZoneLayer,
       conflictLayer,
       conflictBoundaryLayer,
       overlapLayer,
@@ -1565,6 +1648,10 @@ onMounted(() => {
       showHeritagePointPopup(feature, evt.coordinate)
       return
     }
+    if (feature && (feature.get('isProtectionZone') || feature.get('isControlZone'))) {
+      showHeritageZonePopup(feature, evt.coordinate)
+      return
+    }
     if (feature && feature.get('isKmlFeature')) {
       showFeaturePopup(feature, evt.coordinate)
       return
@@ -1595,6 +1682,8 @@ onMounted(() => {
   kmlLayerRef.value = kmlLayer
   heritageLayerRef.value = heritageLayer
   heritageBoundaryLayerRef.value = heritageBoundaryLayer
+  protectionZoneLayerRef.value = protectionZoneLayer
+  controlZoneLayerRef.value = controlZoneLayer
   conflictLayerRef.value = conflictLayer
   conflictBoundaryLayerRef.value = conflictBoundaryLayer
   overlapLayerRef.value = overlapLayer
@@ -1610,6 +1699,8 @@ onMounted(() => {
   // 初始化时按开关状态显式设置，避免图层状态与按钮状态不一致。
   kmlLayer.setVisible(showKmlLayer.value)
   heritageBoundaryLayer.setVisible(false)
+  protectionZoneLayer.setVisible(showProtectionLayer.value)
+  controlZoneLayer.setVisible(showControlLayer.value)
   conflictBoundaryLayer.setVisible(false)
   overlapLayer.setVisible(showOverlapLayer.value)
   elementBubbleLayer.setVisible(showOverlapLayer.value)
@@ -1911,6 +2002,16 @@ watch(
     rgba(255, 255, 255, 0) 6px
   );
   background-color: rgba(255, 255, 255, 0.72);
+}
+
+.swatch-protection {
+  border-color: #f59e0b;
+  background: repeating-linear-gradient(135deg, rgba(245, 158, 11, 0.2) 0 3px, transparent 3px 7px);
+}
+
+.swatch-control {
+  border-color: #0f766e;
+  background: repeating-linear-gradient(45deg, rgba(15, 118, 110, 0.2) 0 2px, transparent 2px 6px);
 }
 
 .legend-dot {
