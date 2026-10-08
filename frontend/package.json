@@ -2,6 +2,12 @@
   "name": "heritage-frontend",
   "private": true,
   "version": "0.1.0",
+  "description": "文物综合管理平台离线桌面版",
+  "homepage": "https://github.com/faawdd/heritage_system_offline",
+  "author": {
+    "name": "Heritage System Maintainers",
+    "email": "faawdd@users.noreply.github.com"
+  },
   "main": "electron/main.cjs",
   "type": "module",
   "scripts": {
@@ -62,6 +68,7 @@
     },
     "linux": {
       "icon": "../logo.png",
+      "maintainer": "Heritage System Maintainers <faawdd@users.noreply.github.com>",
       "target": ["AppImage", "deb", "rpm"]
     }
   }
