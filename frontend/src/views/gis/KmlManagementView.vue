@@ -21,7 +21,7 @@
       <div class="floating-menu-header">
         <div>
           <h3>KML叠加检查</h3>
-            <p>多文件叠加渲染 + 文物本体范围冲突检查</p>
+            <p>多文件叠加渲染 + 文物本体、保护范围与建控地带冲突检查</p>
         </div>
         <el-button link type="primary" @click="menuVisible = false">收起</el-button>
       </div>
@@ -37,7 +37,7 @@
               </div>
               <el-switch v-model="immediateAnalyze" active-text="立即分析" inactive-text="仅上传" />
               <el-button type="primary" :loading="uploading" @click="uploadFiles">开始上传</el-button>
-              <p class="hint-text">支持一个或多个KML叠加渲染，自动与文物本体范围进行点、线、面冲突检查。</p>
+              <p class="hint-text">支持一个或多个KML叠加渲染，自动与文物本体、保护范围及建控地带进行点、线、面冲突检查。</p>
             </div>
           </el-collapse-item>
 

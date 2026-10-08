@@ -732,7 +732,7 @@ def _parse_boundary_rings(zone_text):
 
 def _load_conflict_site_points():
     rows = HeritageSite.objects.values(
-        'id', 'name', 'level', 'longitude', 'latitude', 'body_boundary'
+        'id', 'name', 'level', 'longitude', 'latitude', 'body_boundary', 'protection_zone', 'control_zone'
     )
     site_points = []
     for row in rows:
@@ -743,18 +743,26 @@ def _load_conflict_site_points():
             lon = None
             lat = None
 
+        ranges = [
+            {'label': '文物本体范围', 'rings': _parse_boundary_rings(row['body_boundary'])},
+            {'label': '文物保护范围', 'rings': _parse_boundary_rings(row['protection_zone'])},
+            {'label': '建设控制地带', 'rings': _parse_boundary_rings(row['control_zone'])},
+        ]
+        ranges = [item for item in ranges if item['rings']]
         boundary_rings = _parse_boundary_rings(row['body_boundary'])
         if lon is None or lat is None:
-            if not boundary_rings:
+            all_rings = [ring for item in ranges for ring in item['rings']]
+            if not all_rings:
                 continue
-            lons = [pt[0] for ring in boundary_rings for pt in ring]
-            lats = [pt[1] for ring in boundary_rings for pt in ring]
+            lons = [pt[0] for ring in all_rings for pt in ring]
+            lats = [pt[1] for ring in all_rings for pt in ring]
             lon = sum(lons) / len(lons)
             lat = sum(lats) / len(lats)
         bbox = (lon, lat, lon, lat)
-        if boundary_rings:
-            lons = [pt[0] for ring in boundary_rings for pt in ring] + [lon]
-            lats = [pt[1] for ring in boundary_rings for pt in ring] + [lat]
+        if ranges:
+            all_rings = [ring for item in ranges for ring in item['rings']]
+            lons = [pt[0] for ring in all_rings for pt in ring] + [lon]
+            lats = [pt[1] for ring in all_rings for pt in ring] + [lat]
             bbox = (min(lons), min(lats), max(lons), max(lats))
 
         site_points.append(
@@ -765,6 +773,7 @@ def _load_conflict_site_points():
                 'longitude': lon,
                 'latitude': lat,
                 'boundary_rings': boundary_rings,
+                'ranges': ranges,
                 'bbox': bbox,
             }
         )
@@ -916,6 +925,42 @@ def _polygon_intersects_rings(polygon_coords, rings):
                for polygon_ring in polygon_coords for site_ring in rings)
 
 
+def _analyze_feature_against_rings(feature_type, coords, rings, threshold, range_label):
+    matched = False
+    distance_m = None
+    relation = ''
+
+    if feature_type == 'Point' and isinstance(coords, (list, tuple)) and len(coords) >= 2:
+        lon, lat = float(coords[0]), float(coords[1])
+        inside = _point_in_any_ring(lon, lat, rings)
+        distance_m = 0.0 if inside else _distance_point_to_rings_m(lon, lat, rings)
+        matched = inside or (math.isfinite(distance_m) and distance_m <= threshold)
+        if range_label == '文物本体范围':
+            relation = '点位于文物本体边界内' if inside else '点距文物本体边界最短距离'
+        else:
+            relation = f'点位于{range_label}内' if inside else f'点距{range_label}边界最短距离'
+    elif feature_type in {'LineString', 'MultiLineString'}:
+        lines = [coords or []] if feature_type == 'LineString' else (coords or [])
+        distance_m = min((_distance_linestring_to_rings_m(line, rings) for line in lines), default=float('inf'))
+        intersects = any(_linestring_intersects_rings(line, rings) for line in lines)
+        matched = intersects or (math.isfinite(distance_m) and distance_m <= threshold)
+        if intersects:
+            distance_m = 0.0
+        relation = f'线与{range_label}相交' if intersects else f'线距{range_label}边界最短距离'
+    elif feature_type in {'Polygon', 'MultiPolygon'}:
+        polygons = [coords or []] if feature_type == 'Polygon' else (coords or [])
+        inside = any(_polygon_intersects_rings(polygon, rings) for polygon in polygons)
+        boundary_distance = min(
+            (_distance_polygon_to_rings_m(polygon, rings) for polygon in polygons),
+            default=float('inf'),
+        )
+        distance_m = 0.0 if inside else boundary_distance
+        matched = inside or (math.isfinite(boundary_distance) and boundary_distance <= threshold)
+        relation = f'面与{range_label}相交' if inside else f'面距{range_label}边界最短距离'
+
+    return matched, distance_m, relation
+
+
 def _analyze_conflicts(features, threshold_m, site_points=None):
     if site_points is None:
         site_points = _load_conflict_site_points()
@@ -939,58 +984,42 @@ def _analyze_conflicts(features, threshold_m, site_points=None):
         for site in candidate_sites:
             site_lon = site['longitude']
             site_lat = site['latitude']
-            boundary_rings = site.get('boundary_rings') or []
+            ranges = site.get('ranges') or []
+            if not ranges and site.get('boundary_rings'):
+                ranges = [{'label': '文物本体范围', 'rings': site['boundary_rings']}]
 
-            matched = False
-            relation = ''
-            distance_m = None
+            matched_ranges = []
+            for spatial_range in ranges:
+                matched, distance_m, relation = _analyze_feature_against_rings(
+                    feature_type,
+                    coords,
+                    spatial_range['rings'],
+                    threshold,
+                    spatial_range['label'],
+                )
+                if matched:
+                    matched_ranges.append((spatial_range['label'], distance_m, relation))
 
-            if boundary_rings:
-                # 文物点已导入本体边界范围：改用边界多边形而非单点坐标进行叠加判断。
-                if feature_type == 'Point' and isinstance(coords, (list, tuple)) and len(coords) >= 2:
-                    lon, lat = float(coords[0]), float(coords[1])
-                    inside = _point_in_any_ring(lon, lat, boundary_rings)
-                    distance_m = 0.0 if inside else _distance_point_to_rings_m(lon, lat, boundary_rings)
-                    matched = inside or (math.isfinite(distance_m) and distance_m <= threshold)
-                    relation = '点位于文物本体边界内' if inside else '点距文物本体边界最短距离'
-                elif feature_type == 'LineString':
-                    distance_m = _distance_linestring_to_rings_m(coords or [], boundary_rings)
-                    intersects = _linestring_intersects_rings(coords or [], boundary_rings)
-                    matched = intersects or (math.isfinite(distance_m) and distance_m <= threshold)
-                    if intersects:
-                        distance_m = 0.0
-                    relation = '线与文物本体范围相交' if intersects else '线距文物本体边界最短距离'
-                elif feature_type == 'MultiLineString':
-                    min_distance = float('inf')
-                    intersects = False
-                    for line_coords in (coords or []):
-                        min_distance = min(min_distance, _distance_linestring_to_rings_m(line_coords, boundary_rings))
-                        intersects = intersects or _linestring_intersects_rings(line_coords, boundary_rings)
-                    distance_m = min_distance
-                    matched = intersects or (math.isfinite(distance_m) and distance_m <= threshold)
-                    if intersects:
-                        distance_m = 0.0
-                    relation = '线与文物本体范围相交' if intersects else '线距文物本体边界最短距离'
-                elif feature_type == 'Polygon':
-                    inside = _polygon_intersects_rings(coords or [], boundary_rings)
-                    boundary_distance = _distance_polygon_to_rings_m(coords or [], boundary_rings)
-                    distance_m = boundary_distance
-                    matched = inside or (math.isfinite(boundary_distance) and boundary_distance <= threshold)
-                    if inside:
-                        distance_m = 0.0
-                    relation = '面与文物本体范围相交' if inside else '面距文物本体边界最短距离'
-                elif feature_type == 'MultiPolygon':
-                    inside = any(_polygon_intersects_rings(polygon, boundary_rings) for polygon in (coords or []))
-                    boundary_distance = min(
-                        (_distance_polygon_to_rings_m(polygon, boundary_rings) for polygon in (coords or [])),
-                        default=float('inf'),
-                    )
-                    distance_m = boundary_distance
-                    matched = inside or (math.isfinite(boundary_distance) and boundary_distance <= threshold)
-                    if inside:
-                        distance_m = 0.0
-                    relation = '面与文物本体范围相交' if inside else '面距文物本体边界最短距离'
-            elif feature_type == 'Point' and isinstance(coords, (list, tuple)) and len(coords) >= 2:
+            if matched_ranges:
+                for range_label, distance_m, relation in matched_ranges:
+                    conflicts.append({
+                        'feature_name': feature_name,
+                        'feature_type': feature_type,
+                        'feature_source': feature_source,
+                        'site_id': site['id'],
+                        'site_name': site['name'],
+                        'site_level': site['level'],
+                        'site_longitude': round(site_lon, 8),
+                        'site_latitude': round(site_lat, 8),
+                        'relation': relation,
+                        'zone_type': range_label,
+                        'distance_m': None if distance_m is None or not math.isfinite(distance_m) else round(distance_m, 2),
+                    })
+                continue
+
+            if ranges:
+                continue
+            if feature_type == 'Point' and isinstance(coords, (list, tuple)) and len(coords) >= 2:
                 lon, lat = float(coords[0]), float(coords[1])
                 distance_m = _haversine_m(site_lat, site_lon, lat, lon)
                 matched = distance_m <= threshold
@@ -1030,6 +1059,7 @@ def _analyze_conflicts(features, threshold_m, site_points=None):
                     'site_longitude': round(site_lon, 8),
                     'site_latitude': round(site_lat, 8),
                     'relation': relation,
+                    'zone_type': '文物点坐标',
                     'distance_m': None if distance_m is None or not math.isfinite(distance_m) else round(distance_m, 2),
                 })
 
