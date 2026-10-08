@@ -32,6 +32,21 @@ export async function changeSystemPassword(payload) {
   return response.data
 }
 
+export async function fetchSecurityQuestionBank() {
+  const response = await client.get('/api/v1/system/security-questions/')
+  return response.data
+}
+
+export async function fetchForgotPasswordQuestions(username) {
+  const response = await client.post('/api/v1/system/forgot-password/questions/', { username })
+  return response.data
+}
+
+export async function resetForgottenPassword(payload) {
+  const response = await client.post('/api/v1/system/forgot-password/reset/', payload)
+  return response.data
+}
+
 export async function fetchSystemUsers(params = {}) {
   const response = await client.get('/api/v1/system/users/', { params })
   return response.data

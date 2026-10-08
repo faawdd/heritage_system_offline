@@ -1,8 +1,11 @@
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.models import Group, Permission, User
+from django.db import transaction
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import transaction
 from django.db.models import Q
+from django.utils import timezone
 from core.permission_decorators import can_modify_core_data
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
@@ -12,6 +15,17 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer, Toke
 
 from core.models import UserProfile
 from core.permissions.api_permissions import IsManagementAdmin
+from core.services.account_security import (
+    LOGIN_LOCK_THRESHOLD,
+    LOGIN_WAIT_SECONDS,
+    LOGIN_WAIT_THRESHOLD,
+    RECOVERY_WAIT_SECONDS,
+    RECOVERY_WAIT_THRESHOLD,
+    SECURITY_QUESTION_BANK,
+    hash_security_questions,
+    public_security_questions,
+    verify_security_answers,
+)
 from system.models import LoginLog, Menu, OperationLog, SystemConfig
 from system.serializers import (
     LoginLogSerializer,
@@ -118,14 +132,79 @@ class SystemLoginAPIView(APIView):
             LoginLog.objects.create(username=username or '-', success=False, ip=ip, user_agent=user_agent, message='缺少用户名或密码')
             return Response({'success': False, 'message': '用户名和密码不能为空'}, status=status.HTTP_400_BAD_REQUEST)
 
+        user_record = User.objects.filter(username=username).first()
+        profile = UserProfile.objects.filter(user=user_record).first() if user_record else None
+        now = timezone.now()
+        if profile and profile.login_locked:
+            LoginLog.objects.create(username=username, user=user_record, success=False, ip=ip, user_agent=user_agent, message='账户已锁定，请通过忘记密码重置')
+            return Response({'success': False, 'message': '账户已锁定，请通过忘记密码验证安全问题并重置密码'}, status=423)
+        if profile and profile.login_locked_until:
+            if profile.login_locked_until > now:
+                retry_after = max(1, int((profile.login_locked_until - now).total_seconds()))
+                LoginLog.objects.create(username=username, user=user_record, success=False, ip=ip, user_agent=user_agent, message='登录尝试过多，账户暂时等待')
+                return Response(
+                    {'success': False, 'message': '连续输错次数过多，请稍后重试', 'retry_after': retry_after},
+                    status=429,
+                    headers={'Retry-After': str(retry_after)},
+                )
+            profile.login_locked_until = None
+            profile.save(update_fields=['login_locked_until'])
+
         user = authenticate(request, username=username, password=password)
         if not user:
+            if user_record and user_record.is_active:
+                profile, _ = UserProfile.objects.get_or_create(user=user_record)
+                profile.failed_login_attempts += 1
+                if profile.failed_login_attempts >= LOGIN_LOCK_THRESHOLD:
+                    profile.login_locked = True
+                    profile.login_locked_until = None
+                    failure_message = '账户已锁定，请通过忘记密码重置'
+                    response_status = 423
+                elif profile.failed_login_attempts >= LOGIN_WAIT_THRESHOLD:
+                    profile.login_locked_until = now + timezone.timedelta(seconds=LOGIN_WAIT_SECONDS)
+                    failure_message = '连续输错次数过多，请等待两分钟后重试'
+                    response_status = 429
+                else:
+                    failure_message = '用户名或密码错误'
+                    response_status = status.HTTP_401_UNAUTHORIZED
+                profile.save(update_fields=['failed_login_attempts', 'login_locked_until', 'login_locked'])
+            else:
+                failure_message = '用户名或密码错误'
+                response_status = status.HTTP_401_UNAUTHORIZED
             LoginLog.objects.create(username=username, success=False, ip=ip, user_agent=user_agent, message='用户名或密码错误')
-            return Response({'success': False, 'message': '用户名或密码错误'}, status=status.HTTP_401_UNAUTHORIZED)
+            failure_data = {'success': False, 'message': failure_message}
+            failure_response = Response(failure_data, status=response_status)
+            if response_status == 429:
+                failure_data['retry_after'] = LOGIN_WAIT_SECONDS
+                failure_response['Retry-After'] = str(LOGIN_WAIT_SECONDS)
+            return failure_response
 
         if not user.is_active:
             LoginLog.objects.create(username=username, user=user, success=False, ip=ip, user_agent=user_agent, message='用户已禁用')
             return Response({'success': False, 'message': '用户已禁用'}, status=status.HTTP_403_FORBIDDEN)
+
+        profile, _ = UserProfile.objects.get_or_create(user=user)
+        if len(profile.security_questions or []) != 3:
+            raw_security_questions = request.data.get('security_questions')
+            if not raw_security_questions:
+                return Response(
+                    {
+                        'success': False,
+                        'code': 'SECURITY_QUESTIONS_REQUIRED',
+                        'message': '首次登录请先设置 3 个密码保护问题',
+                    },
+                    status=428,
+                )
+            try:
+                profile.security_questions = hash_security_questions(raw_security_questions)
+                profile.save(update_fields=['security_questions'])
+            except DjangoValidationError as exc:
+                return Response({'success': False, 'message': '；'.join(exc.messages)}, status=status.HTTP_400_BAD_REQUEST)
+        if profile.failed_login_attempts or profile.login_locked_until or profile.login_locked:
+            profile.failed_login_attempts = 0
+            profile.login_locked_until = None
+            profile.login_locked = False
+            profile.save(update_fields=['failed_login_attempts', 'login_locked_until', 'login_locked'])
 
         token_data = TokenObtainPairSerializer.get_token(user)
         access_token = str(token_data.access_token)
@@ -152,6 +231,98 @@ class SystemLoginAPIView(APIView):
                 },
             }
         )
+
+
+class SecurityQuestionBankAPIView(APIView):
+    permission_classes = []
+    authentication_classes = []
+
+    def get(self, request):
+        return Response({'success': True, 'questions': SECURITY_QUESTION_BANK})
+
+
+class ForgotPasswordQuestionsAPIView(APIView):
+    permission_classes = []
+    authentication_classes = []
+
+    def post(self, request):
+        username = str(request.data.get('username') or '').strip()
+        user = User.objects.filter(username=username, is_active=True).first()
+        profile = UserProfile.objects.filter(user=user).first() if user else None
+        questions = public_security_questions(profile.security_questions if profile else [])
+        if not questions:
+            return Response({'success': False, 'message': '该账户尚未设置安全问题，请联系系统管理员'}, status=status.HTTP_400_BAD_REQUEST)
+        if profile.recovery_locked_until and profile.recovery_locked_until > timezone.now():
+            retry_after = max(1, int((profile.recovery_locked_until - timezone.now()).total_seconds()))
+            return Response(
+                {'success': False, 'message': '安全问题验证次数过多，请稍后重试'},
+                status=429,
+                headers={'Retry-After': str(retry_after)},
+            )
+        return Response({'success': True, 'questions': questions})
+
+
+class ForgotPasswordResetAPIView(APIView):
+    permission_classes = []
+    authentication_classes = []
+
+    def post(self, request):
+        username = str(request.data.get('username') or '').strip()
+        user = User.objects.filter(username=username, is_active=True).first()
+        profile = UserProfile.objects.filter(user=user).first() if user else None
+        if not profile or not public_security_questions(profile.security_questions):
+            return Response({'success': False, 'message': '账户或安全问题答案不正确'}, status=status.HTTP_400_BAD_REQUEST)
+
+        now = timezone.now()
+        if profile.recovery_locked_until and profile.recovery_locked_until > now:
+            retry_after = max(1, int((profile.recovery_locked_until - now).total_seconds()))
+            return Response(
+                {'success': False, 'message': '安全问题验证次数过多，请稍后重试'},
+                status=429,
+                headers={'Retry-After': str(retry_after)},
+            )
+
+        if not verify_security_answers(profile.security_questions, request.data.get('answers')):
+            profile.failed_recovery_attempts += 1
+            response_status = status.HTTP_400_BAD_REQUEST
+            response_message = '账户或安全问题答案不正确'
+            if profile.failed_recovery_attempts >= RECOVERY_WAIT_THRESHOLD:
+                profile.recovery_locked_until = now + timezone.timedelta(seconds=RECOVERY_WAIT_SECONDS)
+                response_status = 429
+                response_message = '安全问题答案错误次数过多，请等待 15 分钟后重试'
+            profile.save(update_fields=['failed_recovery_attempts', 'recovery_locked_until'])
+            response = Response(
+                {'success': False, 'message': response_message},
+                status=response_status,
+            )
+            if response_status == 429:
+                response['Retry-After'] = str(RECOVERY_WAIT_SECONDS)
+            return response
+
+        new_password = str(request.data.get('new_password') or '')
+        try:
+            validate_password(new_password, user=user)
+            questions_hash = hash_security_questions(request.data.get('security_questions'))
+        except DjangoValidationError as exc:
+            return Response({'success': False, 'message': '；'.join(exc.messages)}, status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            user.set_password(new_password)
+            user.save(update_fields=['password'])
+            profile.security_questions = questions_hash
+            profile.has_changed_password = True
+            profile.failed_login_attempts = 0
+            profile.login_locked_until = None
+            profile.login_locked = False
+            profile.failed_recovery_attempts = 0
+            profile.recovery_locked_until = None
+            profile.save(update_fields=[
+                'security_questions', 'has_changed_password', 'failed_login_attempts',
+                'login_locked_until', 'login_locked', 'failed_recovery_attempts',
+                'recovery_locked_until',
+            ])
+
+        return Response({'success': True, 'message': '密码已重置，请使用新密码登录'})
 
 
 class SystemRefreshAPIView(APIView):
@@ -208,15 +379,24 @@ class ChangePasswordAPIView(APIView):
 
         try:
             validate_password(new_password, user=user)
+            security_questions = hash_security_questions(request.data.get('security_questions'))
         except DjangoValidationError as exc:
             return Response({'success': False, 'message': '；'.join(exc.messages)}, status=status.HTTP_400_BAD_REQUEST)
 
-        user.set_password(new_password)
-        user.save(update_fields=['password'])
+        with transaction.atomic():
+            user.set_password(new_password)
+            user.save(update_fields=['password'])
 
-        profile, _ = UserProfile.objects.get_or_create(user=user)
-        profile.has_changed_password = True
-        profile.save(update_fields=['has_changed_password'])
+            profile, _ = UserProfile.objects.get_or_create(user=user)
+            profile.security_questions = security_questions
+            profile.has_changed_password = True
+            profile.failed_login_attempts = 0
+            profile.login_locked_until = None
+            profile.login_locked = False
+            profile.save(update_fields=[
+                'security_questions', 'has_changed_password', 'failed_login_attempts',
+                'login_locked_until', 'login_locked',
+            ])
 
         return Response({'success': True, 'message': '密码修改成功，请重新登录'})
 
@@ -338,21 +518,33 @@ class UserListCreateAPIView(APIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
+        if not data.get('password'):
+            return Response({'success': False, 'message': '创建用户必须设置初始密码'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            validate_password(data['password'])
+            security_questions = hash_security_questions(request.data.get('security_questions'))
+        except DjangoValidationError as exc:
+            return Response({'success': False, 'message': '；'.join(exc.messages)}, status=status.HTTP_400_BAD_REQUEST)
+
         if User.objects.filter(username=data['username']).exists():
             return Response({'success': False, 'message': '用户名已存在'}, status=status.HTTP_400_BAD_REQUEST)
 
-        user = User.objects.create_user(
-            username=data['username'],
-            password=(data.get('password') or '123456'),
-            first_name=data.get('first_name', ''),
-            last_name=data.get('last_name', ''),
-            email=data.get('email', ''),
-            is_active=data.get('is_active', True),
-            is_staff=data.get('is_staff', True),
-        )
-        group_ids = data.get('group_ids') or []
-        if group_ids:
-            user.groups.set(Group.objects.filter(id__in=group_ids))
+        with transaction.atomic():
+            user = User.objects.create_user(
+                username=data['username'],
+                password=data['password'],
+                first_name=data.get('first_name', ''),
+                last_name=data.get('last_name', ''),
+                email=data.get('email', ''),
+                is_active=data.get('is_active', True),
+                is_staff=data.get('is_staff', True),
+            )
+            profile, _ = UserProfile.objects.get_or_create(user=user)
+            profile.security_questions = security_questions
+            profile.save(update_fields=['security_questions'])
+            group_ids = data.get('group_ids') or []
+            if group_ids:
+                user.groups.set(Group.objects.filter(id__in=group_ids))
 
         return Response({'success': True, 'message': '用户创建成功', 'data': UserListSerializer(user).data}, status=status.HTTP_201_CREATED)
 
@@ -378,6 +570,14 @@ class UserDetailAPIView(APIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
+        password_security_questions = None
+        if data.get('password'):
+            try:
+                validate_password(data['password'], user=user)
+                password_security_questions = hash_security_questions(request.data.get('security_questions'))
+            except DjangoValidationError as exc:
+                return Response({'success': False, 'message': '；'.join(exc.messages)}, status=status.HTTP_400_BAD_REQUEST)
+
         if 'username' in data and data['username'] != user.username:
             if User.objects.filter(username=data['username']).exclude(id=user.id).exists():
                 return Response({'success': False, 'message': '用户名已存在'}, status=status.HTTP_400_BAD_REQUEST)
@@ -390,10 +590,23 @@ class UserDetailAPIView(APIView):
         if data.get('password'):
             user.set_password(data['password'])
 
-        user.save()
+        with transaction.atomic():
+            user.save()
 
-        if 'group_ids' in data:
-            user.groups.set(Group.objects.filter(id__in=data['group_ids']))
+            if password_security_questions is not None:
+                profile, _ = UserProfile.objects.get_or_create(user=user)
+                profile.security_questions = password_security_questions
+                profile.has_changed_password = True
+                profile.failed_login_attempts = 0
+                profile.login_locked_until = None
+                profile.login_locked = False
+                profile.save(update_fields=[
+                    'security_questions', 'has_changed_password', 'failed_login_attempts',
+                    'login_locked_until', 'login_locked',
+                ])
+
+            if 'group_ids' in data:
+                user.groups.set(Group.objects.filter(id__in=data['group_ids']))
 
         return Response({'success': True, 'message': '用户更新成功', 'data': UserListSerializer(user).data})
 

@@ -104,6 +104,7 @@ class ProfileSerializer(serializers.ModelSerializer):
             return None
         return {
             'has_changed_password': profile.has_changed_password,
+            'security_questions_configured': len(profile.security_questions or []) == 3,
             'first_login_at': profile.first_login_at,
             'contact_info': profile.contact_info,
         }

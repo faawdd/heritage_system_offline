@@ -290,7 +290,7 @@ async function submitCreate() {
     await store.loadProjects()
     router.push(`/projects/${result.project_id}`)
   } catch (error) {
-    ElMessage.error(error?.message || '创建失败')
+    ElMessage.error(error?.response?.data?.message || error?.message || '创建失败')
   } finally {
     creating.value = false
   }

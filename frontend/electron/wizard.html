@@ -12,8 +12,8 @@
       background: #edf2ef;
     }
     * { box-sizing: border-box; }
-    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; }
-    main { width: min(100%, 520px); background: #fff; border: 1px solid #dce5df; box-shadow: 0 18px 50px #263c2c18; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 16px; }
+    main { width: min(100%, 560px); max-height: calc(100vh - 32px); overflow: auto; background: #fff; border: 1px solid #dce5df; box-shadow: 0 18px 50px #263c2c18; }
     header { height: 52px; display: flex; align-items: center; gap: 10px; padding: 0 22px; background: #f8faf8; border-bottom: 1px solid #e7ece8; font-size: 14px; }
     .mark { width: 10px; height: 10px; background: #17a36b; border-radius: 50%; }
     section { padding: 34px 38px 30px; }
@@ -25,6 +25,10 @@
     input:focus { border-color: #199d69; outline: 2px solid #199d6924; }
     .hint { margin: 8px 0 0; color: #76837a; font-size: 12px; line-height: 1.6; }
     .name-preview { margin: 10px 0 0; padding: 11px 12px; border: 1px solid #dce7df; background: #f7faf8; color: #355744; font-size: 14px; font-weight: 600; }
+    .security-heading { margin: 22px 0 4px; color: #35483d; font-size: 15px; font-weight: 600; }
+    .security-row { display: grid; grid-template-columns: 1.1fr 1fr; gap: 8px; margin-top: 10px; }
+    .security-row select { min-width: 0; height: 40px; padding: 0 8px; border: 1px solid #ced9d1; border-radius: 3px; background: #fff; color: #26332d; font: inherit; font-size: 12px; }
+    .security-row input { min-width: 0; height: 40px; font-size: 13px; }
     .account-note { margin: 20px 0; padding: 12px 14px; background: #f1f7f3; border-left: 3px solid #17a36b; color: #42544a; font-size: 13px; line-height: 1.6; }
     .error { min-height: 20px; margin: 10px 0 0; color: #b42318; font-size: 13px; }
     button { width: 100%; height: 44px; border: 0; border-radius: 3px; background: #159764; color: white; font: inherit; font-weight: 600; cursor: pointer; }
@@ -45,6 +49,9 @@
         <input id="system-region" name="systemRegion" maxlength="80" autocomplete="organization" placeholder="例如：鄯善县">
         <p class="hint">预览名称</p>
         <div id="system-name-preview" class="name-preview" aria-live="polite">文物综合管理平台</div>
+        <h2 class="security-heading">管理员密码保护问题</h2>
+        <p class="hint">设置 3 个不同问题及答案，用于忘记密码时验证身份。答案按哈希加密保存。</p>
+        <div id="security-question-rows"></div>
         <p class="hint">超级管理员账户将在本机数据库初始化后创建。</p>
         <div class="account-note">首次登录账号和密码均为 <strong>admin</strong>，登录后必须先修改密码。</div>
         <p id="error" class="error" role="alert"></p>
@@ -57,6 +64,27 @@
     const regionInput = document.getElementById('system-region')
     if (params.get('systemRegion')) regionInput.value = params.get('systemRegion')
     const namePreview = document.getElementById('system-name-preview')
+    const securityQuestionBank = [
+      ['childhood_city', '您童年成长的城市或乡镇是？'],
+      ['first_school', '您就读的第一所学校名称是？'],
+      ['first_pet', '您养过的第一只宠物叫什么？'],
+      ['favorite_teacher', '您最难忘的一位老师姓什么？'],
+      ['first_job', '您的第一份工作是什么？'],
+      ['favorite_book', '您少年时期最喜欢的一本书是？'],
+      ['favorite_dish', '您最喜欢的一道家常菜是？'],
+      ['first_trip', '您第一次独自旅行去了哪里？'],
+      ['childhood_nickname', '您小时候家人常叫您的昵称是？'],
+      ['favorite_sport', '您最喜欢的一项运动是？'],
+      ['parent_hometown', '您父亲或母亲的出生地是？'],
+      ['memorable_teacher_subject', '您学生时代最喜欢哪一门课程？']
+    ]
+    const securityRows = document.getElementById('security-question-rows')
+    for (let index = 0; index < 3; index += 1) {
+      const row = document.createElement('div')
+      row.className = 'security-row'
+      row.innerHTML = `<select aria-label="密码保护问题 ${index + 1}" required><option value="">选择问题 ${index + 1}</option>${securityQuestionBank.map(([id, text]) => `<option value="${id}">${text}</option>`).join('')}</select><input type="text" aria-label="问题 ${index + 1} 的答案" placeholder="填写答案" required minlength="2" autocomplete="off">`
+      securityRows.appendChild(row)
+    }
     const updateNamePreview = () => {
       namePreview.textContent = `${regionInput.value.trim()}文物综合管理平台`
     }
@@ -67,11 +95,16 @@
       event.preventDefault()
       const button = document.getElementById('submit')
       const error = document.getElementById('error')
+      const securityQuestions = Array.from(securityRows.children).map((row) => ({
+        question_id: row.querySelector('select').value,
+        answer: row.querySelector('input').value
+      }))
       button.disabled = true
       error.textContent = ''
       try {
         const result = await window.desktopSetup.complete({
-          systemRegion: regionInput.value
+          systemRegion: regionInput.value,
+          securityQuestions
         })
         if (!result?.success) error.textContent = result?.message || '配置未能保存'
       } catch (cause) {

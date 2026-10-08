@@ -56,7 +56,7 @@ function showSetupWizard(paths, currentConfig) {
     setupResolver = resolve
     setupWindow = new BrowserWindow({
       width: 620,
-      height: 570,
+      height: 790,
       resizable: false,
       show: false,
       autoHideMenuBar: true,
@@ -156,8 +156,9 @@ function startPackagedBackend(paths, port, desktopConfig) {
       SYSTEM_NAME: desktopConfig.systemName,
       SYSTEM_REGION: desktopConfig.systemRegion
     },
-    stdio: ['ignore', 'pipe', 'pipe']
+    stdio: ['pipe', 'pipe', 'pipe']
   })
+  backendProcess.stdin.end(JSON.stringify(desktopConfig.securityQuestions || []))
   backendProcess.stdout.pipe(backendLogStream)
   backendProcess.stderr.pipe(backendLogStream)
 }
@@ -235,7 +236,7 @@ async function startApplication() {
   const paths = getRuntimePaths()
   rendererBasePath = ''
   let desktopConfig = readDesktopConfig(paths)
-  if (!desktopConfig.initialized) {
+  if (!desktopConfig.initialized || !desktopConfig.securityQuestionsConfigured) {
     desktopConfig = await showSetupWizard(paths, desktopConfig)
   }
   const port = await reservePort()
@@ -275,12 +276,24 @@ ipcMain.handle('desktop-setup:complete', async (_event, payload = {}) => {
 
   const systemRegion = String(payload.systemRegion || '').trim()
   const normalizedRegion = systemRegion.slice(0, 80)
+  const securityQuestions = Array.isArray(payload.securityQuestions) ? payload.securityQuestions : []
+  if (securityQuestions.length !== 3) {
+    return { success: false, message: '请设置 3 个不同的密码保护问题及答案' }
+  }
+  const questionIds = securityQuestions.map((item) => String(item?.question_id || ''))
+  if (new Set(questionIds).size !== 3 || securityQuestions.some((item) => !String(item?.answer || '').trim())) {
+    return { success: false, message: '请选择 3 个不同的问题并填写答案' }
+  }
   const desktopConfig = {
     initialized: true,
     systemName: `${normalizedRegion}${DEFAULT_SYSTEM_NAME}`,
-    systemRegion: normalizedRegion
+    systemRegion: normalizedRegion,
+    securityQuestionsConfigured: true,
+    securityQuestions
   }
-  fs.writeFileSync(setupConfigPath, JSON.stringify(desktopConfig, null, 2), 'utf8')
+  const persistedConfig = { ...desktopConfig }
+  delete persistedConfig.securityQuestions
+  fs.writeFileSync(setupConfigPath, JSON.stringify(persistedConfig, null, 2), { encoding: 'utf8', mode: 0o600 })
   const resolveSetup = setupResolver
   setupResolver = null
   setupWindow?.close()

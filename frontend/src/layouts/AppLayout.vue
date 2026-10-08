@@ -168,6 +168,14 @@
       <el-form-item label="确认新密码">
         <el-input v-model="passwordForm.confirm_password" type="password" show-password placeholder="请再次输入新密码" />
       </el-form-item>
+      <el-form-item v-for="(item, index) in passwordSecurityQuestions" :key="`profile-security-${index}`" :label="`保护问题 ${index + 1}`">
+        <div class="security-question-inputs">
+          <el-select v-model="item.question_id" placeholder="选择保护问题" style="width: 100%">
+            <el-option v-for="question in securityQuestionBank" :key="question.id" :label="question.text" :value="question.id" />
+          </el-select>
+          <el-input v-model="item.answer" placeholder="填写答案" autocomplete="off" />
+        </div>
+      </el-form-item>
     </el-form>
     <template #footer>
       <el-button @click="passwordDialogVisible = false">取消</el-button>
@@ -181,7 +189,12 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '../stores/system/authStore'
-import { changeSystemPassword, fetchSystemProfile, updateSystemProfile } from '../api/system/systemApi'
+import {
+  changeSystemPassword,
+  fetchSecurityQuestionBank,
+  fetchSystemProfile,
+  updateSystemProfile
+} from '../api/system/systemApi'
 
 const route = useRoute()
 const router = useRouter()
@@ -214,6 +227,13 @@ const passwordForm = reactive({
   new_password: '',
   confirm_password: ''
 })
+const passwordSecurityQuestions = ref(Array.from({ length: 3 }, () => ({ question_id: '', answer: '' })))
+const securityQuestionBank = ref([])
+
+function hasValidSecurityQuestions(questions) {
+  const ids = questions.map(item => item.question_id)
+  return ids.every(Boolean) && new Set(ids).size === 3 && questions.every(item => String(item.answer || '').trim().length >= 2)
+}
 
 const staticMenuGroups = [
   {
@@ -513,6 +533,7 @@ function openPasswordDialog() {
   passwordForm.old_password = ''
   passwordForm.new_password = ''
   passwordForm.confirm_password = ''
+  passwordSecurityQuestions.value = Array.from({ length: 3 }, () => ({ question_id: '', answer: '' }))
   passwordDialogVisible.value = true
 }
 
@@ -525,6 +546,10 @@ async function submitPasswordChange() {
     ElMessage.warning('新密码至少 6 位')
     return
   }
+  if (!hasValidSecurityQuestions(passwordSecurityQuestions.value)) {
+    ElMessage.warning('请为新密码设置 3 个不同的保护问题及答案')
+    return
+  }
   if (passwordForm.new_password !== passwordForm.confirm_password) {
     ElMessage.warning('两次输入的新密码不一致')
     return
@@ -534,7 +559,8 @@ async function submitPasswordChange() {
   try {
     const result = await changeSystemPassword({
       old_password: passwordForm.old_password,
-      new_password: passwordForm.new_password
+      new_password: passwordForm.new_password,
+      security_questions: passwordSecurityQuestions.value
     })
     if (!result?.success) {
       throw new Error(result?.message || '密码修改失败')
@@ -669,6 +695,9 @@ watch(
 )
 
 onMounted(() => {
+  fetchSecurityQuestionBank()
+    .then((result) => { securityQuestionBank.value = result.questions || [] })
+    .catch(() => ElMessage.error('密码保护问题加载失败'))
   const savedMode = localStorage.getItem(THEME_MODE_KEY)
   if (savedMode === 'light' || savedMode === 'dark' || savedMode === 'system') {
     themeMode.value = savedMode

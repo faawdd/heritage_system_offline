@@ -36,9 +36,20 @@ def _ensure_initial_admin(logger: logging.Logger) -> None:
     from django.contrib.auth.models import Group, Permission
 
     from core.models import UserProfile
+    from core.services.account_security import hash_security_questions
 
+    raw_security_questions = (
+        os.environ.pop('HERITAGE_BOOTSTRAP_SECURITY_QUESTIONS', '').strip()
+        or sys.stdin.readline().strip()
+        or '[]'
+    )
     user_model = get_user_model()
-    if not user_model.objects.filter(is_active=True, is_superuser=True).exists():
+    existing_superuser = user_model.objects.filter(is_active=True, is_superuser=True).first()
+    if not existing_superuser:
+        try:
+            hashed_questions = hash_security_questions(json.loads(raw_security_questions))
+        except Exception as exc:
+            raise RuntimeError('首次启动必须配置 3 个不同的密码保护问题') from exc
         user, created = user_model.objects.get_or_create(
             username='admin',
             defaults={
@@ -62,8 +73,17 @@ def _ensure_initial_admin(logger: logging.Logger) -> None:
         user.groups.add(super_admin_group)
         profile, _ = UserProfile.objects.get_or_create(user=user)
         profile.has_changed_password = False
-        profile.save(update_fields=['has_changed_password'])
+        profile.security_questions = hashed_questions
+        profile.save(update_fields=['has_changed_password', 'security_questions'])
         logger.warning('Initial super administrator is ready; password change is required after first login.')
+    else:
+        profile, _ = UserProfile.objects.get_or_create(user=existing_superuser)
+        if not profile.security_questions:
+            try:
+                profile.security_questions = hash_security_questions(json.loads(raw_security_questions))
+            except Exception as exc:
+                raise RuntimeError('请完成管理员安全问题配置后启动离线系统') from exc
+            profile.save(update_fields=['security_questions'])
 
 
 def main() -> int:

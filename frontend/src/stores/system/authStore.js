@@ -66,8 +66,12 @@ export const useAuthStore = defineStore('system_auth', {
       this.menuTree = []
       this.persistAuth()
     },
-    async login(username, password) {
-      const result = await loginSystem({ username, password })
+    async login(username, password, securityQuestions = null) {
+      const loginPayload = { username, password }
+      if (securityQuestions) {
+        loginPayload.security_questions = securityQuestions
+      }
+      const result = await loginSystem(loginPayload)
       if (!result.success) {
         throw new Error(result.message || '登录失败')
       }
