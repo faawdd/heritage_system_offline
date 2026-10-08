@@ -79,6 +79,17 @@ jobs:
         run: |
           brew install sqlcipher pkg-config
 
+      - name: Enable x86 FPM compatibility on Linux ARM64
+        if: matrix.id == 'linux-arm64'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-user qemu-user-binfmt binfmt-support
+          sudo update-binfmts --enable qemu-x86_64
+          sudo update-binfmts --enable qemu-i386
+          grep -q 'enabled' /proc/sys/fs/binfmt_misc/qemu-x86_64
+          grep -q 'enabled' /proc/sys/fs/binfmt_misc/qemu-i386
+
       - name: Configure npm network settings
         working-directory: frontend
         run: |
