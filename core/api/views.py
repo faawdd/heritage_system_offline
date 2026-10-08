@@ -11,7 +11,9 @@ from urllib.parse import quote
 
 from django.conf import settings
 from django.core.cache import cache
+from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
+from django.db import transaction
 from django.db.models import Q, Count
 from django.http import HttpResponse
 from django.contrib.auth.models import User
@@ -22,7 +24,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core import views as legacy_views
-from core.models import HeritagePhoto, HeritageSite, ImmovableHeritage, InspectionRecord, KmlUploadRecord, LandUseProjectApproval, ProjectAudit, ReportRecord
+from core.models import HeritagePhoto, HeritageSite, HeritageTwoLineFile, ImmovableHeritage, InspectionRecord, KmlUploadRecord, LandUseProjectApproval, ProjectAudit, ReportRecord
 from core.permission_decorators import can_modify_core_data
 from core.permissions.api_permissions import IsManagementAdmin
 from core.services import data_sync
@@ -32,6 +34,7 @@ from core.services.heritage_service import (
     get_heritage_stats_meta,
 )
 from core.services.system_service import get_system_version_payload
+from core.services.two_line_file import parse_two_line_file
 from core.ovkml_converter import build_csv_outputs, parse_kml_or_kmz
 from core.services.report_service import create_report, get_completed_period_bounds, render_report_html
 
@@ -341,7 +344,7 @@ class HeritageSiteManageListAPIView(APIView):
         page = max(int(request.GET.get('page', 1) or 1), 1)
         page_size = min(max(int(request.GET.get('page_size', 20) or 20), 1), 200)
 
-        queryset = HeritageSite.objects.all().order_by('id')
+        queryset = HeritageSite.objects.select_related('two_line_file').all().order_by('id')
 
         if keyword:
             queryset = queryset.filter(
@@ -376,6 +379,7 @@ class HeritageSiteManageListAPIView(APIView):
                 'description': item.description,
                 'protection_zone': item.protection_zone,
                 'control_zone': item.control_zone,
+                'two_line_file': self._two_line_file_payload(item),
             }
             for item in queryset[offset: offset + page_size]
         ]
@@ -395,6 +399,17 @@ class HeritageSiteManageListAPIView(APIView):
                 },
             }
         )
+
+    @staticmethod
+    def _two_line_file_payload(site):
+        item = getattr(site, 'two_line_file', None)
+        if item is None:
+            return None
+        return {
+            'name': item.original_name,
+            'uploaded_at': item.uploaded_at.strftime('%Y-%m-%d %H:%M'),
+            'url': item.source_file.url if item.source_file else '',
+        }
 
 
 class HeritageSiteManageDetailAPIView(APIView):
@@ -458,6 +473,115 @@ class HeritageSiteManageDetailAPIView(APIView):
             return Response({'success': False, 'message': f'保存失败: {exc}'}, status=400)
 
         return Response({'success': True, 'message': '文物档案已更新'})
+
+
+class HeritageTwoLineFileAPIView(APIView):
+    permission_classes = [IsManagementAdmin]
+    parser_classes = [MultiPartParser, FormParser]
+
+    @staticmethod
+    def _get_site(site_id):
+        site = HeritageSite.objects.filter(id=site_id).first()
+        if not site:
+            return None
+        return site
+
+    def get(self, request, site_id):
+        site = self._get_site(site_id)
+        if not site:
+            return Response({'success': False, 'message': '文物档案不存在'}, status=404)
+        item = getattr(site, 'two_line_file', None)
+        if not item:
+            return Response({'success': True, 'data': None})
+        return Response({
+            'success': True,
+            'data': {
+                'name': item.original_name,
+                'uploaded_at': item.uploaded_at.strftime('%Y-%m-%d %H:%M'),
+                'url': item.source_file.url if item.source_file else '',
+            },
+        })
+
+    def post(self, request, site_id):
+        if not can_modify_core_data(request.user):
+            return Response({'success': False, 'message': '当前角色仅可查看，禁止修改'}, status=403)
+        site = self._get_site(site_id)
+        if not site:
+            return Response({'success': False, 'message': '文物档案不存在'}, status=404)
+
+        upload = request.FILES.get('file')
+        if not upload:
+            return Response({'success': False, 'message': '请选择两线文件'}, status=400)
+        if upload.size > 50 * 1024 * 1024:
+            return Response({'success': False, 'message': '两线文件不能超过 50 MB'}, status=400)
+        content = upload.read()
+        filename = os.path.basename(upload.name or 'two_line.kml')
+        try:
+            zones, counts = parse_two_line_file(content, filename, request.data.get('zone_type', 'auto'))
+        except ValueError as exc:
+            return Response({'success': False, 'message': str(exc)}, status=400)
+
+        old_record = HeritageTwoLineFile.objects.filter(site=site).first()
+        old_path = old_record.source_file.name if old_record and old_record.source_file else ''
+        new_path = ''
+        try:
+            with transaction.atomic():
+                record = old_record or HeritageTwoLineFile(site=site)
+                record.original_name = filename[:255]
+                record.source_file.save(filename, ContentFile(content), save=False)
+                new_path = record.source_file.name
+                record.save()
+                site.protection_zone = json.dumps(zones['protection'], ensure_ascii=False) if zones['protection'] else ''
+                site.control_zone = json.dumps(zones['control'], ensure_ascii=False) if zones['control'] else ''
+                site.save(update_fields=['protection_zone', 'control_zone'])
+        except Exception as exc:
+            if new_path:
+                default_storage.delete(new_path)
+            logger.exception('保存文物两线源文件失败: site_id=%s', site_id)
+            return Response({'success': False, 'message': f'保存两线文件失败: {exc}'}, status=400)
+
+        if old_path and old_path != new_path:
+            default_storage.delete(old_path)
+        return Response({
+            'success': True,
+            'message': '两线文件已上传并替换',
+            'data': {
+                'name': filename,
+                'uploaded_at': record.uploaded_at.strftime('%Y-%m-%d %H:%M'),
+                'url': record.source_file.url if record.source_file else '',
+                'protection_count': counts['protection'],
+                'control_count': counts['control'],
+                'protection_zone': zones['protection'],
+                'control_zone': zones['control'],
+            },
+        })
+
+    def put(self, request, site_id):
+        return self.post(request, site_id)
+
+    def delete(self, request, site_id):
+        if not can_modify_core_data(request.user):
+            return Response({'success': False, 'message': '当前角色仅可查看，禁止修改'}, status=403)
+        site = self._get_site(site_id)
+        if not site:
+            return Response({'success': False, 'message': '文物档案不存在'}, status=404)
+        record = HeritageTwoLineFile.objects.filter(site=site).first()
+        if not record:
+            return Response({'success': False, 'message': '该文物点没有已上传的两线文件'}, status=404)
+
+        source_path = record.source_file.name if record.source_file else ''
+        with transaction.atomic():
+            site.protection_zone = ''
+            site.control_zone = ''
+            site.save(update_fields=['protection_zone', 'control_zone'])
+            record.delete()
+        if source_path:
+            default_storage.delete(source_path)
+        return Response({
+            'success': True,
+            'message': '两线文件及其坐标已删除',
+            'data': {'protection_zone': [], 'control_zone': []},
+        })
 
 
 class HeritageSiteManageImportAPIView(APIView):

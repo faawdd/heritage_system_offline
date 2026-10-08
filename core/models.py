@@ -158,6 +158,25 @@ class HeritageSite(models.Model):
                 
         return results
 
+
+class HeritageTwoLineFile(models.Model):
+    site = models.OneToOneField(
+        HeritageSite,
+        on_delete=models.CASCADE,
+        related_name='two_line_file',
+        verbose_name='所属文物点',
+    )
+    source_file = models.FileField('两线源文件', upload_to='heritage/two_line/%Y/%m/')
+    original_name = models.CharField('原始文件名', max_length=255)
+    uploaded_at = models.DateTimeField('上传时间', auto_now=True)
+
+    class Meta:
+        verbose_name = '文物两线源文件'
+        verbose_name_plural = verbose_name
+
+    def __str__(self):
+        return f'{self.site.name} - {self.original_name}'
+
 # 2. 基层巡查登记表
 class InspectionRecord(models.Model):
     site = models.ForeignKey(HeritageSite, on_delete=models.CASCADE, verbose_name="巡查对象")

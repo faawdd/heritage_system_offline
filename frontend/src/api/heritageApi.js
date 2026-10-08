@@ -30,6 +30,19 @@ export async function patchHeritageSiteManage(siteId, payload) {
   return response.data
 }
 
+export async function uploadHeritageTwoLineFile(siteId, file, zoneType = 'auto') {
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('zone_type', zoneType)
+  const response = await client.post(`/api/v1/heritage/sites/${siteId}/two-line-file/`, formData)
+  return response.data
+}
+
+export async function deleteHeritageTwoLineFile(siteId) {
+  const response = await client.delete(`/api/v1/heritage/sites/${siteId}/two-line-file/`)
+  return response.data
+}
+
 export async function importHeritageSiteManage(file) {
   const formData = new FormData()
   formData.append('file', file)
