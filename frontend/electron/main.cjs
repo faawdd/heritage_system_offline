@@ -50,6 +50,11 @@ function readDesktopConfig(paths) {
   }
 }
 
+function hasExistingInstallation(paths) {
+  return fs.existsSync(path.join(paths.configDir, 'desktop-config.json')) ||
+    fs.existsSync(path.join(paths.dataDir, 'database.sqlite3'))
+}
+
 function showSetupWizard(paths, currentConfig) {
   setupConfigPath = path.join(paths.configDir, 'desktop-config.json')
   return new Promise((resolve, reject) => {
@@ -236,7 +241,7 @@ async function startApplication() {
   const paths = getRuntimePaths()
   rendererBasePath = ''
   let desktopConfig = readDesktopConfig(paths)
-  if (!desktopConfig.initialized || !desktopConfig.securityQuestionsConfigured) {
+  if (!hasExistingInstallation(paths)) {
     desktopConfig = await showSetupWizard(paths, desktopConfig)
   }
   const port = await reservePort()
@@ -303,7 +308,11 @@ ipcMain.handle('desktop-setup:complete', async (_event, payload = {}) => {
 
 app.whenReady().then(() => {
   startApplication().catch((error) => {
-    dialog.showErrorBox('离线版启动失败', String(error.message || error))
+    const backendLogPath = path.join(app.getPath('userData'), 'logs', 'backend.log')
+    dialog.showErrorBox(
+      '离线版启动失败',
+      `${String(error.message || error)}\n\n详细日志：${backendLogPath}`
+    )
     app.quit()
   })
 })

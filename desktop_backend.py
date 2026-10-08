@@ -35,6 +35,7 @@ def _configure_runtime() -> tuple[Path, Path, Path]:
 def _ensure_initial_admin(logger: logging.Logger) -> None:
     from django.contrib.auth import get_user_model
     from django.contrib.auth.models import Group, Permission
+    from django.core.exceptions import ValidationError
 
     from core.models import UserProfile
     from core.services.account_security import hash_security_questions
@@ -49,8 +50,12 @@ def _ensure_initial_admin(logger: logging.Logger) -> None:
     if not existing_superuser:
         try:
             hashed_questions = hash_security_questions(json.loads(raw_security_questions))
-        except Exception as exc:
-            raise RuntimeError('首次启动必须配置 3 个不同的密码保护问题') from exc
+        except (json.JSONDecodeError, ValidationError):
+            hashed_questions = []
+            logger.warning(
+                'Initial super administrator has no security questions; '
+                'login will require security-question enrollment.'
+            )
         user, created = user_model.objects.get_or_create(
             username='admin',
             defaults={
@@ -82,9 +87,13 @@ def _ensure_initial_admin(logger: logging.Logger) -> None:
         if not profile.security_questions:
             try:
                 profile.security_questions = hash_security_questions(json.loads(raw_security_questions))
-            except Exception as exc:
-                raise RuntimeError('请完成管理员安全问题配置后启动离线系统') from exc
-            profile.save(update_fields=['security_questions'])
+            except (json.JSONDecodeError, ValidationError):
+                logger.warning(
+                    'Existing super administrator has no security questions; '
+                    'login will require security-question enrollment.'
+                )
+            else:
+                profile.save(update_fields=['security_questions'])
 
 
 def main() -> int:
