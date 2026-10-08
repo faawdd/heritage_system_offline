@@ -12,9 +12,13 @@ const DEFAULT_SYSTEM_NAME = '文物综合管理平台'
 let backendProcess = null
 let backendLogStream = null
 let mainWindow = null
+let loginWindow = null
 let setupWindow = null
 let setupResolver = null
 let setupConfigPath = ''
+let backendOrigin = ''
+let rendererBasePath = ''
+let desktopLoginPassed = false
 
 function getRuntimePaths() {
   const appDir = path.join(process.resourcesPath, 'runtime', 'app')
@@ -169,6 +173,7 @@ function createMainWindow(url) {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      partition: 'persist:heritage-desktop',
       preload: path.join(__dirname, 'preload.cjs')
     }
   })
@@ -179,13 +184,56 @@ function createMainWindow(url) {
   mainWindow.loadURL(url)
 }
 
+function buildMainWindowUrl() {
+  return `${backendOrigin}${rendererBasePath}/dashboard?desktop_auth=1`
+}
+
+function createLoginWindow(url, systemName = DEFAULT_SYSTEM_NAME) {
+  loginWindow = new BrowserWindow({
+    width: 420,
+    height: 580,
+    minWidth: 420,
+    maxWidth: 420,
+    minHeight: 560,
+    maxHeight: 620,
+    resizable: false,
+    maximizable: false,
+    minimizable: true,
+    fullscreenable: false,
+    frame: true,
+    show: false,
+    autoHideMenuBar: true,
+    title: systemName,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      partition: 'persist:heritage-desktop',
+      preload: path.join(__dirname, 'preload.cjs')
+    }
+  })
+  loginWindow.once('ready-to-show', () => loginWindow?.show())
+  loginWindow.on('closed', () => {
+    loginWindow = null
+    if (!desktopLoginPassed) app.quit()
+  })
+  loginWindow.loadURL(url)
+}
+
 async function startApplication() {
   if (!app.isPackaged) {
-    createMainWindow(process.env.ELECTRON_START_URL || 'http://127.0.0.1:5173/login')
+    const loginUrl = process.env.ELECTRON_START_URL || 'http://127.0.0.1:5173/login'
+    const parsedLoginUrl = new URL(loginUrl)
+    backendOrigin = parsedLoginUrl.origin
+    const loginPath = parsedLoginUrl.pathname.replace(/\/+$/, '')
+    rendererBasePath = loginPath.endsWith('/login')
+      ? loginPath.slice(0, -'/login'.length)
+      : ''
+    createLoginWindow(`${loginUrl}${loginUrl.includes('?') ? '&' : '?'}login_window=1`)
     return
   }
 
   const paths = getRuntimePaths()
+  rendererBasePath = ''
   let desktopConfig = readDesktopConfig(paths)
   if (!desktopConfig.initialized) {
     desktopConfig = await showSetupWizard(paths, desktopConfig)
@@ -193,12 +241,32 @@ async function startApplication() {
   const port = await reservePort()
   startPackagedBackend(paths, port, desktopConfig)
   await waitForBackend(port)
+  backendOrigin = `http://127.0.0.1:${port}`
   const loginQuery = new URLSearchParams({
     login_window: '1',
     system_name: desktopConfig.systemName
   })
-  createMainWindow(`http://127.0.0.1:${port}/login?${loginQuery.toString()}`)
+  createLoginWindow(`${backendOrigin}/login?${loginQuery.toString()}`, desktopConfig.systemName)
 }
+
+ipcMain.handle('desktop-auth:login-succeeded', (event) => {
+  if (!loginWindow || event.sender.id !== loginWindow.webContents.id) {
+    return { success: false, message: '登录窗口无效' }
+  }
+  if (!backendOrigin) {
+    return { success: false, message: '本地服务地址尚未准备好' }
+  }
+
+  desktopLoginPassed = true
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createMainWindow(buildMainWindowUrl())
+  } else {
+    mainWindow.show()
+    mainWindow.focus()
+  }
+  loginWindow.close()
+  return { success: true }
+})
 
 ipcMain.handle('desktop-setup:complete', async (_event, payload = {}) => {
   if (!setupResolver) {
@@ -238,4 +306,13 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
+})
+
+app.on('activate', () => {
+  if (BrowserWindow.getAllWindows().length > 0) return
+  if (desktopLoginPassed && backendOrigin) {
+    createMainWindow(buildMainWindowUrl())
+    return
+  }
+  app.quit()
 })

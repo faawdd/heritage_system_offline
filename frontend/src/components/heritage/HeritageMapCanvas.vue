@@ -1,5 +1,6 @@
 <template>
   <div ref="mapEl" class="heritage-map-canvas">
+    <BaseMapSwitcher />
     <div v-if="showPointPopup" ref="pointPopupEl" class="heritage-point-popup">
       <button type="button" class="heritage-point-popup-close" aria-label="关闭" @click="closePointPopup">×</button>
       <div class="heritage-point-popup-title">{{ pointPopup.name || '未命名文物' }}</div>
@@ -31,7 +32,13 @@ import Stroke from 'ol/style/Stroke'
 import Style from 'ol/style/Style'
 import Overlay from 'ol/Overlay'
 
-import { createTiandituLayerGroup } from '../../utils/tianditu'
+import BaseMapSwitcher from '../maps/BaseMapSwitcher.vue'
+import {
+  createOfflineTileLayer,
+  createTiandituLayerGroup,
+  refreshBasemapLayers,
+  watchBasemapChanges
+} from '../../utils/tianditu'
 
 const props = defineProps({
   points: {
@@ -74,6 +81,9 @@ const pointPopupOverlayRef = ref(null)
 const pointPopup = ref({})
 let mapResizeObserver = null
 let mapResizeFrame = 0
+let onlineBaseLayers = []
+let offlineBaseLayer = null
+let stopWatchingBasemap = null
 
 const levelColors = {
   GB: '#e63946',
@@ -150,6 +160,8 @@ function applyAbnormalPoints() {
 }
 
 onMounted(() => {
+  onlineBaseLayers = createTiandituLayerGroup('img')
+  offlineBaseLayer = createOfflineTileLayer()
   const vectorLayer = new VectorLayer({ source: vectorSource })
   const abnormalLayer = new VectorLayer({ source: abnormalSource })
   const abnormalHeatLayer = new HeatmapLayer({
@@ -162,7 +174,7 @@ onMounted(() => {
 
   const map = new Map({
     target: mapEl.value,
-    layers: [...createTiandituLayerGroup('img'), abnormalHeatLayer, vectorLayer, abnormalLayer],
+    layers: [...onlineBaseLayers, offlineBaseLayer, abnormalHeatLayer, vectorLayer, abnormalLayer],
     view: new View({
       center: fromLonLat([90.21, 42.84]),
       zoom: 9
@@ -186,6 +198,9 @@ onMounted(() => {
   })
 
   mapRef.value = map
+  const refreshBasemap = () => refreshBasemapLayers({ img: onlineBaseLayers }, offlineBaseLayer, 'img')
+  refreshBasemap()
+  stopWatchingBasemap = watchBasemapChanges(refreshBasemap)
   abnormalLayerRef.value = abnormalLayer
   abnormalHeatLayerRef.value = abnormalHeatLayer
   if (props.showPointPopup && pointPopupEl.value) {
@@ -213,6 +228,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  stopWatchingBasemap?.()
   mapResizeObserver?.disconnect()
   cancelAnimationFrame(mapResizeFrame)
   mapRef.value?.setTarget(undefined)
