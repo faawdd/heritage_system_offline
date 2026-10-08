@@ -22,24 +22,24 @@ jobs:
         include:
           - id: windows-x64
             os: windows-latest
-            # 调整为相对 frontend/dist-electron 的路径，避免层级混乱
-            asset_glob: "*.exe"
+            asset_paths: frontend/dist-electron/*.exe
             build_cmd: npx electron-builder --publish never --win nsis --x64
             artifact_name: windows-x64
           - id: macos-arm64
             os: macos-14
-            # 使用逗号或通配符单行表达，避免多行字符串在跨平台传递时的换行符坑
-            asset_glob: "*.dmg,*-arm64-mac.zip"
+            asset_paths: |
+              frontend/dist-electron/*.dmg
+              frontend/dist-electron/*-arm64-mac.zip
             build_cmd: npx electron-builder --publish never --mac dmg zip --arm64
             artifact_name: macos-arm64
           - id: linux-amd64
             os: ubuntu-24.04
-            asset_glob: "*.AppImage"
+            asset_paths: frontend/dist-electron/*.AppImage
             build_cmd: npx electron-builder --publish never --linux AppImage --x64
             artifact_name: linux-amd64
           - id: linux-arm64
             os: ubuntu-24.04-arm
-            asset_glob: "*.AppImage"
+            asset_paths: frontend/dist-electron/*.AppImage
             build_cmd: npx electron-builder --publish never --linux AppImage --arm64
             artifact_name: linux-arm64
 
@@ -444,9 +444,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          # 核心修复：直接切入 frontend/dist-electron 目录下寻找
-          path: |
-            frontend/dist-electron/${{ matrix.asset_glob }}
+          path: ${{ matrix.asset_paths }}
           if-no-files-found: error
 
   release:
