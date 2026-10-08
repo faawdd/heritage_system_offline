@@ -37,6 +37,7 @@ from datetime import datetime, date
 from urllib.parse import quote, urlsplit, urlunsplit, parse_qsl, urlencode
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth import get_user_model, login as auth_login
+from functools import wraps
 from rest_framework.decorators import api_view, permission_classes
 from core.permissions.api_permissions import IsManagementAdmin
 from django.db import OperationalError, ProgrammingError, transaction
@@ -2305,14 +2306,34 @@ def _parse_date_value(raw_value, field_name):
         raise ValueError(f'{field_name} 格式错误，需为 YYYY-MM-DD')
 
 
+def _management_api_required(view_func):
+    @wraps(view_func)
+    def wrapped(request, *args, **kwargs):
+        user = getattr(request, 'user', None)
+        if not user or not user.is_authenticated:
+            from rest_framework.exceptions import AuthenticationFailed
+            from rest_framework_simplejwt.authentication import JWTAuthentication
+
+            try:
+                authentication = JWTAuthentication().authenticate(request)
+            except AuthenticationFailed:
+                return JsonResponse({'success': False, 'message': '登录已失效，请重新登录'}, status=401)
+            if authentication is None:
+                return JsonResponse({'success': False, 'message': '请先登录'}, status=401)
+            request.user = authentication[0]
+
+        if not is_management_admin(request.user):
+            return JsonResponse({'success': False, 'message': '需要管理权限'}, status=403)
+        return view_func(request, *args, **kwargs)
+
+    return wrapped
+
+
 @csrf_exempt
 @require_POST
-@staff_member_required
+@_management_api_required
 def land_project_create_api(request):
     """收文登记：创建用地项目审批记录。"""
-    if not is_management_admin(request.user):
-        return JsonResponse({'success': False, 'message': '无权限'}, status=403)
-
     try:
         payload = _load_json_payload(request)
     except ValueError as exc:

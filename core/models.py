@@ -680,6 +680,12 @@ class UserProfile(models.Model):
     has_changed_password = models.BooleanField("是否已修改密码", default=False)
     first_login_at = models.DateTimeField("首次登录时间", null=True, blank=True)
     contact_info = models.CharField("联系方式", max_length=100, blank=True, default='')
+    security_questions = models.JSONField('密码保护问题哈希', default=list, blank=True)
+    failed_login_attempts = models.PositiveSmallIntegerField('连续登录失败次数', default=0)
+    login_locked_until = models.DateTimeField('登录等待截止时间', null=True, blank=True)
+    login_locked = models.BooleanField('登录已锁定', default=False)
+    failed_recovery_attempts = models.PositiveSmallIntegerField('安全问题失败次数', default=0)
+    recovery_locked_until = models.DateTimeField('安全问题验证等待截止时间', null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     
     def __str__(self):

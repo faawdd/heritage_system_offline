@@ -1,4 +1,5 @@
 from datetime import datetime
+from datetime import timedelta
 import base64
 import hashlib
 import hmac
@@ -49,9 +50,18 @@ django.setup()
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import check_password
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import models
-from core.models import HeritageSite, InspectionRecord, ProjectAudit  # type: ignore[import]
+from django.utils import timezone
+from core.models import HeritageSite, InspectionRecord, ProjectAudit, UserProfile  # type: ignore[import]
 from core.models import ImmovableHeritage, HeritagePhoto            # type: ignore[import]
+from core.services.account_security import (
+    LOGIN_LOCK_THRESHOLD,
+    LOGIN_WAIT_SECONDS,
+    LOGIN_WAIT_THRESHOLD,
+    hash_security_questions,
+)
 
 
 DB_PATH = Path(settings.DATABASES["default"]["NAME"])
@@ -202,11 +212,13 @@ def require_admin(current_user: Any = Depends(get_current_user)) -> Any:
 class LoginRequest(BaseModel):
     username: str
     password: str
+    security_questions: list[dict[str, str]] | None = None
 
 
 class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str
+    security_questions: list[dict[str, str]]
 
 
 class ProjectUpdateRequest(BaseModel):
@@ -320,8 +332,56 @@ def api_health() -> dict:
 @app.post("/api/auth/login")
 def login(payload: LoginRequest) -> dict:
     user = User.objects.filter(username=payload.username, is_active=True).first()
-    if user is None or not check_password(payload.password, user.password):
+    if user is None:
         raise HTTPException(status_code=401, detail="用户名或密码错误")
+
+    profile, _ = UserProfile.objects.get_or_create(user=user)
+    now = timezone.now()
+    if profile.login_locked:
+        raise HTTPException(status_code=423, detail="账户已锁定，请通过忘记密码重置")
+    if profile.login_locked_until and profile.login_locked_until > now:
+        retry_after = max(1, int((profile.login_locked_until - now).total_seconds()))
+        raise HTTPException(
+            status_code=429,
+            detail="连续输错次数过多，请稍后重试",
+            headers={"Retry-After": str(retry_after)},
+        )
+    if profile.login_locked_until and profile.login_locked_until <= now:
+        profile.login_locked_until = None
+        profile.save(update_fields=['login_locked_until'])
+
+    if not check_password(payload.password, user.password):
+        profile.failed_login_attempts += 1
+        if profile.failed_login_attempts >= LOGIN_LOCK_THRESHOLD:
+            profile.login_locked = True
+            profile.login_locked_until = None
+            profile.save(update_fields=['failed_login_attempts', 'login_locked', 'login_locked_until'])
+            raise HTTPException(status_code=423, detail="账户已锁定，请通过忘记密码重置")
+        if profile.failed_login_attempts >= LOGIN_WAIT_THRESHOLD:
+            profile.login_locked_until = now + timedelta(seconds=LOGIN_WAIT_SECONDS)
+            profile.save(update_fields=['failed_login_attempts', 'login_locked_until'])
+            raise HTTPException(
+                status_code=429,
+                detail="连续输错次数过多，请等待两分钟后重试",
+                headers={"Retry-After": str(LOGIN_WAIT_SECONDS)},
+            )
+        profile.save(update_fields=['failed_login_attempts'])
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
+
+    if len(profile.security_questions or []) != 3:
+        if not payload.security_questions:
+            raise HTTPException(status_code=428, detail="首次登录请先设置 3 个密码保护问题")
+        try:
+            profile.security_questions = hash_security_questions(payload.security_questions)
+            profile.save(update_fields=['security_questions'])
+        except DjangoValidationError as exc:
+            raise HTTPException(status_code=400, detail='；'.join(exc.messages)) from exc
+
+    if profile.failed_login_attempts or profile.login_locked_until or profile.login_locked:
+        profile.failed_login_attempts = 0
+        profile.login_locked_until = None
+        profile.login_locked = False
+        profile.save(update_fields=['failed_login_attempts', 'login_locked_until', 'login_locked'])
     return {
         "token": create_token(user),
         "user": serialize_user(user),
@@ -342,8 +402,24 @@ def change_password(payload: ChangePasswordRequest, current_user: Any = Depends(
     if check_password(payload.new_password, current_user.password):
         raise HTTPException(status_code=400, detail="新密码不能与旧密码相同")
 
+    try:
+        validate_password(payload.new_password, user=current_user)
+        security_questions = hash_security_questions(payload.security_questions)
+    except DjangoValidationError as exc:
+        raise HTTPException(status_code=400, detail='；'.join(exc.messages)) from exc
+
     current_user.set_password(payload.new_password)
     current_user.save(update_fields=["password"])
+    profile, _ = UserProfile.objects.get_or_create(user=current_user)
+    profile.security_questions = security_questions
+    profile.has_changed_password = True
+    profile.failed_login_attempts = 0
+    profile.login_locked_until = None
+    profile.login_locked = False
+    profile.save(update_fields=[
+        'security_questions', 'has_changed_password', 'failed_login_attempts',
+        'login_locked_until', 'login_locked',
+    ])
     return {"message": "password_updated"}
 
 

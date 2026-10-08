@@ -188,6 +188,7 @@ jobs:
           $env:HERITAGE_CONFIG_DIR = (Join-Path $PWD ".ci-runtime\config")
           $env:HERITAGE_LOG_DIR = (Join-Path $PWD ".ci-runtime\logs")
           $env:HERITAGE_BOOTSTRAP_ADMIN_PASSWORD = "Admin@123456"
+          $env:HERITAGE_BOOTSTRAP_SECURITY_QUESTIONS = '[{"question_id":"childhood_city","answer":"test-city"},{"question_id":"first_school","answer":"test-school"},{"question_id":"first_pet","answer":"test-pet"}]'
 
           New-Item -ItemType Directory -Path $env:HERITAGE_DATA_DIR -Force | Out-Null
           New-Item -ItemType Directory -Path $env:HERITAGE_CONFIG_DIR -Force | Out-Null
@@ -231,6 +232,7 @@ jobs:
           export HERITAGE_CONFIG_DIR="$PWD/.ci-runtime/config"
           export HERITAGE_LOG_DIR="$PWD/.ci-runtime/logs"
           export HERITAGE_BOOTSTRAP_ADMIN_PASSWORD="Admin@123456"
+          export HERITAGE_BOOTSTRAP_SECURITY_QUESTIONS='[{"question_id":"childhood_city","answer":"test-city"},{"question_id":"first_school","answer":"test-school"},{"question_id":"first_pet","answer":"test-pet"}]'
 
           mkdir -p "$HERITAGE_DATA_DIR" "$HERITAGE_CONFIG_DIR" "$HERITAGE_LOG_DIR"
 
@@ -317,6 +319,7 @@ jobs:
           $env:HERITAGE_CONFIG_DIR = (Join-Path $PWD ".ci-packaged-runtime\config")
           $env:HERITAGE_LOG_DIR = (Join-Path $PWD ".ci-packaged-runtime\logs")
           $env:HERITAGE_BOOTSTRAP_ADMIN_PASSWORD = "Admin@123456"
+          $env:HERITAGE_BOOTSTRAP_SECURITY_QUESTIONS = '[{"question_id":"childhood_city","answer":"test-city"},{"question_id":"first_school","answer":"test-school"},{"question_id":"first_pet","answer":"test-pet"}]'
 
           New-Item -ItemType Directory -Path $env:HERITAGE_DATA_DIR -Force | Out-Null
           New-Item -ItemType Directory -Path $env:HERITAGE_CONFIG_DIR -Force | Out-Null
@@ -363,6 +366,7 @@ jobs:
           export HERITAGE_CONFIG_DIR="$PWD/.ci-packaged-runtime/config"
           export HERITAGE_LOG_DIR="$PWD/.ci-packaged-runtime/logs"
           export HERITAGE_BOOTSTRAP_ADMIN_PASSWORD="Admin@123456"
+          export HERITAGE_BOOTSTRAP_SECURITY_QUESTIONS='[{"question_id":"childhood_city","answer":"test-city"},{"question_id":"first_school","answer":"test-school"},{"question_id":"first_pet","answer":"test-pet"}]'
 
           mkdir -p "$HERITAGE_DATA_DIR" "$HERITAGE_CONFIG_DIR" "$HERITAGE_LOG_DIR"
 
@@ -411,6 +415,7 @@ jobs:
           export HERITAGE_CONFIG_DIR="$PWD/.ci-packaged-runtime/config"
           export HERITAGE_LOG_DIR="$PWD/.ci-packaged-runtime/logs"
           export HERITAGE_BOOTSTRAP_ADMIN_PASSWORD="Admin@123456"
+          export HERITAGE_BOOTSTRAP_SECURITY_QUESTIONS='[{"question_id":"childhood_city","answer":"test-city"},{"question_id":"first_school","answer":"test-school"},{"question_id":"first_pet","answer":"test-pet"}]'
 
           mkdir -p "$HERITAGE_DATA_DIR" "$HERITAGE_CONFIG_DIR" "$HERITAGE_LOG_DIR"
 

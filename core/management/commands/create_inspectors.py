@@ -4,11 +4,16 @@
      python manage.py create_inspectors --reset-passwords  (重置密码)
      python manage.py create_inspectors --delete  (删除所有账号)
 """
-from django.core.management.base import BaseCommand
+import json
+from pathlib import Path
+
+from django.core.exceptions import ValidationError
+from django.core.management.base import BaseCommand, CommandError
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
-from core.models import InspectionRecord
+from core.models import InspectionRecord, UserProfile
+from core.services.account_security import hash_security_questions
 
 class Command(BaseCommand):
     help = '创建18名基层文物看护员账号'
@@ -49,6 +54,10 @@ class Command(BaseCommand):
             action='store_true',
             help='重置所有看护员密码为初始密码',
         )
+        parser.add_argument(
+            '--security-questions-file',
+            help='逐用户安全问题 JSON 文件，键为用户名，值为 3 组 question_id/answer',
+        )
 
     def handle(self, *args, **options):
         # 创建或获取"文物看护员"用户组
@@ -67,6 +76,18 @@ class Command(BaseCommand):
         if options['delete']:
             self.delete_inspectors()
             return
+
+        questions_file = options.get('security_questions_file')
+        if not questions_file:
+            raise CommandError('创建或重置看护员密码必须提供 --security-questions-file')
+        try:
+            raw_questions = json.loads(Path(questions_file).read_text(encoding='utf-8'))
+            self.security_questions_by_username = {
+                username: hash_security_questions(raw_questions[username])
+                for _name, username in self.INSPECTORS_DATA
+            }
+        except (OSError, ValueError, KeyError, TypeError, ValidationError) as exc:
+            raise CommandError(f'安全问题文件无效或缺少用户条目: {exc}') from exc
         
         if options['reset_passwords']:
             self.reset_passwords()
@@ -87,7 +108,7 @@ class Command(BaseCommand):
         inspector_group = Group.objects.get(name='文物看护员')
         
         # 显示表头
-        self.stdout.write(f"{'操作':<6} | {'姓名':<15} | {'手机号（账号）':<13} | {'初始密码':<20}")
+        self.stdout.write(f"{'操作':<6} | {'姓名':<15} | {'手机号（账号）':<13} | {'密码状态':<20}")
         self.stdout.write('-' * 80)
         
         for name, phone in self.INSPECTORS_DATA:
@@ -106,6 +127,19 @@ class Command(BaseCommand):
                 # 设置统一的初始密码
                 user.set_password(self.DEFAULT_PASSWORD)
                 user.save()
+                profile, _ = UserProfile.objects.get_or_create(user=user)
+                profile.security_questions = self.security_questions_by_username[phone]
+                profile.has_changed_password = False
+                profile.failed_login_attempts = 0
+                profile.login_locked_until = None
+                profile.login_locked = False
+                profile.failed_recovery_attempts = 0
+                profile.recovery_locked_until = None
+                profile.save(update_fields=[
+                    'security_questions', 'has_changed_password', 'failed_login_attempts',
+                    'login_locked_until', 'login_locked', 'failed_recovery_attempts',
+                    'recovery_locked_until',
+                ])
                 
                 # 将用户加入"文物看护员"组
                 user.groups.add(inspector_group)
@@ -118,7 +152,7 @@ class Command(BaseCommand):
                     status = '✓ 更新'
                 
                 self.stdout.write(
-                    f'{status:<6} | {name:<15} | {phone:<13} | {self.DEFAULT_PASSWORD:<20}'
+                    f'{status:<6} | {name:<15} | {phone:<13} | 首次登录必须修改'
                 )
                 
             except Exception as e:
@@ -134,8 +168,7 @@ class Command(BaseCommand):
         self.stdout.write('✓ 所有看护员已添加到"文物看护员"用户组')
         self.stdout.write('✓ 看护员可以查看、添加和修改巡查记录\n')
         
-        self.stdout.write(self.style.WARNING('⚠️  初始密码信息：'))
-        self.stdout.write(f"   所有账户默认密码: {self.DEFAULT_PASSWORD}\n")
+        self.stdout.write(self.style.WARNING('⚠️  已设置初始密码；登录后必须修改并完成安全问题确认。\n'))
         
         self.stdout.write('📝 首次登录建议事项：')
         self.stdout.write('  1. 使用手机号登录：')
@@ -155,7 +188,7 @@ class Command(BaseCommand):
         self.stdout.write('重置所有看护员密码')
         self.stdout.write('='*80 + '\n')
         
-        self.stdout.write(f"{'姓名':<15} | {'手机号':<13} | {'新密码':<20}")
+        self.stdout.write(f"{'姓名':<15} | {'手机号':<13} | {'密码状态':<20}")
         self.stdout.write('-' * 80)
         
         for name, phone in self.INSPECTORS_DATA:
@@ -163,10 +196,23 @@ class Command(BaseCommand):
                 user = User.objects.get(username=phone)
                 user.set_password(self.DEFAULT_PASSWORD)
                 user.save()
+                profile, _ = UserProfile.objects.get_or_create(user=user)
+                profile.security_questions = self.security_questions_by_username[phone]
+                profile.has_changed_password = False
+                profile.failed_login_attempts = 0
+                profile.login_locked_until = None
+                profile.login_locked = False
+                profile.failed_recovery_attempts = 0
+                profile.recovery_locked_until = None
+                profile.save(update_fields=[
+                    'security_questions', 'has_changed_password', 'failed_login_attempts',
+                    'login_locked_until', 'login_locked', 'failed_recovery_attempts',
+                    'recovery_locked_until',
+                ])
                 reset_count += 1
                 
                 self.stdout.write(
-                    f'{name:<15} | {phone:<13} | {self.DEFAULT_PASSWORD:<20}'
+                    f'{name:<15} | {phone:<13} | 首次登录必须修改'
                 )
             except User.DoesNotExist:
                 self.stdout.write(self.style.WARNING(
@@ -175,7 +221,7 @@ class Command(BaseCommand):
         
         self.stdout.write('-' * 80)
         self.stdout.write(self.style.SUCCESS(f'\n已重置 {reset_count} 个账户密码\n'))
-        self.stdout.write(f'所有账户密码已重置为: {self.DEFAULT_PASSWORD}\n')
+        self.stdout.write('所有重置账户首次登录均需修改密码并完成安全问题确认。\n')
 
     def delete_inspectors(self):
         """删除所有看护员账户"""

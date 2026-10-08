@@ -25,6 +25,7 @@
               >
               <button class="btn" type="submit" :disabled="loading">{{ loading ? '登录中...' : '登录' }}</button>
             </form>
+            <button v-if="isDesktop" class="forgot-password-link" type="button" @click="openForgotPassword">忘记密码？</button>
 
             <p v-if="!isDesktop" class="account">如无账号请联系 <a href="javascript:void(0)">系统管理员</a></p>
           </div>
@@ -49,9 +50,67 @@
         <input v-model="passwordChangeForm.currentPassword" type="password" autocomplete="current-password" placeholder="当前密码" required>
         <input v-model="passwordChangeForm.newPassword" type="password" autocomplete="new-password" placeholder="新密码，至少 8 位" minlength="8" required>
         <input v-model="passwordChangeForm.confirmPassword" type="password" autocomplete="new-password" placeholder="再次输入新密码" minlength="8" required>
+        <div class="security-question-fields">
+          <label v-for="(item, index) in passwordSecurityQuestions" :key="`first-${index}`" class="security-question-row">
+            <select v-model="item.question_id" required aria-label="选择密码保护问题">
+              <option value="">选择保护问题 {{ index + 1 }}</option>
+              <option v-for="question in securityQuestionBank" :key="question.id" :value="question.id">{{ question.text }}</option>
+            </select>
+            <input v-model="item.answer" type="text" minlength="2" required autocomplete="off" :aria-label="`问题 ${index + 1} 的答案`" placeholder="填写答案">
+          </label>
+        </div>
         <button class="password-change-button" type="submit" :disabled="loading">
           {{ loading ? '正在更新...' : '修改密码并继续' }}
         </button>
+      </form>
+    </el-dialog>
+    <el-dialog
+      v-model="securityQuestionSetupVisible"
+      title="设置密码保护问题"
+      width="500px"
+      :close-on-click-modal="false"
+      :close-on-press-escape="false"
+      :show-close="false"
+    >
+      <p class="password-notice">此账户尚未设置找回问题。设置 3 个不同的问题后才能继续登录。</p>
+      <form class="password-change-form" @submit.prevent="submitSecurityQuestionSetup">
+        <label v-for="(item, index) in enrollmentQuestions" :key="`enroll-${index}`" class="security-question-row">
+          <select v-model="item.question_id" required :aria-label="`密码保护问题 ${index + 1}`">
+            <option value="">选择问题 {{ index + 1 }}</option>
+            <option v-for="question in securityQuestionBank" :key="question.id" :value="question.id">{{ question.text }}</option>
+          </select>
+          <input v-model="item.answer" type="text" minlength="2" required autocomplete="off" placeholder="填写答案">
+        </label>
+        <button class="password-change-button" type="submit" :disabled="loading">
+          {{ loading ? '正在保存...' : '保存并继续' }}
+        </button>
+      </form>
+    </el-dialog>
+    <el-dialog v-model="forgotPasswordVisible" title="重置密码" width="500px" :close-on-click-modal="false">
+      <form class="password-change-form" @submit.prevent="submitForgotPassword">
+        <input v-model.trim="forgotPasswordForm.username" type="text" autocomplete="username" placeholder="请输入用户名" required>
+        <el-button v-if="recoveryQuestions.length === 0" type="primary" :loading="recoveryLoading" @click="loadRecoveryQuestions">验证账户</el-button>
+        <template v-else>
+          <p class="password-notice">请回答账户设置的安全问题，并设置新密码。</p>
+          <label v-for="question in recoveryQuestions" :key="question.question_id" class="recovery-answer-row">
+            <span>{{ question.question }}</span>
+            <input v-model="recoveryAnswers[question.question_id]" type="text" required autocomplete="off" placeholder="请输入答案">
+          </label>
+          <input v-model="forgotPasswordForm.newPassword" type="password" autocomplete="new-password" minlength="8" required placeholder="新密码，至少 8 位">
+          <input v-model="forgotPasswordForm.confirmPassword" type="password" autocomplete="new-password" minlength="8" required placeholder="再次输入新密码">
+          <div class="security-question-fields">
+            <label v-for="(item, index) in recoverySecurityQuestions" :key="`recovery-${index}`" class="security-question-row">
+              <select v-model="item.question_id" required :aria-label="`新密码保护问题 ${index + 1}`">
+                <option value="">选择新问题 {{ index + 1 }}</option>
+                <option v-for="question in securityQuestionBank" :key="question.id" :value="question.id">{{ question.text }}</option>
+              </select>
+              <input v-model="item.answer" type="text" minlength="2" required autocomplete="off" :aria-label="`新问题 ${index + 1} 的答案`" placeholder="填写答案">
+            </label>
+          </div>
+          <button class="password-change-button" type="submit" :disabled="recoveryLoading">
+            {{ recoveryLoading ? '正在重置...' : '验证并重置密码' }}
+          </button>
+        </template>
       </form>
     </el-dialog>
     <div v-if="!isDesktop" class="copyright text-center">
@@ -67,7 +126,12 @@ import { ElMessage } from 'element-plus'
 
 import loginIllustration from '../../../assets/login-illustration.png'
 import appLogo from '../../../assets/logo.png'
-import { changeSystemPassword } from '../../../api/system/systemApi'
+import {
+  changeSystemPassword,
+  fetchForgotPasswordQuestions,
+  fetchSecurityQuestionBank,
+  resetForgottenPassword
+} from '../../../api/system/systemApi'
 import { useAuthStore } from '../../../stores/system/authStore'
 
 const router = useRouter()
@@ -81,6 +145,7 @@ const systemName = computed(() => String(route.query.system_name || defaultSyste
 
 const loading = ref(false)
 const passwordChangeRequired = ref(false)
+const securityQuestionSetupVisible = ref(false)
 const form = reactive({
   username: '',
   password: ''
@@ -90,9 +155,37 @@ const passwordChangeForm = reactive({
   newPassword: '',
   confirmPassword: ''
 })
+const enrollmentQuestions = ref(createEmptySecurityQuestions())
+const securityQuestionBank = ref([])
+const passwordSecurityQuestions = ref(createEmptySecurityQuestions())
+const forgotPasswordVisible = ref(false)
+const recoveryLoading = ref(false)
+const recoveryQuestions = ref([])
+const recoveryAnswers = reactive({})
+const recoverySecurityQuestions = ref(createEmptySecurityQuestions())
+const forgotPasswordForm = reactive({
+  username: '',
+  newPassword: '',
+  confirmPassword: ''
+})
 
-onMounted(() => {
+function createEmptySecurityQuestions() {
+  return Array.from({ length: 3 }, () => ({ question_id: '', answer: '' }))
+}
+
+function validateSecurityQuestionSelection(questions) {
+  const ids = questions.map(item => item.question_id)
+  return ids.every(Boolean) && new Set(ids).size === 3 && questions.every(item => String(item.answer || '').trim().length >= 2)
+}
+
+onMounted(async () => {
   localStorage.setItem('heritage_system_name', systemName.value)
+  try {
+    const result = await fetchSecurityQuestionBank()
+    securityQuestionBank.value = result.questions || []
+  } catch (_error) {
+    ElMessage.error('密码保护问题加载失败，请检查本地服务')
+  }
   if (authStore.isAuthenticated && authStore.user?.profile?.has_changed_password === false) {
     form.username = authStore.user.username || ''
     passwordChangeRequired.value = true
@@ -128,7 +221,35 @@ async function submitLogin() {
     }
     await enterSystem()
   } catch (error) {
-    ElMessage.error(error?.message || '登录失败')
+    if (error?.response?.status === 428 && error?.response?.data?.code === 'SECURITY_QUESTIONS_REQUIRED') {
+      enrollmentQuestions.value = createEmptySecurityQuestions()
+      securityQuestionSetupVisible.value = true
+    } else {
+      ElMessage.error(error?.response?.data?.message || error?.message || '登录失败')
+    }
+  } finally {
+    loading.value = false
+  }
+}
+
+async function submitSecurityQuestionSetup() {
+  if (!validateSecurityQuestionSelection(enrollmentQuestions.value)) {
+    ElMessage.warning('请选择 3 个不同的问题并填写答案')
+    return
+  }
+
+  loading.value = true
+  try {
+    await authStore.login(form.username, form.password, enrollmentQuestions.value)
+    securityQuestionSetupVisible.value = false
+    if (authStore.user?.profile?.has_changed_password === false) {
+      passwordChangeForm.currentPassword = form.password
+      passwordChangeRequired.value = true
+      return
+    }
+    await enterSystem()
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.message || error?.message || '安全问题保存失败')
   } finally {
     loading.value = false
   }
@@ -139,12 +260,17 @@ async function submitRequiredPasswordChange() {
     ElMessage.warning('两次输入的新密码不一致')
     return
   }
+  if (!validateSecurityQuestionSelection(passwordSecurityQuestions.value)) {
+    ElMessage.warning('请选择 3 个不同的保护问题并填写答案')
+    return
+  }
 
   loading.value = true
   try {
     const result = await changeSystemPassword({
       old_password: passwordChangeForm.currentPassword,
-      new_password: passwordChangeForm.newPassword
+      new_password: passwordChangeForm.newPassword,
+      security_questions: passwordSecurityQuestions.value
     })
     if (!result.success) {
       throw new Error(result.message || '密码修改失败')
@@ -156,9 +282,70 @@ async function submitRequiredPasswordChange() {
     passwordChangeRequired.value = false
     await enterSystem()
   } catch (error) {
-    ElMessage.error(error?.message || '密码修改失败')
+    ElMessage.error(error?.response?.data?.message || error?.message || '密码修改失败')
   } finally {
     loading.value = false
+  }
+}
+
+function openForgotPassword() {
+  forgotPasswordForm.username = form.username
+  forgotPasswordForm.newPassword = ''
+  forgotPasswordForm.confirmPassword = ''
+  recoveryQuestions.value = []
+  recoverySecurityQuestions.value = createEmptySecurityQuestions()
+  Object.keys(recoveryAnswers).forEach(key => delete recoveryAnswers[key])
+  forgotPasswordVisible.value = true
+}
+
+async function loadRecoveryQuestions() {
+  if (!forgotPasswordForm.username) {
+    ElMessage.warning('请输入用户名')
+    return
+  }
+  recoveryLoading.value = true
+  try {
+    const result = await fetchForgotPasswordQuestions(forgotPasswordForm.username)
+    if (!result.success) throw new Error(result.message || '无法获取安全问题')
+    recoveryQuestions.value = result.questions || []
+    recoveryQuestions.value.forEach(question => { recoveryAnswers[question.question_id] = '' })
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.message || error?.message || '无法获取安全问题')
+  } finally {
+    recoveryLoading.value = false
+  }
+}
+
+async function submitForgotPassword() {
+  if (forgotPasswordForm.newPassword !== forgotPasswordForm.confirmPassword) {
+    ElMessage.warning('两次输入的新密码不一致')
+    return
+  }
+  if (!validateSecurityQuestionSelection(recoverySecurityQuestions.value)) {
+    ElMessage.warning('请选择 3 个不同的新保护问题并填写答案')
+    return
+  }
+
+  recoveryLoading.value = true
+  try {
+    const result = await resetForgottenPassword({
+      username: forgotPasswordForm.username,
+      answers: recoveryQuestions.value.map(question => ({
+        question_id: question.question_id,
+        answer: recoveryAnswers[question.question_id]
+      })),
+      new_password: forgotPasswordForm.newPassword,
+      security_questions: recoverySecurityQuestions.value
+    })
+    if (!result.success) throw new Error(result.message || '密码重置失败')
+    forgotPasswordVisible.value = false
+    form.username = forgotPasswordForm.username
+    form.password = ''
+    ElMessage.success('密码已重置，请使用新密码登录')
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.message || error?.message || '密码重置失败')
+  } finally {
+    recoveryLoading.value = false
   }
 }
 </script>
@@ -623,6 +810,14 @@ p.account a:hover {
   display: grid;
   gap: 10px;
 }
+
+.security-question-fields { display: grid; gap: 8px; }
+.security-question-row { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 8px; }
+.security-question-row select,
+.security-question-row input,
+.recovery-answer-row input { min-width: 0; min-height: 40px; padding: 0 10px; border: 1px solid #d8e0da; border-radius: 4px; background: #fff; color: #26332d; font: inherit; font-size: 13px; }
+.recovery-answer-row { display: grid; gap: 6px; color: #45534a; font-size: 13px; }
+.forgot-password-link { display: block; width: auto; margin: -16px 0 0 auto; padding: 4px 0; border: 0; background: transparent; color: #168b5d; font-size: 13px; }
 
 .password-change-button {
   min-height: 44px;

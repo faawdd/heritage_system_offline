@@ -1,8 +1,9 @@
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
+from rest_framework_simplejwt.tokens import AccessToken
 
-from .models import HeritageSite
+from .models import HeritageSite, LandUseProjectApproval
 
 
 class HeritageDashboardKanerjingFilterTests(TestCase):
@@ -75,3 +76,45 @@ class HeritageDashboardKanerjingFilterTests(TestCase):
 		self.assertEqual(payload['total'], 1)
 		self.assertEqual(payload['labels'], ['石窟寺及石刻'])
 		self.assertEqual(payload['data'], [1])
+
+
+class ProjectCreateApiAuthenticationTests(TestCase):
+	url = '/api/v1/projects/create/'
+	payload = {
+		'project_name': '离线项目创建测试',
+		'company_name': '测试建设单位',
+		'incoming_doc_date': '2026-10-08',
+	}
+
+	def setUp(self):
+		user_model = get_user_model()
+		self.admin = user_model.objects.create_superuser(username='project_admin', password='test-pass-123')
+		self.normal_user = user_model.objects.create_user(username='project_user', password='test-pass-123')
+
+	def _post_with_token(self, user):
+		token = str(AccessToken.for_user(user))
+		return self.client.post(self.url, self.payload, content_type='application/json', HTTP_AUTHORIZATION=f'Bearer {token}')
+
+	def test_anonymous_request_receives_json_unauthorized_response(self):
+		response = self.client.post(self.url, self.payload, content_type='application/json')
+
+		self.assertEqual(response.status_code, 401)
+		self.assertEqual(response['Content-Type'], 'application/json')
+
+	def test_authenticated_non_admin_receives_forbidden_response(self):
+		response = self._post_with_token(self.normal_user)
+
+		self.assertEqual(response.status_code, 403)
+		self.assertEqual(response.json()['message'], '需要管理权限')
+
+	def test_management_admin_can_create_project_with_jwt(self):
+		response = self._post_with_token(self.admin)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertTrue(response.json()['success'])
+		self.assertTrue(
+			LandUseProjectApproval.objects.filter(
+				project_name=self.payload['project_name'],
+				company_name=self.payload['company_name'],
+			).exists()
+		)

@@ -52,8 +52,19 @@
           <el-input v-model="dialog.form.username" :disabled="dialog.mode === 'edit'" />
         </el-form-item>
         <el-form-item label="密码">
-          <el-input v-model="dialog.form.password" placeholder="留空表示不修改" show-password />
+          <el-input v-model="dialog.form.password" :placeholder="dialog.mode === 'create' ? '请输入初始密码' : '留空表示不修改'" show-password />
         </el-form-item>
+        <template v-if="dialog.mode === 'create' || dialog.form.password">
+          <el-alert title="设置密码时必须同时配置 3 个不同的密码保护问题，用于账户恢复。" type="info" :closable="false" />
+          <el-form-item v-for="(item, index) in dialog.form.security_questions" :key="`user-security-${index}`" :label="`保护问题 ${index + 1}`">
+            <div class="security-question-inputs">
+              <el-select v-model="item.question_id" placeholder="选择问题" style="width: 100%">
+                <el-option v-for="question in securityQuestionBank" :key="question.id" :label="question.text" :value="question.id" />
+              </el-select>
+              <el-input v-model="item.answer" placeholder="填写答案" autocomplete="off" />
+            </div>
+          </el-form-item>
+        </template>
         <el-form-item label="姓">
           <el-input v-model="dialog.form.last_name" />
         </el-form-item>
@@ -87,6 +98,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   createSystemUser,
   deleteSystemUser,
+  fetchSecurityQuestionBank,
   fetchSystemRoles,
   fetchSystemUsers,
   updateSystemUser
@@ -95,6 +107,16 @@ import {
 const loading = ref(false)
 const rows = ref([])
 const roleOptions = ref([])
+const securityQuestionBank = ref([])
+
+function createEmptySecurityQuestions() {
+  return Array.from({ length: 3 }, () => ({ question_id: '', answer: '' }))
+}
+
+function hasValidSecurityQuestions(questions = []) {
+  const ids = questions.map(item => item.question_id)
+  return questions.length === 3 && ids.every(Boolean) && new Set(ids).size === 3 && questions.every(item => String(item.answer || '').trim().length >= 2)
+}
 
 const filters = reactive({
   keyword: ''
@@ -113,7 +135,8 @@ const dialog = reactive({
     email: '',
     is_active: true,
     is_staff: true,
-    group_ids: []
+    group_ids: [],
+    security_questions: createEmptySecurityQuestions()
   }
 })
 
@@ -126,7 +149,8 @@ function resetDialogForm() {
     email: '',
     is_active: true,
     is_staff: true,
-    group_ids: []
+    group_ids: [],
+    security_questions: createEmptySecurityQuestions()
   }
 }
 
@@ -173,7 +197,8 @@ function openEditDialog(row) {
     is_staff: Boolean(row.is_staff),
     group_ids: (roleOptions.value || [])
       .filter((item) => (row.roles || []).includes(item.name))
-      .map((item) => item.id)
+      .map((item) => item.id),
+    security_questions: createEmptySecurityQuestions()
   }
   dialog.visible = true
 }
@@ -181,6 +206,14 @@ function openEditDialog(row) {
 async function submitDialog() {
   if (!dialog.form.username && dialog.mode === 'create') {
     ElMessage.warning('用户名不能为空')
+    return
+  }
+  if (dialog.mode === 'create' && !dialog.form.password) {
+    ElMessage.warning('创建用户必须设置初始密码')
+    return
+  }
+  if (dialog.form.password && !hasValidSecurityQuestions(dialog.form.security_questions)) {
+    ElMessage.warning('设置密码时必须选择 3 个不同的保护问题并填写答案')
     return
   }
 
@@ -192,6 +225,7 @@ async function submitDialog() {
 
     if (!payload.password) {
       delete payload.password
+      delete payload.security_questions
     }
 
     const result =
@@ -250,4 +284,11 @@ async function removeUser(row) {
 }
 
 loadUsers()
+fetchSecurityQuestionBank()
+  .then((result) => { securityQuestionBank.value = result.questions || [] })
+  .catch(() => ElMessage.error('密码保护问题加载失败'))
 </script>
+
+<style scoped>
+.security-question-inputs { display: grid; width: 100%; gap: 8px; }
+</style>

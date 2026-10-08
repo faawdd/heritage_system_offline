@@ -3,6 +3,8 @@ from django.urls import path
 from system.views import (
     DeepSeekConfigAPIView,
     ChangePasswordAPIView,
+    ForgotPasswordQuestionsAPIView,
+    ForgotPasswordResetAPIView,
     LoginLogListAPIView,
     MenuListAPIView,
     MenuDetailAPIView,
@@ -15,6 +17,7 @@ from system.views import (
     SystemLogoutAPIView,
     SystemProfileAPIView,
     SystemRefreshAPIView,
+    SecurityQuestionBankAPIView,
     UserDetailAPIView,
     UserListCreateAPIView,
 )
@@ -23,6 +26,9 @@ app_name = 'system'
 
 urlpatterns = [
     path('login/', SystemLoginAPIView.as_view(), name='login'),
+    path('security-questions/', SecurityQuestionBankAPIView.as_view(), name='security_questions'),
+    path('forgot-password/questions/', ForgotPasswordQuestionsAPIView.as_view(), name='forgot_password_questions'),
+    path('forgot-password/reset/', ForgotPasswordResetAPIView.as_view(), name='forgot_password_reset'),
     path('refresh/', SystemRefreshAPIView.as_view(), name='refresh'),
     path('logout/', SystemLogoutAPIView.as_view(), name='logout'),
     path('profile/', SystemProfileAPIView.as_view(), name='profile'),
