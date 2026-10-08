@@ -22,7 +22,11 @@ except Exception:
     _django_environ = None
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
-BASE_DIR = Path(__file__).resolve().parent.parent
+SOURCE_BASE_DIR = Path(__file__).resolve().parent.parent
+DESKTOP_MODE = str(os.environ.get('HERITAGE_DESKTOP_MODE', '')).lower() in {'1', 'true', 'yes', 'on'}
+APP_DIR = Path(os.environ.get('HERITAGE_APP_DIR', SOURCE_BASE_DIR)).expanduser().resolve()
+BASE_DIR = APP_DIR if DESKTOP_MODE else SOURCE_BASE_DIR
+DATA_DIR = Path(os.environ.get('HERITAGE_DATA_DIR', BASE_DIR)).expanduser().resolve()
 SETTINGS_FILE = Path(__file__).resolve()
 PROJECT_TIME_ZONE = ZoneInfo('Asia/Shanghai')
 
@@ -95,19 +99,25 @@ SECRET_KEY = env(
 )
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = str(env('DJANGO_DEBUG', default='0')).lower() in ('1', 'true', 'yes', 'on')
+DEBUG = False if DESKTOP_MODE else str(env('DJANGO_DEBUG', default='0')).lower() in ('1', 'true', 'yes', 'on')
 ALLOWED_HOSTS = ['beichenhome.top', 'localhost', '127.0.0.1', '[::1]']
+if DESKTOP_MODE:
+    ALLOWED_HOSTS = ['localhost', '127.0.0.1', '[::1]']
+    configured_desktop_system_name = str(os.environ.get('SYSTEM_NAME') or '').strip()
+    if configured_desktop_system_name:
+        SYSTEM_NAME = configured_desktop_system_name
+        SYSTEM_REGION = str(os.environ.get('SYSTEM_REGION') or '').strip()
 
 # CSRF 信任域名 - 生产环境保持HTTPS配置
 CSRF_TRUSTED_ORIGINS = ['https://beichenhome.top:9081']
-FORCE_HTTPS = str(env('DJANGO_FORCE_HTTPS', default='1')).lower() in ('1', 'true', 'yes', 'on')
+FORCE_HTTPS = False if DESKTOP_MODE else str(env('DJANGO_FORCE_HTTPS', default='1')).lower() in ('1', 'true', 'yes', 'on')
 SECURE_SSL_REDIRECT = FORCE_HTTPS
 SESSION_COOKIE_SECURE = FORCE_HTTPS
 CSRF_COOKIE_SECURE = FORCE_HTTPS
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 # 静态文件收集目录
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+STATIC_ROOT = os.path.join(APP_DIR, 'static' if DESKTOP_MODE else 'staticfiles')
 
 # 内置报告调度器：Django 进程启动后自动检查已完成周期并生成报告。
 REPORT_AUTO_GENERATOR_ENABLED = os.environ.get('REPORT_AUTO_GENERATOR_ENABLED', 'true').lower() == 'true'
@@ -132,6 +142,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    *(['whitenoise.middleware.WhiteNoiseMiddleware'] if DESKTOP_MODE else []),
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -170,7 +181,7 @@ WSGI_APPLICATION = 'heritage_system.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'NAME': Path(os.environ.get('HERITAGE_DB_FILE', DATA_DIR / 'database.sqlite3')) if DESKTOP_MODE else BASE_DIR / 'db.sqlite3',
     }
 }
 
@@ -213,14 +224,12 @@ import os
 
 STATIC_URL = '/static/'
 # 开发环境：指定静态文件查找目录
-STATICFILES_DIRS = [
-    os.path.join(BASE_DIR, 'static'),
-]
+STATICFILES_DIRS = [] if DESKTOP_MODE else [os.path.join(BASE_DIR, 'static')]
 # 生产环境：collectstatic命令收集静态文件的目标目录
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+STATIC_ROOT = os.path.join(APP_DIR, 'static' if DESKTOP_MODE else 'staticfiles')
 
 MEDIA_URL = '/media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+MEDIA_ROOT = os.environ.get('HERITAGE_UPLOAD_DIR', DATA_DIR / 'media' if DESKTOP_MODE else BASE_DIR / 'media')
 
 # DRF and CORS settings
 REST_FRAMEWORK = {
@@ -250,10 +259,10 @@ OPENTOPO_API_KEY = env(
     'OPENTOPO_API_KEY',
     default='9c353db50ec8ebc18d076ce1a85e4fcc',
 )
-# 必须是绝对路径，默认放在项目目录下 dem_tiles。
+# 桌面模式下写入用户数据目录，避免应用安装目录只读。
 DEM_TILES_DIR = env(
     'DEM_TILES_DIR',
-    default=str((BASE_DIR / 'dem_tiles').resolve()),
+    default=str(((DATA_DIR if DESKTOP_MODE else BASE_DIR) / 'dem_tiles').resolve()),
 )
 
 # DEM 下载局部代理配置（仅 utils/dem_handler.py 的 OpenTopography 下载请求生效）

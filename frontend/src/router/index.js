@@ -19,6 +19,7 @@ import OvkmlConvertView from '../views/gis/OvkmlConvertView.vue'
 import LoginView from '../views/system/auth/LoginView.vue'
 import DeepSeekConfigView from '../views/system/admin/DeepSeekConfigView.vue'
 import DataManagementView from '../views/system/data/DataManagementView.vue'
+import OfflineTileManagerView from '../views/system/data/OfflineTileManagerView.vue'
 import UserListView from '../views/system/user/UserListView.vue'
 import RoleListView from '../views/system/role/RoleListView.vue'
 import { useAuthStore } from '../stores/system/authStore'
@@ -53,7 +54,8 @@ const routes = [
       { path: 'system/users', component: UserListView },
       { path: 'system/roles', component: RoleListView },
       { path: 'system/ai-config', component: DeepSeekConfigView },
-      { path: 'system/data-management', component: DataManagementView }
+      { path: 'system/data-management', component: DataManagementView },
+      { path: 'system/offline-maps', component: OfflineTileManagerView }
     ]
   }
 ]
@@ -68,10 +70,15 @@ router.beforeEach(async (to) => {
   await authStore.restoreSession()
 
   if (to.path === '/login') {
-    if (authStore.isAuthenticated) {
+    const mustChangePassword = authStore.user?.profile?.has_changed_password === false
+    if (authStore.isAuthenticated && !mustChangePassword && to.query.login_window !== '1') {
       return '/dashboard'
     }
     return true
+  }
+
+  if (authStore.isAuthenticated && authStore.user?.profile?.has_changed_password === false) {
+    return { path: '/login', query: { force_password_change: '1' } }
   }
 
   const requiresAuth = to.matched.some((record) => record.meta.requiresAuth !== false)

@@ -1,11 +1,12 @@
 <template>
-  <section class="w3l-hotair-form">
-    <h1>鄯善县文物综合管理平台</h1>
+  <section class="w3l-hotair-form desktop-login-shell">
+    <h1>{{ systemName }}</h1>
     <div class="container">
       <div class="workinghny-form-grid">
         <div class="main-hotair">
           <div class="content-wthree">
             <h2>系统登录</h2>
+            <p class="login-subtitle">离线桌面版 · 本机数据安全存储</p>
             <form @submit.prevent="submitLogin">
               <input v-model="form.username" type="text" class="text" name="username" placeholder="用户名" required autofocus>
               <input
@@ -29,29 +30,72 @@
         </div>
       </div>
     </div>
+    <el-dialog
+      v-model="passwordChangeRequired"
+      title="首次登录，请先修改密码"
+      width="420px"
+      :close-on-click-modal="false"
+      :close-on-press-escape="false"
+      :show-close="false"
+    >
+      <p class="password-notice">为保护本机数据，请设置新的管理员密码后继续使用系统。</p>
+      <form class="password-change-form" @submit.prevent="submitRequiredPasswordChange">
+        <input v-model="passwordChangeForm.currentPassword" type="password" autocomplete="current-password" placeholder="当前密码" required>
+        <input v-model="passwordChangeForm.newPassword" type="password" autocomplete="new-password" placeholder="新密码，至少 8 位" minlength="8" required>
+        <input v-model="passwordChangeForm.confirmPassword" type="password" autocomplete="new-password" placeholder="再次输入新密码" minlength="8" required>
+        <button class="password-change-button" type="submit" :disabled="loading">
+          {{ loading ? '正在更新...' : '修改密码并继续' }}
+        </button>
+      </form>
+    </el-dialog>
     <div class="copyright text-center">
-      <p class="copy-footer-29">© {{ new Date().getFullYear() }} 鄯善县文物综合管理平台。保留所有权利</p>
+      <p class="copy-footer-29">© {{ new Date().getFullYear() }} {{ systemName }}。保留所有权利</p>
     </div>
   </section>
 </template>
 
 <script setup>
-import { reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 
 import loginIllustration from '../../../assets/login-illustration.png'
+import { changeSystemPassword } from '../../../api/system/systemApi'
 import { useAuthStore } from '../../../stores/system/authStore'
 
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
+const defaultSystemName = window.desktopMeta?.runtime === 'electron'
+  ? '文物综合管理平台'
+  : '鄯善县文物综合管理平台'
+const systemName = computed(() => String(route.query.system_name || defaultSystemName))
 
 const loading = ref(false)
+const passwordChangeRequired = ref(false)
 const form = reactive({
   username: '',
   password: ''
 })
+const passwordChangeForm = reactive({
+  currentPassword: '',
+  newPassword: '',
+  confirmPassword: ''
+})
+
+onMounted(() => {
+  localStorage.setItem('heritage_system_name', systemName.value)
+  if (authStore.isAuthenticated && authStore.user?.profile?.has_changed_password === false) {
+    form.username = authStore.user.username || ''
+    passwordChangeRequired.value = true
+  }
+})
+
+function enterSystem() {
+  ElMessage.success('登录成功')
+  const redirect = route.query.redirect || '/dashboard'
+  return router.replace(String(redirect))
+}
 
 async function submitLogin() {
   if (!form.username || !form.password) {
@@ -62,11 +106,42 @@ async function submitLogin() {
   loading.value = true
   try {
     await authStore.login(form.username, form.password)
-    ElMessage.success('登录成功')
-    const redirect = route.query.redirect || '/dashboard'
-    await router.replace(String(redirect))
+    if (authStore.user?.profile?.has_changed_password === false) {
+      passwordChangeForm.currentPassword = form.password
+      passwordChangeRequired.value = true
+      return
+    }
+    await enterSystem()
   } catch (error) {
     ElMessage.error(error?.message || '登录失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+async function submitRequiredPasswordChange() {
+  if (passwordChangeForm.newPassword !== passwordChangeForm.confirmPassword) {
+    ElMessage.warning('两次输入的新密码不一致')
+    return
+  }
+
+  loading.value = true
+  try {
+    const result = await changeSystemPassword({
+      old_password: passwordChangeForm.currentPassword,
+      new_password: passwordChangeForm.newPassword
+    })
+    if (!result.success) {
+      throw new Error(result.message || '密码修改失败')
+    }
+
+    form.password = passwordChangeForm.newPassword
+    await authStore.clearAuth()
+    await authStore.login(form.username, form.password)
+    passwordChangeRequired.value = false
+    await enterSystem()
+  } catch (error) {
+    ElMessage.error(error?.message || '密码修改失败')
   } finally {
     loading.value = false
   }
@@ -74,8 +149,6 @@ async function submitLogin() {
 </script>
 
 <style scoped>
-@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;900&display=swap');
-
 html {
   scroll-behavior: smooth;
 }
@@ -300,7 +373,196 @@ p.account a:hover {
   opacity: 1;
 }
 
+.desktop-login-shell {
+  min-height: 100vh;
+  grid-template-rows: 1fr auto 1fr;
+  padding: 32px 24px;
+  background:
+    linear-gradient(135deg, transparent 0 48%, rgba(38, 133, 89, .045) 48% 49%, transparent 49% 100%),
+    linear-gradient(45deg, transparent 0 48%, rgba(38, 133, 89, .035) 48% 49%, transparent 49% 100%),
+    #e9efeb;
+  font-family: 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+}
+
+.desktop-login-shell h1 {
+  align-self: end;
+  margin-bottom: 6px;
+  color: #35483d;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.desktop-login-shell .container {
+  width: min(100%, 840px);
+  max-width: 840px;
+}
+
+.desktop-login-shell .main-hotair {
+  min-height: 430px;
+  margin: 14px 0;
+  overflow: hidden;
+  border: 1px solid #d8e1da;
+  border-radius: 7px;
+  background: #fff;
+  box-shadow: 0 18px 52px rgba(37, 66, 47, .14), 0 2px 7px rgba(37, 66, 47, .06);
+}
+
+.desktop-login-shell .content-wthree {
+  order: 2;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 50px 52px;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.desktop-login-shell h2 {
+  color: #28372e;
+  font-size: 24px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.desktop-login-shell .login-subtitle {
+  margin-top: 7px;
+  color: #748078;
+  font-size: 13px;
+  line-height: 1.5;
+  opacity: 1;
+  text-align: left;
+}
+
+.desktop-login-shell form {
+  display: grid;
+  gap: 12px;
+  margin: 28px 0 14px;
+}
+
+.desktop-login-shell input {
+  min-height: 46px;
+  margin: 0;
+  padding: 0 14px;
+  border: 1px solid #d8e0da;
+  border-radius: 4px;
+  background: #fbfcfb;
+  color: #27342c;
+  font-size: 14px;
+}
+
+.desktop-login-shell input:focus {
+  border-color: #199566;
+  box-shadow: 0 0 0 3px rgba(25, 149, 102, .1);
+}
+
+.desktop-login-shell .btn {
+  min-height: 46px;
+  margin-top: 5px;
+  padding: 0 14px;
+  border-radius: 4px;
+  background: #16a06a;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.desktop-login-shell .btn:hover {
+  background: #118355;
+}
+
+.desktop-login-shell .account,
+.desktop-login-shell .account a {
+  padding: 10px 0 0;
+  color: #748078;
+  font-size: 12px;
+  text-align: left;
+}
+
+.desktop-login-shell .account a {
+  color: #168b5d;
+}
+
+.desktop-login-shell .w3l_form {
+  order: 1;
+  display: flex;
+  flex-basis: 43%;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+  border-radius: 0;
+  background: #f3f7f4;
+}
+
+.desktop-login-shell .left_grid_info {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+}
+
+.desktop-login-shell .img-fluid {
+  width: min(100%, 310px);
+  max-height: 300px;
+  object-fit: contain;
+}
+
+.desktop-login-shell .copyright p {
+  color: #7b887f;
+  font-size: 12px;
+}
+
+.password-notice {
+  margin: 0 0 16px;
+  color: #5f6b64;
+  font-size: 14px;
+  line-height: 1.6;
+  opacity: 1;
+  text-align: left;
+}
+
+.password-change-form input {
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid #d8e0da;
+  border-radius: 4px;
+}
+
+.password-change-form {
+  display: grid;
+  gap: 10px;
+}
+
+.password-change-button {
+  min-height: 44px;
+  border: 0;
+  border-radius: 4px;
+  background: #159764;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.password-change-button:disabled {
+  cursor: wait;
+  opacity: .65;
+}
+
 @media (max-width: 736px) {
+  .desktop-login-shell h1 {
+    font-size: 18px;
+  }
+
+  .desktop-login-shell .main-hotair {
+    max-width: 480px;
+  }
+
+  .desktop-login-shell .content-wthree {
+    padding: 34px 30px;
+  }
+
+  .desktop-login-shell .w3l_form {
+    display: none;
+  }
+
   .w3l-hotair-form .main-hotair {
     flex-direction: column;
   }
@@ -341,12 +603,28 @@ p.account a:hover {
 }
 
 @media (max-width: 480px) {
+  .desktop-login-shell {
+    padding: 24px 16px;
+  }
+
+  .desktop-login-shell h1 {
+    font-size: 16px;
+  }
+
+  .desktop-login-shell .content-wthree {
+    padding: 30px 24px;
+  }
+
   .w3l-hotair-form {
     padding: 40px 30px;
   }
 
   .w3l-hotair-form h1 {
     font-size: 26px;
+  }
+
+  .desktop-login-shell h1 {
+    font-size: 16px;
   }
 }
 

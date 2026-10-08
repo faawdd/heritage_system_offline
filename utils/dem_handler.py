@@ -146,6 +146,10 @@ def _build_request_proxies(request_url: str) -> Optional[dict[str, str]]:
 
 def _download_tile(tile_spec: DemTileSpec, destination: Path, dem_type: str = DEFAULT_DEM_TYPE) -> bool:
     """通过 OpenTopography 按 1° 网格下载 GeoTIFF 并落盘缓存。"""
+    if getattr(settings, 'DESKTOP_MODE', False):
+        logger.info("桌面离线模式不执行 DEM 在线下载: %s", tile_spec.tile_name)
+        return False
+
     api_key = str(getattr(settings, "OPENTOPO_API_KEY", "")).strip()
     if not api_key:
         logger.warning("OPENTOPO_API_KEY 未配置，无法自动下载 DEM 瓦片: %s", tile_spec.tile_name)
