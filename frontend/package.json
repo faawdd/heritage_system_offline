@@ -2,11 +2,16 @@
   "name": "heritage-frontend",
   "private": true,
   "version": "0.1.0",
+  "main": "electron/main.cjs",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "desktop:dev": "electron .",
+    "desktop:pack:win": "electron-builder --win nsis",
+    "desktop:pack:mac": "electron-builder --mac dmg zip",
+    "desktop:pack:linux": "electron-builder --linux AppImage"
   },
   "dependencies": {
     "axios": "^1.7.7",
@@ -19,6 +24,42 @@
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.1.4",
+    "electron": "^32.2.1",
+    "electron-builder": "^24.13.3",
     "vite": "^5.4.8"
+  },
+  "build": {
+    "appId": "org.shanshan.heritage.desktop",
+    "productName": "文物综合管理平台（离线版）",
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../desktop_runtime",
+        "to": "runtime",
+        "filter": ["**/*"]
+      }
+    ],
+    "directories": {
+      "output": "dist-electron"
+    },
+    "win": {
+      "target": ["nsis"]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "mac": {
+      "target": ["dmg", "zip"]
+    },
+    "linux": {
+      "target": ["AppImage"]
+    }
   }
 }

@@ -1,5 +1,7 @@
 from django.contrib.auth import authenticate
+from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.models import Group, Permission, User
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Q
 from core.permission_decorators import can_modify_core_data
 from rest_framework import status
@@ -203,6 +205,11 @@ class ChangePasswordAPIView(APIView):
         user = request.user
         if not user.check_password(old_password):
             return Response({'success': False, 'message': '旧密码不正确'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            validate_password(new_password, user=user)
+        except DjangoValidationError as exc:
+            return Response({'success': False, 'message': '；'.join(exc.messages)}, status=status.HTTP_400_BAD_REQUEST)
 
         user.set_password(new_password)
         user.save(update_fields=['password'])

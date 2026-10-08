@@ -2,8 +2,8 @@
   <div class="app-shell" :class="{ 'is-sidebar-collapsed': isSidebarCollapsed }">
     <aside class="sidebar" :class="{ 'is-collapsed': isSidebarCollapsed }">
       <div class="brand-row">
-        <div class="brand" :title="isSidebarCollapsed ? '鄯善县文物管理平台' : ''">
-          {{ isSidebarCollapsed ? '文保' : '鄯善县文物管理平台' }}
+        <div class="brand" :title="isSidebarCollapsed ? systemName : ''">
+          {{ isSidebarCollapsed ? '文保' : systemName }}
         </div>
         <div class="header-actions" v-if="!isSidebarCollapsed">
           <el-button link type="info" class="collapse-btn" @click="toggleSidebar">折叠</el-button>
@@ -186,6 +186,10 @@ import { changeSystemPassword, fetchSystemProfile, updateSystemProfile } from '.
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+const defaultSystemName = window.desktopMeta?.runtime === 'electron'
+  ? '文物综合管理平台'
+  : '鄯善县文物管理平台'
+const systemName = computed(() => localStorage.getItem('heritage_system_name') || defaultSystemName)
 const THEME_MODE_KEY = 'heritage_theme_mode'
 const SIDEBAR_COLLAPSE_KEY = 'heritage_sidebar_collapsed'
 const themeMode = ref('system')
@@ -262,6 +266,7 @@ const staticMenuGroups = [
       { label: '角色管理', to: '/system/roles' },
       { label: 'DeepSeek配置', to: '/system/ai-config' },
       { label: '数据管理', to: '/system/data-management' },
+      { label: '离线地图切片', to: '/system/offline-maps' },
     ]
   }
 ]
@@ -300,7 +305,8 @@ function ensureHeritageEntries(groups = []) {
   ]
   const requiredSystemItems = [
     { label: 'DeepSeek配置', to: '/system/ai-config' },
-    { label: '数据管理', to: '/system/data-management' }
+    { label: '数据管理', to: '/system/data-management' },
+    { label: '离线地图切片', to: '/system/offline-maps' }
   ]
 
   function isSystemGroup(title, items = []) {

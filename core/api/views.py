@@ -11,6 +11,7 @@ from urllib.parse import quote
 
 from django.conf import settings
 from django.core.cache import cache
+from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.db import transaction
@@ -18,6 +19,8 @@ from django.db.models import Q, Count
 from django.http import HttpResponse
 from django.contrib.auth.models import User
 from django.utils import timezone
+from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
+from rest_framework_simplejwt.tokens import AccessToken
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
@@ -25,9 +28,10 @@ from rest_framework.views import APIView
 
 from core import views as legacy_views
 from core.models import HeritagePhoto, HeritageSite, HeritageTwoLineFile, ImmovableHeritage, InspectionRecord, KmlUploadRecord, LandUseProjectApproval, ProjectAudit, ReportRecord
-from core.permission_decorators import can_modify_core_data
+from core.permission_decorators import can_modify_core_data, is_management_admin
 from core.permissions.api_permissions import IsManagementAdmin
 from core.services import data_sync
+from core.services import offline_tiles
 from core.services.heritage_service import (
     get_heritage_detail_payload,
     get_heritage_map_points,
@@ -60,6 +64,65 @@ class HealthAPIView(APIView):
 
     def get(self, request):
         return Response({'status': 'ok'})
+
+
+class OfflineTileCatalogAPIView(APIView):
+    permission_classes = [IsManagementAdmin]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def get(self, request):
+        return Response({'success': True, 'rows': offline_tiles.list_tile_sets()})
+
+    def post(self, request):
+        uploaded_file = request.FILES.get('file')
+        if not uploaded_file:
+            return Response({'success': False, 'message': '请选择 MBTiles 或 XYZ/TMS ZIP 文件'}, status=400)
+        try:
+            row = offline_tiles.import_tile_set(
+                uploaded_file,
+                request.data.get('name', ''),
+                request.data.get('scheme', 'xyz'),
+            )
+        except (ValidationError, OSError) as exc:
+            message = exc.messages[0] if isinstance(exc, ValidationError) and exc.messages else str(exc)
+            return Response({'success': False, 'message': message}, status=400)
+        return Response({'success': True, 'data': row}, status=201)
+
+
+class OfflineTileCatalogDetailAPIView(APIView):
+    permission_classes = [IsManagementAdmin]
+
+    def delete(self, request, tile_id):
+        if not offline_tiles.delete_tile_set(tile_id):
+            return Response({'success': False, 'message': '瓦片集不存在'}, status=404)
+        return Response({'success': True, 'message': '瓦片集已删除'})
+
+
+class OfflineTileDataAPIView(APIView):
+    authentication_classes = []
+    permission_classes = []
+
+    def get(self, request, tile_id, zoom, column, row):
+        token_value = request.query_params.get('access_token', '')
+        try:
+            token = AccessToken(token_value)
+            user_id = token.get('user_id')
+        except (InvalidToken, TokenError):
+            return HttpResponse(status=404)
+
+        user = User.objects.filter(pk=user_id, is_active=True).first()
+        if not user or not is_management_admin(user):
+            return HttpResponse(status=404)
+
+        tile = offline_tiles.read_tile(tile_id, zoom, column, row)
+        if not tile:
+            return HttpResponse(status=404)
+        content, image_format = tile
+        content_type = 'image/jpeg' if image_format in {'jpg', 'jpeg'} else f'image/{image_format}'
+        response = HttpResponse(content, content_type=content_type)
+        response['Cache-Control'] = 'private, max-age=86400'
+        response['X-Content-Type-Options'] = 'nosniff'
+        return response
 
 
 class SystemVersionAPIView(APIView):
