@@ -11,7 +11,7 @@
     "desktop:dev": "electron .",
     "desktop:pack:win": "electron-builder --win nsis",
     "desktop:pack:mac": "electron-builder --mac dmg zip",
-    "desktop:pack:linux": "electron-builder --linux AppImage"
+    "desktop:pack:linux": "electron-builder --linux AppImage deb rpm"
   },
   "dependencies": {
     "axios": "^1.7.7",
@@ -62,7 +62,7 @@
     },
     "linux": {
       "icon": "../logo.png",
-      "target": ["AppImage"]
+      "target": ["AppImage", "deb", "rpm"]
     }
   }
 }

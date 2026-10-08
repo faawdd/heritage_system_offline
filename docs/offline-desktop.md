@@ -25,10 +25,10 @@
 npm --prefix frontend ci
 npm --prefix frontend run build
 bash scripts/build_desktop_runtime.sh
-cd frontend && npx electron-builder --publish never --mac dmg zip --arm64
+cd frontend && npx electron-builder --publish never --linux AppImage deb rpm --x64
 ```
 
-Windows 使用 `scripts/build_desktop_runtime.ps1` 和 electron-builder 的 Windows NSIS target；Linux 使用同一 Bash runtime 构建脚本和 AppImage target。GitHub Actions 在推送 `v*` tag 时构建 Windows x64、macOS arm64、Linux x64 和 Linux arm64，并发布构建产物。Electron 安装期间需要下载官方 Electron 运行时，工作流通过镜像配置该下载。macOS、Windows 和 Linux 桌面版均使用旧 offline 分支的 `logo.png` 应用图标。
+Windows 使用 `scripts/build_desktop_runtime.ps1` 和 electron-builder 的 Windows NSIS target；Linux 使用同一 Bash runtime 构建脚本，分别产出 AppImage、DEB 和 RPM 的 amd64/arm64 包。GitHub Actions 在推送 `v*` tag 时构建 Windows x64、macOS arm64、Linux x64 和 Linux arm64，并发布构建产物。Electron 安装期间需要下载官方 Electron 运行时，工作流通过镜像配置该下载。macOS、Windows 和 Linux 桌面版均使用旧 offline 分支的 `logo.png` 应用图标。
 
 ## macOS 首次打开
 
