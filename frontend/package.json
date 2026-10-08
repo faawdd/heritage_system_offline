@@ -67,6 +67,12 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
     },
+    "deb": {
+      "afterRemove": "electron/uninstall-user-data.sh"
+    },
+    "rpm": {
+      "afterRemove": "electron/uninstall-user-data.sh"
+    },
     "mac": {
       "icon": "../logo.png",
       "target": ["dmg", "zip"]
@@ -74,7 +80,6 @@
     "linux": {
       "icon": "../logo.png",
       "maintainer": "Heritage System Maintainers <faawdd@users.noreply.github.com>",
-      "afterRemove": "electron/uninstall-user-data.sh",
       "target": ["AppImage", "deb", "rpm"]
     }
   }
