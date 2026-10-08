@@ -60,6 +60,14 @@
             {{ scope.row.longitude }}, {{ scope.row.latitude }}
           </template>
         </el-table-column>
+        <el-table-column label="两线源文件" min-width="180">
+          <template #default="scope">
+            <a v-if="scope.row.two_line_file" class="two-line-file-link" :href="scope.row.two_line_file.url">
+              {{ scope.row.two_line_file.name }}
+            </a>
+            <span v-else class="muted-text">未上传</span>
+          </template>
+        </el-table-column>
         <el-table-column label="操作" width="90" fixed="right">
           <template #default="scope">
             <el-button link type="primary" @click="openEdit(scope.row)">编辑</el-button>
@@ -136,6 +144,45 @@
           <el-input v-model="dialog.form.description" type="textarea" :rows="3" />
         </el-form-item>
 
+        <el-form-item label="两线源文件">
+          <div class="two-line-file-controls">
+            <div class="two-line-file-current">
+              <strong>{{ dialog.form.two_line_file?.name || '尚未上传两线文件' }}</strong>
+              <span v-if="dialog.form.two_line_file?.uploaded_at" class="muted-text">
+                上传于 {{ dialog.form.two_line_file.uploaded_at }}
+              </span>
+              <a v-if="dialog.form.two_line_file?.url" class="two-line-file-link" :href="dialog.form.two_line_file.url">
+                下载源文件
+              </a>
+            </div>
+            <div class="two-line-file-actions">
+              <el-select v-model="twoLineZoneType" aria-label="未标注要素的两线类型" style="width: 170px">
+                <el-option label="按文件标注自动识别" value="auto" />
+                <el-option label="作为保护范围导入" value="protection" />
+                <el-option label="作为建控地带导入" value="control" />
+              </el-select>
+              <input
+                ref="twoLineFileInputRef"
+                class="two-line-file-input"
+                type="file"
+                accept=".ovkml,.ovkmz,.kml,.kmz"
+                @change="handleTwoLineFileChange"
+              />
+              <el-button type="primary" :loading="twoLineFileBusy" @click="twoLineFileInputRef?.click()">
+                {{ dialog.form.two_line_file ? '上传替换' : '上传文件' }}
+              </el-button>
+              <el-button
+                v-if="dialog.form.two_line_file"
+                type="danger"
+                plain
+                :loading="twoLineFileBusy"
+                @click="removeTwoLineFile"
+              >删除文件</el-button>
+            </div>
+            <span class="muted-text">支持 OVKML、OVKMZ、KML、KMZ，最大 50 MB；上传成功后会替换该文物点当前两线并更新下方坐标。</span>
+          </div>
+        </el-form-item>
+
         <el-form-item label="保护范围坐标">
           <el-input
             v-model="dialog.form.protection_zone"
@@ -165,12 +212,14 @@
 
 <script setup>
 import { reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 import {
   exportHeritageSiteManage,
   exportHeritageSiteCoordinates,
   fetchHeritageSiteManageList,
+  uploadHeritageTwoLineFile,
+  deleteHeritageTwoLineFile,
   importHeritageSiteManage,
   patchHeritageSiteManage
 } from '../../api/heritageApi'
@@ -184,6 +233,9 @@ const selectedRows = ref([])
 const categoryOptions = ref([])
 const levelOptions = ref([])
 const coordinateExportMode = ref('point')
+const twoLineFileInputRef = ref(null)
+const twoLineFileBusy = ref(false)
+const twoLineZoneType = ref('auto')
 
 const filters = reactive({
   keyword: '',
@@ -272,9 +324,81 @@ function openEdit(row) {
     manager: row.manager || '',
     description: row.description || '',
     protection_zone: row.protection_zone || '',
-    control_zone: row.control_zone || ''
+    control_zone: row.control_zone || '',
+    two_line_file: row.two_line_file || null
   }
+  twoLineZoneType.value = 'auto'
   dialog.visible = true
+}
+
+async function handleTwoLineFileChange(event) {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file || !dialog.editId) {
+    return
+  }
+  twoLineFileBusy.value = true
+  try {
+    const result = await uploadHeritageTwoLineFile(dialog.editId, file, twoLineZoneType.value)
+    if (!result.success) {
+      throw new Error(result.message || '两线文件上传失败')
+    }
+    const data = result.data || {}
+    dialog.form.protection_zone = JSON.stringify(data.protection_zone || [])
+    dialog.form.control_zone = JSON.stringify(data.control_zone || [])
+    dialog.form.two_line_file = {
+      name: data.name || file.name,
+      uploaded_at: data.uploaded_at || '',
+      url: data.url || ''
+    }
+    const row = rows.value.find((item) => String(item.id) === String(dialog.editId))
+    if (row) {
+      row.protection_zone = dialog.form.protection_zone
+      row.control_zone = dialog.form.control_zone
+      row.two_line_file = dialog.form.two_line_file
+    }
+    ElMessage.success(
+      `两线文件已导入：保护范围 ${data.protection_count || 0} 个边界，建控地带 ${data.control_count || 0} 个边界`
+    )
+  } catch (error) {
+    ElMessage.error(error?.message || '两线文件上传失败')
+  } finally {
+    twoLineFileBusy.value = false
+  }
+}
+
+async function removeTwoLineFile() {
+  try {
+    await ElMessageBox.confirm(
+      '删除源文件会同时清除该文件导入的保护范围和建控地带坐标，是否继续？',
+      '删除两线文件',
+      { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch {
+    return
+  }
+
+  twoLineFileBusy.value = true
+  try {
+    const result = await deleteHeritageTwoLineFile(dialog.editId)
+    if (!result.success) {
+      throw new Error(result.message || '两线文件删除失败')
+    }
+    dialog.form.protection_zone = ''
+    dialog.form.control_zone = ''
+    dialog.form.two_line_file = null
+    const row = rows.value.find((item) => String(item.id) === String(dialog.editId))
+    if (row) {
+      row.protection_zone = ''
+      row.control_zone = ''
+      row.two_line_file = null
+    }
+    ElMessage.success(result.message || '两线文件已删除')
+  } catch (error) {
+    ElMessage.error(error?.message || '两线文件删除失败')
+  } finally {
+    twoLineFileBusy.value = false
+  }
 }
 
 function buildViewModeHref(row) {
@@ -433,6 +557,40 @@ loadRows()
   color: var(--accent, #409eff);
   text-decoration: none;
   font-weight: 600;
+}
+
+.two-line-file-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+}
+
+.two-line-file-current,
+.two-line-file-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.two-line-file-current strong {
+  max-width: 440px;
+  overflow-wrap: anywhere;
+}
+
+.two-line-file-input {
+  display: none;
+}
+
+.two-line-file-link {
+  color: var(--accent, #409eff);
+  text-decoration: none;
+}
+
+.two-line-file-link:hover {
+  text-decoration: underline;
 }
 
 .heritage-view-link:hover {
