@@ -54,7 +54,7 @@
       <div v-if="selectedTileSet" class="preview-pane">
         <div class="pane-heading">
           <h2>{{ selectedTileSet.name }}</h2>
-          <span class="active-label">{{ activeTileSetId === selectedTileSet.id ? '当前地图底图' : '点击左侧设为底图' }}</span>
+          <span class="active-label">{{ activeTileSetId === selectedTileSet.id && isOfflineProvider ? '当前离线底图' : '点击左侧设为离线底图' }}</span>
         </div>
         <div ref="mapElement" class="map-preview"></div>
         <div class="map-caption">
@@ -81,6 +81,7 @@ import {
   fetchOfflineTileSets,
   uploadOfflineTileSet
 } from '../../../api/system/offlineTilesApi'
+import { getBasemapProvider, setBasemapProvider } from '../../../utils/tianditu'
 
 const ACTIVE_TILE_SET_KEY = 'heritage_offline_tile_set'
 const fileInput = ref(null)
@@ -93,19 +94,29 @@ const activeTileSetId = ref(localStorage.getItem(ACTIVE_TILE_SET_KEY) || '')
 let previewMap = null
 
 const selectedTileSet = computed(() => tileSets.value.find(item => item.id === activeTileSetId.value) || tileSets.value[0] || null)
+const isOfflineProvider = ref(getBasemapProvider() === 'offline')
+
+function syncBasemapProvider() {
+  isOfflineProvider.value = getBasemapProvider() === 'offline'
+}
 
 async function loadTileSets() {
   loading.value = true
   try {
     const result = await fetchOfflineTileSets()
     tileSets.value = result.rows || []
+    let selectionChanged = false
     if (!tileSets.value.some(item => item.id === activeTileSetId.value)) {
       activeTileSetId.value = tileSets.value[0]?.id || ''
+      selectionChanged = true
     }
     if (activeTileSetId.value) {
       localStorage.setItem(ACTIVE_TILE_SET_KEY, activeTileSetId.value)
     } else {
       localStorage.removeItem(ACTIVE_TILE_SET_KEY)
+    }
+    if (selectionChanged) {
+      window.dispatchEvent(new CustomEvent('heritage-offline-basemap-changed'))
     }
   } catch (error) {
     ElMessage.error(error?.response?.data?.message || error?.message || '加载离线地图失败')
@@ -135,6 +146,7 @@ async function handleUpload(event) {
 function activate(tileSet) {
   activeTileSetId.value = tileSet.id
   localStorage.setItem(ACTIVE_TILE_SET_KEY, tileSet.id)
+  setBasemapProvider('offline')
   window.dispatchEvent(new CustomEvent('heritage-offline-basemap-changed'))
 }
 
@@ -189,12 +201,18 @@ watch(selectedTileSet, async () => {
 })
 
 onMounted(async () => {
+  window.addEventListener('heritage-basemap-provider-changed', syncBasemapProvider)
+  window.addEventListener('heritage-offline-basemap-changed', syncBasemapProvider)
   await loadTileSets()
   await nextTick()
   renderPreview()
 })
 
-onBeforeUnmount(() => previewMap?.setTarget(undefined))
+onBeforeUnmount(() => {
+  window.removeEventListener('heritage-basemap-provider-changed', syncBasemapProvider)
+  window.removeEventListener('heritage-offline-basemap-changed', syncBasemapProvider)
+  previewMap?.setTarget(undefined)
+})
 </script>
 
 <style scoped>

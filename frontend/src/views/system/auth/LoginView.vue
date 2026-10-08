@@ -1,12 +1,18 @@
 <template>
-  <section class="w3l-hotair-form desktop-login-shell">
-    <h1>{{ systemName }}</h1>
+  <section class="w3l-hotair-form desktop-login-shell" :class="{ 'is-electron-login': isDesktop }">
+    <h1 v-if="!isDesktop">{{ systemName }}</h1>
     <div class="container">
       <div class="workinghny-form-grid">
         <div class="main-hotair">
           <div class="content-wthree">
-            <h2>系统登录</h2>
-            <p class="login-subtitle">离线桌面版 · 本机数据安全存储</p>
+            <div v-if="isDesktop" class="desktop-login-brand">
+              <img :src="appLogo" alt="" class="desktop-app-logo">
+              <h2>欢迎登录</h2>
+            </div>
+            <template v-else>
+              <h2>系统登录</h2>
+              <p class="login-subtitle">离线桌面版 · 本机数据安全存储</p>
+            </template>
             <form @submit.prevent="submitLogin">
               <input v-model="form.username" type="text" class="text" name="username" placeholder="用户名" required autofocus>
               <input
@@ -20,7 +26,7 @@
               <button class="btn" type="submit" :disabled="loading">{{ loading ? '登录中...' : '登录' }}</button>
             </form>
 
-            <p class="account">如无账号请联系 <a href="javascript:void(0)">系统管理员</a></p>
+            <p v-if="!isDesktop" class="account">如无账号请联系 <a href="javascript:void(0)">系统管理员</a></p>
           </div>
           <div class="w3l_form align-self">
             <div class="left_grid_info">
@@ -48,7 +54,7 @@
         </button>
       </form>
     </el-dialog>
-    <div class="copyright text-center">
+    <div v-if="!isDesktop" class="copyright text-center">
       <p class="copy-footer-29">© {{ new Date().getFullYear() }} {{ systemName }}。保留所有权利</p>
     </div>
   </section>
@@ -60,13 +66,15 @@ import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 
 import loginIllustration from '../../../assets/login-illustration.png'
+import appLogo from '../../../assets/logo.png'
 import { changeSystemPassword } from '../../../api/system/systemApi'
 import { useAuthStore } from '../../../stores/system/authStore'
 
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
-const defaultSystemName = window.desktopMeta?.runtime === 'electron'
+const isDesktop = window.desktopMeta?.runtime === 'electron'
+const defaultSystemName = isDesktop
   ? '文物综合管理平台'
   : '鄯善县文物综合管理平台'
 const systemName = computed(() => String(route.query.system_name || defaultSystemName))
@@ -93,6 +101,13 @@ onMounted(() => {
 
 function enterSystem() {
   ElMessage.success('登录成功')
+  if (isDesktop && window.desktopAuth?.loginSucceeded) {
+    return window.desktopAuth.loginSucceeded().then((result) => {
+      if (!result?.success) {
+        throw new Error(result?.message || '无法打开系统主窗口')
+      }
+    })
+  }
   const redirect = route.query.redirect || '/dashboard'
   return router.replace(String(redirect))
 }
@@ -384,6 +399,84 @@ p.account a:hover {
   font-family: 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
 }
 
+.desktop-login-shell.is-electron-login {
+  display: flex;
+  min-height: 100vh;
+  flex-direction: column;
+  justify-content: flex-start;
+  padding: 20px 24px;
+  overflow: hidden;
+  background: #f4f6f5;
+  user-select: none;
+}
+
+.desktop-login-shell.is-electron-login h1 {
+  display: none;
+}
+
+.desktop-login-brand {
+  display: grid;
+  justify-items: center;
+  gap: 11px;
+  margin-bottom: 6px;
+}
+
+.desktop-app-logo {
+  width: 58px;
+  height: 58px;
+  border: 1px solid #e1e8e3;
+  border-radius: 13px;
+  background: #fff;
+  object-fit: contain;
+}
+
+.desktop-login-shell.is-electron-login .desktop-login-brand h2 {
+  color: #29362f;
+  font-size: 21px;
+  font-weight: 600;
+}
+
+.desktop-login-shell.is-electron-login .container {
+  width: 100%;
+  max-width: none;
+  flex: 1;
+  min-height: 0;
+}
+
+.desktop-login-shell.is-electron-login .workinghny-form-grid,
+.desktop-login-shell.is-electron-login .main-hotair {
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+}
+
+.desktop-login-shell.is-electron-login .main-hotair {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.desktop-login-shell.is-electron-login .content-wthree {
+  width: 100%;
+  flex: 1 1 auto;
+  flex-basis: auto;
+  justify-content: center;
+  padding: 18px 26px 24px;
+  background: transparent;
+}
+
+.desktop-login-shell.is-electron-login .w3l_form {
+  display: none;
+}
+
+.desktop-login-shell.is-electron-login .copyright {
+  flex: none;
+}
+
+.desktop-login-shell.is-electron-login .copyright p {
+  font-size: 11px;
+}
+
 .desktop-login-shell h1 {
   align-self: end;
   margin-bottom: 6px;
@@ -585,6 +678,17 @@ p.account a:hover {
     border-radius: 0;
     border-top-left-radius: 8px;
     border-top-right-radius: 8px;
+  }
+}
+
+@media (max-width: 480px) {
+  .desktop-login-shell.is-electron-login {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .desktop-login-shell.is-electron-login h1 {
+    font-size: 19px;
   }
 }
 

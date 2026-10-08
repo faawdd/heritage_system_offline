@@ -47,6 +47,7 @@
       "output": "dist-electron"
     },
     "win": {
+      "icon": "../logo.png",
       "target": ["nsis"]
     },
     "nsis": {
@@ -56,9 +57,11 @@
       "createStartMenuShortcut": true
     },
     "mac": {
+      "icon": "../logo.png",
       "target": ["dmg", "zip"]
     },
     "linux": {
+      "icon": "../logo.png",
       "target": ["AppImage"]
     }
   }

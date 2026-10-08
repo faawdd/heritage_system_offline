@@ -1,9 +1,12 @@
 <template>
-  <div ref="mapEl" class="heritage-zone-map"></div>
+  <div class="heritage-zone-map-wrap">
+    <div ref="mapEl" class="heritage-zone-map"></div>
+    <BaseMapSwitcher />
+  </div>
 </template>
 
 <script setup>
-import { onMounted, ref, watch } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Feature from 'ol/Feature'
 import Map from 'ol/Map'
 import View from 'ol/View'
@@ -17,7 +20,13 @@ import Fill from 'ol/style/Fill'
 import Stroke from 'ol/style/Stroke'
 import Style from 'ol/style/Style'
 
-import { createTiandituLayerGroup } from '../../utils/tianditu'
+import BaseMapSwitcher from '../maps/BaseMapSwitcher.vue'
+import {
+  createOfflineTileLayer,
+  createTiandituLayerGroup,
+  refreshBasemapLayers,
+  watchBasemapChanges
+} from '../../utils/tianditu'
 
 const props = defineProps({
   longitude: {
@@ -40,6 +49,10 @@ const props = defineProps({
 
 const mapEl = ref(null)
 const source = new VectorSource()
+let mapRef = null
+let onlineBaseLayers = []
+let offlineBaseLayer = null
+let stopWatchingBasemap = null
 
 function ringToMercator(ring) {
   if (!Array.isArray(ring)) {
@@ -94,10 +107,13 @@ function applyMapFeatures() {
 
 onMounted(() => {
   applyMapFeatures()
-  new Map({
+  onlineBaseLayers = createTiandituLayerGroup('img')
+  offlineBaseLayer = createOfflineTileLayer()
+  mapRef = new Map({
     target: mapEl.value,
     layers: [
-      ...createTiandituLayerGroup('img'),
+      ...onlineBaseLayers,
+      offlineBaseLayer,
       new VectorLayer({ source })
     ],
     view: new View({
@@ -105,6 +121,14 @@ onMounted(() => {
       zoom: 14
     })
   })
+  const refreshBasemap = () => refreshBasemapLayers({ img: onlineBaseLayers }, offlineBaseLayer, 'img')
+  refreshBasemap()
+  stopWatchingBasemap = watchBasemapChanges(refreshBasemap)
+})
+
+onBeforeUnmount(() => {
+  stopWatchingBasemap?.()
+  mapRef?.setTarget(undefined)
 })
 
 watch(
@@ -113,3 +137,8 @@ watch(
   { deep: true }
 )
 </script>
+
+<style scoped>
+.heritage-zone-map-wrap { position: relative; width: 100%; height: 100%; min-height: 220px; }
+.heritage-zone-map { width: 100%; height: 100%; min-height: 220px; }
+</style>

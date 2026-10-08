@@ -13,7 +13,12 @@
     </div>
     <div class="kml-overlay-toolbar">
       <div class="toolbar-row">
-        <span class="toolbar-label">底图</span>
+        <span class="toolbar-label">地图源</span>
+        <button type="button" class="toolbar-btn" :class="{ active: mapProviderMode === 'online' }" @click="switchProvider('online')">天地图</button>
+        <button type="button" class="toolbar-btn" :class="{ active: mapProviderMode === 'offline' }" :disabled="!hasOfflineMap" :title="hasOfflineMap ? '切换到本机离线地图' : '请先导入离线切片'" @click="switchProvider('offline')">离线地图</button>
+      </div>
+      <div class="toolbar-row">
+        <span class="toolbar-label">在线样式</span>
         <button type="button" class="toolbar-btn" :class="{ active: baseMode === 'img' }" @click="switchBase('img')">卫星</button>
         <button type="button" class="toolbar-btn" :class="{ active: baseMode === 'vec' }" @click="switchBase('vec')">电子</button>
         <button type="button" class="toolbar-btn" :class="{ active: baseMode === 'ter' }" @click="switchBase('ter')">地形</button>
@@ -114,7 +119,15 @@ import Stroke from 'ol/style/Stroke'
 import Style from 'ol/style/Style'
 import Text from 'ol/style/Text'
 
-import { createTiandituLayerGroup } from '../../utils/tianditu'
+import {
+  createOfflineTileLayer,
+  createTiandituLayerGroup,
+  getActiveOfflineTileSetId,
+  getBasemapProvider,
+  refreshBasemapLayers,
+  setBasemapProvider,
+  watchBasemapChanges
+} from '../../utils/tianditu'
 import { fetchGisKmlBatchKmlContent } from '../../api/gisApi'
 import { fetchGisKmlRecordKmlContent } from '../../api/gisApi'
 import { fetchHeritageMapPoints } from '../../api/heritageApi'
@@ -148,6 +161,8 @@ const kmlFormat = new KML({ extractStyles: false })
 const mapEl = ref(null)
 const tips = ref([])
 const baseMode = ref('img')
+const mapProviderMode = ref(getBasemapProvider())
+const hasOfflineMap = ref(Boolean(getActiveOfflineTileSetId()))
 const showKmlLayer = ref(true)
 const showHeritageLayer = ref(true)
 const showProtectionLayer = ref(true)
@@ -186,10 +201,12 @@ const overlapLayerRef = ref(null)
 const elementBubbleLayerRef = ref(null)
 const measureLayerRef = ref(null)
 const baseLayersRef = ref({ img: [], vec: [], ter: [] })
+const offlineBaseLayerRef = ref(null)
 const featurePopupEl = ref(null)
 const popupOverlayRef = ref(null)
 let mapResizeObserver = null
 let mapResizeFrame = 0
+let stopWatchingBasemap = null
 let measurePoints = []
 let loadToken = 0
 let overlapToken = 0
@@ -1159,10 +1176,18 @@ function syncMapSizeAndView() {
 
 function switchBase(mode) {
   baseMode.value = mode
-  const groups = baseLayersRef.value
-  Object.keys(groups).forEach((key) => {
-    groups[key].forEach((layer) => layer.setVisible(key === mode))
-  })
+  refreshMapBasemap()
+}
+
+function refreshMapBasemap() {
+  hasOfflineMap.value = Boolean(getActiveOfflineTileSetId())
+  mapProviderMode.value = getBasemapProvider()
+  if (!offlineBaseLayerRef.value) return
+  refreshBasemapLayers(baseLayersRef.value, offlineBaseLayerRef.value, baseMode.value)
+}
+
+function switchProvider(provider) {
+  if (setBasemapProvider(provider)) refreshMapBasemap()
 }
 
 function toggleKmlLayer() {
@@ -1571,6 +1596,7 @@ onMounted(() => {
   const vecLayers = createTiandituLayerGroup('vec')
   const terLayers = createTiandituLayerGroup('ter')
   ;[...vecLayers, ...terLayers].forEach((layer) => layer.setVisible(false))
+  const offlineLayer = createOfflineTileLayer()
 
   const kmlLayer = new VectorLayer({
     source: kmlSource,
@@ -1605,6 +1631,7 @@ onMounted(() => {
       ...imgLayers,
       ...vecLayers,
       ...terLayers,
+      offlineLayer,
       kmlLayer,
       heritageLayer,
       heritageBoundaryLayer,
@@ -1694,6 +1721,9 @@ onMounted(() => {
     vec: vecLayers,
     ter: terLayers
   }
+  offlineBaseLayerRef.value = offlineLayer
+  refreshMapBasemap()
+  stopWatchingBasemap = watchBasemapChanges(refreshMapBasemap)
   popupOverlayRef.value = popupOverlay
 
   // 初始化时按开关状态显式设置，避免图层状态与按钮状态不一致。
@@ -1725,6 +1755,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  stopWatchingBasemap?.()
   mapResizeObserver?.disconnect()
   cancelAnimationFrame(mapResizeFrame)
   mapRef.value?.setTarget(undefined)
