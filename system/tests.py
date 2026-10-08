@@ -1,4 +1,7 @@
+import io
+import logging
 from datetime import timedelta
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -7,6 +10,7 @@ from rest_framework.test import APIClient
 
 from core.models import UserProfile
 from core.services.account_security import SECURITY_QUESTION_BANK, hash_security_questions
+from desktop_backend import _ensure_initial_admin
 
 
 QUESTION_SET = [
@@ -54,6 +58,29 @@ class AccountSecurityApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.data['data']['access_token'])
         self.assertEqual(len(UserProfile.objects.get(user=legacy_user).security_questions), 3)
+
+    def test_existing_admin_without_security_questions_does_not_abort_backend_bootstrap(self):
+        profile = UserProfile.objects.get(user=self.admin)
+        profile.security_questions = []
+        profile.save(update_fields=['security_questions'])
+
+        with patch('desktop_backend.sys.stdin', io.StringIO('[]\n')):
+            _ensure_initial_admin(logging.getLogger('account-security-test'))
+
+        profile.refresh_from_db()
+        self.assertEqual(profile.security_questions, [])
+
+    def test_initial_admin_can_bootstrap_without_security_questions(self):
+        self.admin.delete()
+
+        with patch('desktop_backend.sys.stdin', io.StringIO('[]\n')):
+            _ensure_initial_admin(logging.getLogger('account-security-test'))
+
+        admin = get_user_model().objects.get(username='admin')
+        profile = UserProfile.objects.get(user=admin)
+        self.assertTrue(admin.is_superuser)
+        self.assertFalse(profile.has_changed_password)
+        self.assertEqual(profile.security_questions, [])
 
     def test_user_creation_requires_three_security_questions_and_hashes_answers(self):
         response = self.admin_client.post('/api/v1/system/users/', {
