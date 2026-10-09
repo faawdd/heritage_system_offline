@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+{% load static %}<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -68,23 +68,28 @@ body {
   z-index: 999;
 }
 .toolbar button {
-  padding: 8px 18px;
-  border: none;
-  border-radius: 6px;
+  padding: 7px 16px;
+  border: 1px solid #d7e6f8;
+  border-radius: 999px;
+  background: #fff;
+  color: #163a60;
   cursor: pointer;
   font-size: 13px;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-weight: 600;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  box-shadow: 0 2px 8px rgba(22, 58, 96, .12);
 }
+.toolbar button:hover { background: #d8eaff; }
 .toolbar button[disabled] {
   opacity: .7;
   cursor: wait;
 }
-.btn-print  { background: #1a3a6b; color: #fff; }
-.btn-pdf    { background: #0f766e; color: #fff; }
-.btn-back   { background: #555;    color: #fff; }
-.btn-print:hover { background: #122d54; }
-.btn-pdf:hover   { background: #115e59; }
-.btn-back:hover  { background: #333; }
+.toolbar .btn-print {
+  border-color: #66adff;
+  background: #66adff;
+  color: #fff;
+}
+.toolbar .btn-print:hover { background: #4f9bf2; }
 
 /* ══════════════════════════════════════════════════
    表格通用
@@ -441,23 +446,22 @@ body {
   .sign-bar { page-break-inside: avoid; }
 }
 </style>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<script src="{% static 'public/vendor/html2pdf.bundle.min.js' %}"></script>
 </head>
 <body>
 
 <!-- ══════ 操作浮动栏 ══════ -->
 <div class="toolbar">
-  <button class="btn-back"  onclick="history.back()">← 返回</button>
-  <button id="btn-download-pdf" class="btn-pdf" onclick="downloadPdf()">⬇ 下载 PDF</button>
-  <button class="btn-print" onclick="window.print()">🖨 打印 / 另存 PDF</button>
+  <button class="btn-back" onclick="closePreview()">关闭</button>
+  <button id="btn-download-pdf" class="btn-pdf" onclick="downloadPdf()">下载 PDF</button>
+  <button class="btn-print" onclick="window.print()">打印</button>
 </div>
 
 <!-- ══════ A4 纸张容器 ══════ -->
 <div class="a4-wrap">
   <!-- ── 页眉 ── -->
   <div class="page-header">
-    <div class="org-line">国家文物局监制</div>
-    <div class="main-title">鄯善县不可移动文物采集</div>
+    <div class="main-title">{{ system_region }}不可移动文物采集</div>
     <div class="sub-title">不可移动文物登记表</div>
   </div>
 
@@ -482,7 +486,7 @@ body {
 
     <!-- 名称 / 曾用名 -->
     <tr>
-      <td class="lbl" style="width:12%">名&emsp;&emsp;称</td>
+      <td class="lbl" style="width:12%"><span class="lbl-text breakable">文物<wbr>名称</span></td>
       <td class="val" colspan="3" style="width:38%">{{ heritage.name }}</td>
       <td class="lbl" style="width:12%"><span class="lbl-text breakable">曾用名<wbr>/别名</span></td>
       <td class="val" colspan="3" style="width:38%">{{ heritage.former_name|default:"——" }}</td>
@@ -492,9 +496,9 @@ body {
     <tr>
       <td class="lbl">时&emsp;&emsp;代</td>
       <td class="val" style="width:20%">{{ heritage.era }}</td>
-      <td class="lbl" style="width:10%">类&emsp;别</td>
+      <td class="lbl" style="width:10%"><span class="lbl-text breakable">文物<wbr>类别</span></td>
       <td class="val" style="width:20%">{{ heritage.get_category_display }}</td>
-      <td class="lbl" style="width:10%">类&emsp;型</td>
+      <td class="lbl" style="width:10%"><span class="lbl-text breakable">文物<wbr>类型</span></td>
       <td class="val" colspan="3">{{ heritage.heritage_type|default:"——" }}</td>
     </tr>
 
@@ -649,13 +653,13 @@ body {
           </span>{{ choice.1 }}&ensp;
         {% endfor %}
       </td>
-      <td class="lbl"><span class="lbl-text breakable">权属单位<wbr>/人</span></td>
+      <td class="lbl"><span class="lbl-text breakable">权属<wbr>单位/人</span></td>
       <td class="val" colspan="3">{{ heritage.ownership_detail|default:"——" }}</td>
     </tr>
 
     <!-- 使用单位 / 管理单位 -->
     <tr>
-      <td class="lbl"><span class="lbl-text breakable">使用<wbr>单位</span></td>
+      <td class="lbl"><span class="lbl-text breakable">使用<wbr>单位/人</span></td>
       <td class="val" colspan="3">{{ heritage.user_unit|default:"——" }}</td>
       <td class="lbl"><span class="lbl-text breakable">管理<wbr>单位</span></td>
       <td class="val" colspan="3">{{ heritage.management_unit|default:"——" }}</td>
@@ -815,8 +819,8 @@ body {
       </span>
     </div>
     <div class="sign-cell">
-      <span class="sign-label">采集单位（盖章）</span>
-      <span class="sign-val">{{ collect_unit }}</span>
+      <span class="sign-label">管理单位</span>
+      <span class="sign-val">{{ heritage.management_unit|default:"——" }}</span>
     </div>
   </div>
 
@@ -830,6 +834,14 @@ body {
 
 </div><!-- .a4-wrap -->
 <script>
+function closePreview() {
+  if (window.history.length > 1) {
+    window.history.back();
+    return;
+  }
+  window.close();
+}
+
 async function downloadPdf() {
   const button = document.getElementById('btn-download-pdf');
   const target = document.querySelector('.a4-wrap');

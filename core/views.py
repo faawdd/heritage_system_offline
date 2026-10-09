@@ -4404,9 +4404,9 @@ def heritage_detail_preview_view(request, pk):
             era="——",
             category=site.category,
             heritage_type="",
-            province="新疆维吾尔自治区",
-            city="吐鲁番市",
-            county="鄯善县",
+            province="",
+            city="",
+            county="",
             township="",
             village="",
             address=site.address or "",
@@ -4464,7 +4464,6 @@ def heritage_detail_preview_view(request, pk):
         if _safe_file_url(photo.image)
     ]
     other_photo_pages = _chunk_items(other_photo_items, 4)
-    collect_unit = "鄯善县文化体育广播电视和旅游局（文物局）"
 
     view_mode = (request.GET.get("mode") or "view").strip().lower()
     if view_mode not in {"view", "print"}:
@@ -4484,7 +4483,7 @@ def heritage_detail_preview_view(request, pk):
         "collector_display":    _display_user_name(heritage.collector),
         "input_by_display":     _display_user_name(heritage.input_by),
         "reviewer_display":     _display_user_name(heritage.reviewer),
-        "collect_unit":         collect_unit,
+        "system_region":        getattr(settings, "SYSTEM_REGION", ""),
         "preservation_choices": ImmovableHeritage.PRESERVATION_STATUS_CHOICES,
         "protection_choices":   ImmovableHeritage.PROTECTION_LEVEL_CHOICES,
         "ownership_choices":    ImmovableHeritage.OWNERSHIP_CHOICES,
@@ -4589,7 +4588,7 @@ def _build_immovable_heritage_docx_stream(heritage):
 
     p_title = document.add_paragraph()
     p_title.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-    run_title = p_title.add_run("鄯善县不可移动文物采集登记表")
+    run_title = p_title.add_run(f"{getattr(settings, 'SYSTEM_REGION', '')}不可移动文物采集登记表")
     run_title.bold = True
     run_title.font.size = Pt(22)
     run_title.font.name = "黑体"

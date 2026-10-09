@@ -246,7 +246,7 @@
         <el-form-item label="威胁因素">
           <el-input v-model="dialog.form.threat_factors" type="textarea" :rows="2" />
         </el-form-item>
-        <el-form-item label="现状描述">
+        <el-form-item label="文物简介">
           <el-input v-model="dialog.form.description" type="textarea" :rows="3" />
         </el-form-item>
         <el-form-item label="备注">

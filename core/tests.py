@@ -141,3 +141,27 @@ class ProjectCreateApiAuthenticationTests(TestCase):
 		self.assertEqual(response.status_code, 200)
 		self.assertTrue(response.json()['success'])
 		self.assertEqual(response.json()['data']['id'], project_id)
+
+
+class HeritagePreviewRenderTests(TestCase):
+	def test_preview_uses_configured_region_and_record_fields(self):
+		from django.test import override_settings
+		from .models import ImmovableHeritage
+
+		user = get_user_model().objects.create_superuser(username="preview_admin", password="test-pass-123")
+		self.client.force_login(user)
+		heritage = ImmovableHeritage.objects.create(
+			name="测试遗址", era="清代", category="GJZ", protection_level="XB",
+			province="测试省", city="测试市", county="测试县", address="测试路1号",
+			longitude=90.1, latitude=42.1, management_unit="测试管理所",
+		)
+
+		with override_settings(SYSTEM_REGION="测试县"):
+			response = self.client.get(f"/mobile/collect/{heritage.pk}/preview/", secure=True)
+
+		self.assertEqual(response.status_code, 200)
+		html = response.content.decode()
+		self.assertIn("测试县不可移动文物采集", html)
+		self.assertIn("测试管理所", html)
+		self.assertNotIn("鄯善县", html)
+		self.assertNotIn("文化体育广播电视和旅游局", html)
