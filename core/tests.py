@@ -95,6 +95,10 @@ class ProjectCreateApiAuthenticationTests(TestCase):
 		token = str(AccessToken.for_user(user))
 		return self.client.post(self.url, self.payload, content_type='application/json', HTTP_AUTHORIZATION=f'Bearer {token}')
 
+	def _get_with_token(self, url, user):
+		token = str(AccessToken.for_user(user))
+		return self.client.get(url, HTTP_AUTHORIZATION=f'Bearer {token}')
+
 	def test_anonymous_request_receives_json_unauthorized_response(self):
 		response = self.client.post(self.url, self.payload, content_type='application/json')
 
@@ -118,3 +122,22 @@ class ProjectCreateApiAuthenticationTests(TestCase):
 				company_name=self.payload['company_name'],
 			).exists()
 		)
+
+	def test_management_admin_can_list_projects_with_jwt(self):
+		self._post_with_token(self.admin)
+
+		response = self._get_with_token('/api/v1/projects/', self.admin)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertTrue(response.json()['success'])
+		self.assertEqual(len(response.json()['rows']), 1)
+
+	def test_management_admin_can_read_project_detail_with_jwt(self):
+		created = self._post_with_token(self.admin)
+		project_id = created.json()['project_id']
+
+		response = self._get_with_token(f'/api/v1/projects/{project_id}/', self.admin)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertTrue(response.json()['success'])
+		self.assertEqual(response.json()['data']['id'], project_id)
