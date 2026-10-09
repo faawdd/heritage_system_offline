@@ -15,3 +15,17 @@ db.sqlite3.local_before_migrate_backup*
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
+# 敏感文件（密钥、证书、环境变量、业务数据、数据库）
+.env
+.env.*
+!.env.example
+config/key.bin
+beichenhome.top/
+*.key
+*.pem
+*.crt
+*.bak
+*.sqlite3
+*.db
+data/database.db
+sip_data.xlsx
