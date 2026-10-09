@@ -147,11 +147,15 @@ function startPackagedBackend(paths, port, desktopConfig) {
     throw new Error(`缺少本地服务运行文件：${executable}`)
   }
   if (process.platform !== 'win32') {
-    // 已安装的旧包可能丢失了可执行位。
     try {
-      fs.chmodSync(executable, 0o755)
-    } catch (_error) {
-      throw new Error(`本地服务文件没有执行权限，且无法自动修复：${executable}`)
+      fs.accessSync(executable, fs.constants.X_OK)
+    } catch (_accessError) {
+      try {
+        fs.chmodSync(executable, 0o755)
+        fs.accessSync(executable, fs.constants.X_OK)
+      } catch (error) {
+        throw new Error(`本地服务文件没有执行权限，且无法自动修复：${executable} (${error.message})`)
+      }
     }
   }
 
