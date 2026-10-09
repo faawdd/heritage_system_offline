@@ -75,6 +75,11 @@ client.interceptors.response.use(
     const originalRequest = error?.config
     const url = originalRequest?.url || ''
 
+    const serverMessage = error?.response?.data?.message
+    if (status && status !== 401 && typeof serverMessage === 'string' && serverMessage) {
+      error.message = serverMessage
+    }
+
     if (!originalRequest || status !== 401 || originalRequest._retry) {
       return Promise.reject(error)
     }
