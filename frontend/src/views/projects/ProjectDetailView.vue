@@ -904,7 +904,7 @@ loadDetail()
 
 .title-row h1 {
   margin: 0;
-  font-size: 22px;
+  font-size: calc(22rem / 14);
   overflow-wrap: anywhere;
 }
 
@@ -916,7 +916,7 @@ loadDetail()
   display: block;
   margin-bottom: 4px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: calc(12rem / 14);
   letter-spacing: 0;
 }
 
@@ -941,12 +941,12 @@ loadDetail()
 
 .summary-item span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: calc(12rem / 14);
 }
 
 .summary-item strong {
   overflow-wrap: anywhere;
-  font-size: 14px;
+  font-size: calc(14rem / 14);
 }
 
 .summary-item--primary strong {
@@ -972,7 +972,7 @@ loadDetail()
 
 .card h3 {
   margin: 0 0 12px;
-  font-size: 16px;
+  font-size: calc(16rem / 14);
 }
 
 .card-title {
@@ -990,12 +990,12 @@ loadDetail()
 
 .advice {
   color: var(--muted);
-  font-size: 13px;
+  font-size: calc(13rem / 14);
 }
 
 .todo-count {
   color: var(--muted);
-  font-size: 12px;
+  font-size: calc(12rem / 14);
 }
 
 .detail-body {
@@ -1034,7 +1034,7 @@ loadDetail()
 .todo-desc {
   margin: 6px 0 10px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: calc(13rem / 14);
 }
 
 .blocker {
@@ -1054,7 +1054,7 @@ loadDetail()
 }
 
 .field-item label {
-  font-size: 13px;
+  font-size: calc(13rem / 14);
   color: var(--text);
 }
 
@@ -1063,7 +1063,7 @@ loadDetail()
 }
 
 .hint {
-  font-size: 12px;
+  font-size: calc(12rem / 14);
   color: var(--muted);
 }
 
@@ -1084,12 +1084,12 @@ loadDetail()
 }
 
 .stat span {
-  font-size: 12px;
+  font-size: calc(12rem / 14);
   color: #64748b;
 }
 
 .stat strong {
-  font-size: 16px;
+  font-size: calc(16rem / 14);
 }
 
 .stat strong.danger {
@@ -1175,7 +1175,7 @@ loadDetail()
 
 .side-heading span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: calc(12rem / 14);
 }
 
 .steps-scroll {
@@ -1195,7 +1195,7 @@ loadDetail()
 
 .timeline-title {
   font-weight: 600;
-  font-size: 13px;
+  font-size: calc(13rem / 14);
 }
 
 .timeline-detail {
@@ -1203,7 +1203,7 @@ loadDetail()
   flex-direction: column;
   gap: 2px;
   color: #64748b;
-  font-size: 12px;
+  font-size: calc(12rem / 14);
 }
 
 @media (max-width: 1100px) {
@@ -1242,7 +1242,7 @@ loadDetail()
   }
 
   .title-row h1 {
-    font-size: 20px;
+    font-size: calc(20rem / 14);
   }
 
   .header-actions {

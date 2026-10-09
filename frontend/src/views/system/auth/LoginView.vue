@@ -418,7 +418,7 @@ p {
 
 p {
   color: #666;
-  font-size: 16px;
+  font-size: calc(16rem / 14);
   line-height: 25px;
   opacity: .6;
   text-align: center;
@@ -508,7 +508,7 @@ p.account a {
   text-align: center;
   padding-top: 20px;
   padding-bottom: 0;
-  font-size: 16px;
+  font-size: calc(16rem / 14);
   color: #333;
 }
 
@@ -522,13 +522,13 @@ p.account a:hover {
 
 .w3l-hotair-form h1 {
   text-align: center;
-  font-size: 40px;
+  font-size: calc(40rem / 14);
   font-weight: 700;
   color: #fff;
 }
 
 .w3l-hotair-form h2 {
-  font-size: 30px;
+  font-size: calc(30rem / 14);
   line-height: 40px;
   margin-bottom: 5px;
   font-weight: 900;
@@ -539,7 +539,7 @@ p.account a:hover {
 .w3l-hotair-form input {
   outline: none;
   margin-bottom: 15px;
-  font-size: 16px;
+  font-size: calc(16rem / 14);
   color: #999;
   text-align: left;
   padding: 14px 20px;
@@ -562,7 +562,7 @@ p.account a:hover {
 }
 
 .w3l-hotair-form button {
-  font-size: 18px;
+  font-size: calc(18rem / 14);
   color: #fff;
   width: 100%;
   background: #0568c1;
@@ -582,7 +582,7 @@ p.account a:hover {
 
 .copyright p {
   text-align: center;
-  font-size: 17px;
+  font-size: calc(17rem / 14);
   line-height: 26px;
   color: #fff;
   opacity: 1;
@@ -947,7 +947,7 @@ p.account a:hover {
 
 @media (max-width: 568px) {
   .w3l-hotair-form h1 {
-    font-size: 36px;
+    font-size: calc(36rem / 14);
   }
 
   .w3l-hotair-form .main-hotair {
@@ -977,7 +977,7 @@ p.account a:hover {
   }
 
   .w3l-hotair-form h1 {
-    font-size: 26px;
+    font-size: calc(26rem / 14);
   }
 
   .desktop-login-shell h1 {
@@ -995,12 +995,12 @@ p.account a:hover {
   }
 
   .w3l-hotair-form h2 {
-    font-size: 22px;
+    font-size: calc(22rem / 14);
     line-height: 32px;
   }
 
   .copyright p {
-    font-size: 16px;
+    font-size: calc(16rem / 14);
   }
 }
 </style>

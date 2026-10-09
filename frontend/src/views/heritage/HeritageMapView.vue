@@ -130,12 +130,12 @@ loadData()
 
 .heritage-menu-header h3 {
   margin: 0;
-  font-size: 16px;
+  font-size: calc(16rem / 14);
 }
 
 .heritage-menu-header p {
   margin: 4px 0 0;
-  font-size: 12px;
+  font-size: calc(12rem / 14);
   color: #64748b;
 }
 

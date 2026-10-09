@@ -57,6 +57,7 @@ export function applyAppearance() {
   const stack = (FONT_OPTIONS.find((item) => item.value === appearanceState.fontFamily) || FONT_OPTIONS[0]).stack
   const size = appearanceState.fontSize
   root.style.setProperty('--app-font-family', stack)
+  root.style.fontSize = `${size}px`
   root.style.setProperty('--app-font-size', `${size}px`)
   root.style.setProperty('--el-font-family', stack)
   root.style.setProperty('--el-font-size-base', `${size}px`)

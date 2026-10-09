@@ -224,7 +224,7 @@ onMounted(loadOptions)
 .hint,
 .hint-inline {
   color: var(--el-text-color-secondary);
-  font-size: 13px;
+  font-size: calc(13rem / 14);
 }
 
 .count {
@@ -233,13 +233,13 @@ onMounted(loadOptions)
 
 .desc {
   color: var(--el-text-color-secondary);
-  font-size: 12px;
+  font-size: calc(12rem / 14);
   margin-left: 6px;
 }
 
 .warn {
   color: var(--el-color-warning);
-  font-size: 13px;
+  font-size: calc(13rem / 14);
 }
 
 .stat-list {

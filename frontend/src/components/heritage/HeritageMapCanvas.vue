@@ -303,7 +303,7 @@ watch(
   background: transparent;
   color: #64748b;
   cursor: pointer;
-  font-size: 20px;
+  font-size: calc(20rem / 14);
   line-height: 20px;
 }
 
@@ -315,7 +315,7 @@ watch(
 .heritage-point-popup-title {
   padding-right: 24px;
   overflow-wrap: anywhere;
-  font-size: 15px;
+  font-size: calc(15rem / 14);
   font-weight: 700;
   line-height: 1.4;
 }
@@ -327,7 +327,7 @@ watch(
   border-radius: 4px;
   background: #e8f2ff;
   color: #2563eb;
-  font-size: 12px;
+  font-size: calc(12rem / 14);
 }
 
 .heritage-point-popup dl {
@@ -337,7 +337,7 @@ watch(
 .heritage-point-popup dl div {
   display: flex;
   gap: 10px;
-  font-size: 12px;
+  font-size: calc(12rem / 14);
 }
 
 .heritage-point-popup dt {
@@ -360,7 +360,7 @@ watch(
   background: #2563eb;
   color: #ffffff;
   cursor: pointer;
-  font-size: 13px;
+  font-size: calc(13rem / 14);
 }
 
 .heritage-point-popup-action:hover {
