@@ -689,6 +689,6 @@ loadRows()
 
 .coord-editor-hint {
   color: #8a8f99;
-  font-size: 12px;
+  font-size: calc(12rem / 14);
 }
 </style>

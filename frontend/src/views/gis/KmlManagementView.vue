@@ -779,14 +779,14 @@ onMounted(() => {
 
 .floating-menu-header h3 {
   margin: 0;
-  font-size: 17px;
+  font-size: calc(17rem / 14);
   letter-spacing: 0.2px;
   color: var(--text);
 }
 
 .floating-menu-header p {
   margin: 5px 0 0;
-  font-size: 12px;
+  font-size: calc(12rem / 14);
   color: var(--muted);
 }
 
@@ -847,7 +847,7 @@ onMounted(() => {
   padding: 0 12px 0 14px;
   border: 0;
   color: var(--text);
-  font-size: 13px;
+  font-size: calc(13rem / 14);
   font-weight: 600;
   background: color-mix(in srgb, var(--surface) 90%, var(--bg));
 }
@@ -875,7 +875,7 @@ onMounted(() => {
 }
 
 .floating-row > span {
-  font-size: 12px;
+  font-size: calc(12rem / 14);
   color: var(--muted);
   white-space: nowrap;
 }
@@ -909,7 +909,7 @@ onMounted(() => {
 
 .floating-subtitle {
   margin: 6px 0 0;
-  font-size: 12px;
+  font-size: calc(12rem / 14);
   color: var(--text);
   font-weight: 600;
   letter-spacing: 0.25px;
@@ -934,13 +934,13 @@ onMounted(() => {
 }
 
 .gis-info-card .label {
-  font-size: 11px;
+  font-size: calc(11rem / 14);
   color: var(--muted);
   line-height: 1.2;
 }
 
 .gis-info-card strong {
-  font-size: 15px;
+  font-size: calc(15rem / 14);
   color: var(--text);
   font-weight: 700;
   line-height: 1;
@@ -972,13 +972,13 @@ onMounted(() => {
 
 .muted-text {
   color: var(--muted);
-  font-size: 12px;
+  font-size: calc(12rem / 14);
 }
 
 .hint-text {
   margin: 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: calc(12rem / 14);
   line-height: 1.5;
 }
 

@@ -327,7 +327,7 @@ onMounted(() => {
 .create-dialog-hint {
   margin: -4px 0 18px 100px;
   color: #64748b;
-  font-size: 13px;
+  font-size: calc(13rem / 14);
 }
 
 .project-filter-keyword {
@@ -373,7 +373,7 @@ onMounted(() => {
 
 .view-summary {
   color: #64748b;
-  font-size: 13px;
+  font-size: calc(13rem / 14);
 }
 
 .project-card-grid {
@@ -391,7 +391,7 @@ onMounted(() => {
 
 .project-card-header h3 {
   margin: 0;
-  font-size: 16px;
+  font-size: calc(16rem / 14);
 }
 
 .project-card-meta {
@@ -404,7 +404,7 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   gap: 10px;
-  font-size: 13px;
+  font-size: calc(13rem / 14);
 }
 
 .project-card-meta span {
@@ -419,7 +419,7 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   margin-bottom: 8px;
-  font-size: 13px;
+  font-size: calc(13rem / 14);
 }
 
 .project-card-footer {

@@ -25,7 +25,7 @@
             :max="FONT_SIZE_RANGE.max"
             :step="FONT_SIZE_RANGE.step"
             show-input
-            @change="(v) => setAppearance({ fontSize: v })"
+            @input="(v) => setAppearance({ fontSize: v })"
           />
         </div>
       </el-form-item>

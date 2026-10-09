@@ -542,12 +542,12 @@ watch(
 }
 
 .stats-grid :deep(.stat-title) {
-  font-size: 12px;
+  font-size: calc(12rem / 14);
 }
 
 .stats-grid :deep(.stat-value) {
   margin-top: 4px;
-  font-size: 22px;
+  font-size: calc(22rem / 14);
 }
 
 .dashboard-grid-rich {
@@ -593,12 +593,12 @@ watch(
 
 .card-header-row h3 {
   margin: 0;
-  font-size: 15px;
+  font-size: calc(15rem / 14);
 }
 
 .muted-text {
   color: #64748b;
-  font-size: 12px;
+  font-size: calc(12rem / 14);
 }
 
 .dashboard-chart {
@@ -653,7 +653,7 @@ watch(
 .selected-site-title {
   color: var(--text);
   font-weight: 600;
-  font-size: 13px;
+  font-size: calc(13rem / 14);
 }
 
 .selected-site-content {
@@ -662,7 +662,7 @@ watch(
   grid-template-columns: 1fr;
   gap: 2px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: calc(12rem / 14);
 }
 
 @media (max-width: 1440px) {

@@ -159,7 +159,7 @@ async function handleGenerate() {
 
 .official-doc-generator h4 {
   margin: 0 0 12px;
-  font-size: 15px;
+  font-size: calc(15rem / 14);
 }
 
 .doc-form {
@@ -168,7 +168,7 @@ async function handleGenerate() {
 
 .hint-text {
   margin-top: 6px;
-  font-size: 12px;
+  font-size: calc(12rem / 14);
   color: #64748b;
 }
 </style>

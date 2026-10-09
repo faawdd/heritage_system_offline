@@ -162,6 +162,6 @@ function downloadUrl(url, fallbackName) {
 .form-hint {
   margin-left: 12px;
   color: var(--text-muted, #76838a);
-  font-size: 12px;
+  font-size: calc(12rem / 14);
 }
 </style>
