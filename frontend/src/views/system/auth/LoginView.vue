@@ -24,8 +24,10 @@
                 required
               >
               <button class="btn" type="submit" :disabled="loading">{{ loading ? '登录中...' : '登录' }}</button>
+              <div v-if="isDesktop" class="login-form-actions">
+                <button class="forgot-password-link" type="button" @click="openForgotPassword">忘记密码？</button>
+              </div>
             </form>
-            <button v-if="isDesktop" class="forgot-password-link" type="button" @click="openForgotPassword">忘记密码？</button>
 
             <p v-if="!isDesktop" class="account">如无账号请联系 <a href="javascript:void(0)">系统管理员</a></p>
           </div>
@@ -44,6 +46,8 @@
       :close-on-click-modal="false"
       :close-on-press-escape="false"
       :show-close="false"
+      modal-class="desktop-auth-overlay"
+      align-center
     >
       <p class="password-notice">为保护本机数据，请设置新的管理员密码后继续使用系统。</p>
       <form class="password-change-form" @submit.prevent="submitRequiredPasswordChange">
@@ -71,6 +75,8 @@
       :close-on-click-modal="false"
       :close-on-press-escape="false"
       :show-close="false"
+      modal-class="desktop-auth-overlay"
+      align-center
     >
       <p class="password-notice">此账户尚未设置找回问题。设置 3 个不同的问题后才能继续登录。</p>
       <form class="password-change-form" @submit.prevent="submitSecurityQuestionSetup">
@@ -86,7 +92,14 @@
         </button>
       </form>
     </el-dialog>
-    <el-dialog v-model="forgotPasswordVisible" title="重置密码" width="500px" :close-on-click-modal="false">
+    <el-dialog
+      v-model="forgotPasswordVisible"
+      title="重置密码"
+      width="500px"
+      :close-on-click-modal="false"
+      modal-class="desktop-auth-overlay"
+      align-center
+    >
       <form class="password-change-form" @submit.prevent="submitForgotPassword">
         <input v-model.trim="forgotPasswordForm.username" type="text" autocomplete="username" placeholder="请输入用户名" required>
         <el-button v-if="recoveryQuestions.length === 0" type="primary" :loading="recoveryLoading" @click="loadRecoveryQuestions">验证账户</el-button>
@@ -588,7 +601,8 @@ p.account a:hover {
 
 .desktop-login-shell.is-electron-login {
   display: flex;
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
   flex-direction: column;
   justify-content: flex-start;
   padding: 20px 24px;
@@ -648,7 +662,7 @@ p.account a:hover {
   flex: 1 1 auto;
   flex-basis: auto;
   justify-content: center;
-  padding: 18px 26px 24px;
+  padding: 18px 26px 20px;
   background: transparent;
 }
 
@@ -749,6 +763,11 @@ p.account a:hover {
   background: #118355;
 }
 
+.desktop-login-shell.is-electron-login .login-form-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .desktop-login-shell .account,
 .desktop-login-shell .account a {
   padding: 10px 0 0;
@@ -817,7 +836,27 @@ p.account a:hover {
 .security-question-row input,
 .recovery-answer-row input { min-width: 0; min-height: 40px; padding: 0 10px; border: 1px solid #d8e0da; border-radius: 4px; background: #fff; color: #26332d; font: inherit; font-size: 13px; }
 .recovery-answer-row { display: grid; gap: 6px; color: #45534a; font-size: 13px; }
-.forgot-password-link { display: block; width: auto; margin: -16px 0 0 auto; padding: 4px 0; border: 0; background: transparent; color: #168b5d; font-size: 13px; }
+.forgot-password-link { width: auto; padding: 2px 0; border: 0; background: transparent; color: #168b5d; font-size: 13px; line-height: 1.4; }
+.forgot-password-link:hover { background: transparent !important; color: #0e704a; text-decoration: underline; }
+
+:global(.desktop-auth-overlay .el-dialog) {
+  display: flex;
+  width: min(500px, calc(100vw - 24px)) !important;
+  max-height: calc(100vh - 24px);
+  max-height: calc(100dvh - 24px);
+  flex-direction: column;
+  margin: 0 auto;
+}
+
+:global(.desktop-auth-overlay .el-dialog__header) {
+  flex: 0 0 auto;
+}
+
+:global(.desktop-auth-overlay .el-dialog__body) {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
 
 .password-change-button {
   min-height: 44px;
@@ -884,6 +923,10 @@ p.account a:hover {
 
   .desktop-login-shell.is-electron-login h1 {
     font-size: 19px;
+  }
+
+  .desktop-login-shell.is-electron-login .content-wthree {
+    padding: 18px 24px 20px;
   }
 }
 

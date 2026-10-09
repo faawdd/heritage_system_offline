@@ -19,6 +19,7 @@ let setupConfigPath = ''
 let backendOrigin = ''
 let rendererBasePath = ''
 let desktopLoginPassed = false
+let activeSystemName = DEFAULT_SYSTEM_NAME
 
 function getRuntimePaths() {
   const appDir = path.join(process.resourcesPath, 'runtime', 'app')
@@ -197,11 +198,12 @@ function buildMainWindowUrl() {
 function createLoginWindow(url, systemName = DEFAULT_SYSTEM_NAME) {
   loginWindow = new BrowserWindow({
     width: 420,
-    height: 580,
+    height: 600,
+    useContentSize: true,
     minWidth: 420,
     maxWidth: 420,
-    minHeight: 560,
-    maxHeight: 620,
+    minHeight: 600,
+    maxHeight: 600,
     resizable: false,
     maximizable: false,
     minimizable: true,
@@ -244,6 +246,7 @@ async function startApplication() {
   if (!hasExistingInstallation(paths)) {
     desktopConfig = await showSetupWizard(paths, desktopConfig)
   }
+  activeSystemName = desktopConfig.systemName
   const port = await reservePort()
   startPackagedBackend(paths, port, desktopConfig)
   await waitForBackend(port)
@@ -271,6 +274,21 @@ ipcMain.handle('desktop-auth:login-succeeded', (event) => {
     mainWindow.focus()
   }
   loginWindow.close()
+  return { success: true }
+})
+
+ipcMain.handle('desktop-auth:require-login', (event) => {
+  if (!mainWindow || event.sender.id !== mainWindow.webContents.id || !backendOrigin) {
+    return { success: false, message: '当前窗口无法返回登录界面' }
+  }
+
+  desktopLoginPassed = false
+  const loginQuery = new URLSearchParams({
+    login_window: '1',
+    system_name: activeSystemName
+  })
+  createLoginWindow(`${backendOrigin}/login?${loginQuery.toString()}`, activeSystemName)
+  mainWindow.close()
   return { success: true }
 })
 
