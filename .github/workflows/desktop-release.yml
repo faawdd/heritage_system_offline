@@ -553,6 +553,8 @@ jobs:
         shell: bash
         run: |
           test -f desktop_runtime/app/heritage_backend || { echo "Missing ARM64 backend executable"; exit 1; }
+          chmod +x desktop_runtime/app/heritage_backend
+          test -x desktop_runtime/app/heritage_backend || { echo "Backend is not executable"; exit 1; }
           test -f desktop_runtime/app/static/frontend/index.html || { echo "Missing frontend runtime entry"; exit 1; }
           file desktop_runtime/app/heritage_backend | tee /tmp/heritage-backend-file.txt
           grep -Eqi 'ARM aarch64|ARM64' /tmp/heritage-backend-file.txt || { echo "Backend runtime is not ARM64"; exit 1; }

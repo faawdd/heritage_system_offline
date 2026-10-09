@@ -10,6 +10,7 @@ const BACKEND_START_TIMEOUT_MS = 30000
 const DEFAULT_SYSTEM_NAME = '文物综合管理平台'
 
 let backendProcess = null
+let backendSpawnError = null
 let backendLogStream = null
 let mainWindow = null
 let loginWindow = null
@@ -123,6 +124,9 @@ function checkBackend(port) {
 async function waitForBackend(port) {
   const deadline = Date.now() + BACKEND_START_TIMEOUT_MS
   while (Date.now() < deadline) {
+    if (backendSpawnError) {
+      throw new Error(`本地服务启动失败：${backendSpawnError.message}`)
+    }
     if (backendProcess && backendProcess.exitCode !== null) {
       throw new Error(`本地服务意外退出，退出码 ${backendProcess.exitCode}`)
     }
@@ -141,6 +145,14 @@ function startPackagedBackend(paths, port, desktopConfig) {
   )
   if (!fs.existsSync(executable)) {
     throw new Error(`缺少本地服务运行文件：${executable}`)
+  }
+  if (process.platform !== 'win32') {
+    // 已安装的旧包可能丢失了可执行位。
+    try {
+      fs.chmodSync(executable, 0o755)
+    } catch (_error) {
+      throw new Error(`本地服务文件没有执行权限，且无法自动修复：${executable}`)
+    }
   }
 
   const logPath = path.join(paths.logDir, 'backend.log')
@@ -164,6 +176,10 @@ function startPackagedBackend(paths, port, desktopConfig) {
     },
     stdio: ['pipe', 'pipe', 'pipe']
   })
+  backendProcess.on('error', (error) => {
+    backendSpawnError = error
+  })
+  backendProcess.stdin.on('error', () => {})
   backendProcess.stdin.end(JSON.stringify(desktopConfig.securityQuestions || []))
   backendProcess.stdout.pipe(backendLogStream)
   backendProcess.stderr.pipe(backendLogStream)
