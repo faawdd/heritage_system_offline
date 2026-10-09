@@ -2,6 +2,7 @@ from django.contrib.auth.models import Group, Permission, User
 from rest_framework import serializers
 
 from core.models import UserProfile
+from core.role_templates import is_builtin_group
 from system.models import DictionaryItem, DictionaryType, LoginLog, Menu, OperationLog, SystemConfig
 
 
@@ -29,17 +30,25 @@ class MenuSerializer(serializers.ModelSerializer):
 
 
 class PermissionSerializer(serializers.ModelSerializer):
+    app_label = serializers.CharField(source='content_type.app_label', read_only=True)
+    model = serializers.CharField(source='content_type.model', read_only=True)
+
     class Meta:
         model = Permission
-        fields = ['id', 'name', 'codename', 'content_type_id']
+        fields = ['id', 'name', 'codename', 'content_type_id', 'app_label', 'model']
 
 
 class RoleSerializer(serializers.ModelSerializer):
     permission_count = serializers.IntegerField(source='permissions.count', read_only=True)
+    user_count = serializers.IntegerField(source='user_set.count', read_only=True)
+    is_builtin = serializers.SerializerMethodField()
 
     class Meta:
         model = Group
-        fields = ['id', 'name', 'permission_count']
+        fields = ['id', 'name', 'permission_count', 'user_count', 'is_builtin']
+
+    def get_is_builtin(self, obj):
+        return is_builtin_group(obj)
 
 
 class UserListSerializer(serializers.ModelSerializer):

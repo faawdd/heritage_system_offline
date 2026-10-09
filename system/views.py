@@ -15,6 +15,13 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer, Toke
 
 from core.models import UserProfile
 from core.permissions.api_permissions import IsManagementAdmin
+from core.role_templates import (
+    BUILTIN_GROUP_NAMES,
+    ROLE_TEMPLATES,
+    apply_role_template,
+    is_builtin_group,
+    resolve_permissions,
+)
 from core.services.account_security import (
     LOGIN_LOCK_THRESHOLD,
     LOGIN_WAIT_SECONDS,
@@ -622,12 +629,166 @@ class UserDetailAPIView(APIView):
         return Response({'success': True, 'message': '用户已删除'})
 
 
+def _role_error(message, http_status=status.HTTP_400_BAD_REQUEST):
+    return Response({'success': False, 'message': message}, status=http_status)
+
+
+def _validate_role_name(name, exclude_id=None):
+    name = (name or '').strip()
+    if not name:
+        return None, '角色名称不能为空'
+    if len(name) > 150:
+        return None, '角色名称不能超过150个字符'
+    existing = Group.objects.filter(name__iexact=name)
+    if exclude_id:
+        existing = existing.exclude(id=exclude_id)
+    if existing.exists():
+        return None, '角色名称已存在'
+    return name, None
+
+
+def _ungrantable_permissions(user, permissions):
+    """非超级管理员只能授予自己已拥有的权限，防止通过角色提权。"""
+    if _is_super_admin_user(user):
+        return []
+    return [perm for perm in permissions if not user.has_perm(f'{perm.content_type.app_label}.{perm.codename}')]
+
+
 class RoleListAPIView(APIView):
     permission_classes = [IsManagementAdmin]
 
     def get(self, request):
         roles = Group.objects.all().order_by('id')
         return Response({'success': True, 'rows': RoleSerializer(roles, many=True).data})
+
+    def post(self, request):
+        denied = _forbid_if_no_write_permission(request, 'system_role', 'create_role')
+        if denied:
+            return denied
+
+        name, error = _validate_role_name(request.data.get('name'))
+        if error:
+            return _role_error(error)
+        if name in BUILTIN_GROUP_NAMES:
+            return _role_error('内置角色名称不可用于自定义角色')
+
+        template_key = (request.data.get('template') or '').strip()
+        if template_key and template_key not in ROLE_TEMPLATES:
+            return _role_error('角色模板不存在')
+
+        try:
+            permission_ids = _validate_id_list(request.data.get('permission_ids'), 'permission_ids')
+        except ValueError as exc:
+            return _role_error(str(exc))
+
+        if template_key:
+            permissions, _missing = resolve_permissions(ROLE_TEMPLATES[template_key]['permissions'])
+        else:
+            permissions = list(Permission.objects.select_related('content_type').filter(id__in=permission_ids))
+
+        denied_perms = _ungrantable_permissions(request.user, permissions)
+        if denied_perms:
+            return _role_error('不能授予自己未拥有的权限', status.HTTP_403_FORBIDDEN)
+
+        with transaction.atomic():
+            role = Group.objects.create(name=name)
+            role.permissions.set(permissions)
+            if template_key:
+                menu_paths = ROLE_TEMPLATES[template_key].get('menu_paths')
+                if menu_paths:
+                    for menu in Menu.objects.filter(path__in=menu_paths):
+                        menu.roles.add(role)
+
+        _record_operation(request, 'system_role', 'create_role', success=True, detail=f'role_id={role.id}, name={name}, template={template_key}')
+        return Response({'success': True, 'message': '角色已创建', 'data': RoleSerializer(role).data}, status=status.HTTP_201_CREATED)
+
+
+class RoleDetailAPIView(APIView):
+    permission_classes = [IsManagementAdmin]
+
+    def patch(self, request, role_id):
+        denied = _forbid_if_no_write_permission(request, 'system_role', 'update_role')
+        if denied:
+            return denied
+        role = Group.objects.filter(id=role_id).first()
+        if not role:
+            return _role_error('角色不存在', status.HTTP_404_NOT_FOUND)
+        if is_builtin_group(role):
+            return _role_error('内置角色不可重命名')
+
+        name, error = _validate_role_name(request.data.get('name'), exclude_id=role.id)
+        if error:
+            return _role_error(error)
+        if name in BUILTIN_GROUP_NAMES:
+            return _role_error('内置角色名称不可用于自定义角色')
+
+        role.name = name
+        role.save(update_fields=['name'])
+        _record_operation(request, 'system_role', 'update_role', success=True, detail=f'role_id={role.id}, name={name}')
+        return Response({'success': True, 'message': '角色已更新', 'data': RoleSerializer(role).data})
+
+    def delete(self, request, role_id):
+        denied = _forbid_if_no_write_permission(request, 'system_role', 'delete_role')
+        if denied:
+            return denied
+        role = Group.objects.filter(id=role_id).first()
+        if not role:
+            return _role_error('角色不存在', status.HTTP_404_NOT_FOUND)
+        if is_builtin_group(role):
+            return _role_error('内置角色不可删除')
+        user_count = role.user_set.count()
+        if user_count:
+            return _role_error(f'该角色下仍有 {user_count} 名用户，请先移除用户后再删除')
+
+        role_name = role.name
+        role.delete()
+        _record_operation(request, 'system_role', 'delete_role', success=True, detail=f'role_id={role_id}, name={role_name}')
+        return Response({'success': True, 'message': '角色已删除'})
+
+
+class RoleTemplateListAPIView(APIView):
+    permission_classes = [IsManagementAdmin]
+
+    def get(self, request):
+        rows = []
+        for key, template in ROLE_TEMPLATES.items():
+            permissions, _missing = resolve_permissions(template['permissions'])
+            rows.append({
+                'key': key,
+                'label': template['label'],
+                'description': template['description'],
+                'permission_ids': [perm.id for perm in permissions],
+                'permission_count': len(permissions),
+            })
+        return Response({'success': True, 'rows': rows})
+
+
+class RoleApplyTemplateAPIView(APIView):
+    """把内置模板权限重新写入指定角色（内置角色用于恢复默认权限）。"""
+    permission_classes = [IsManagementAdmin]
+
+    def post(self, request, role_id):
+        denied = _forbid_if_no_write_permission(request, 'system_role', 'apply_template')
+        if denied:
+            return denied
+        role = Group.objects.filter(id=role_id).first()
+        if not role:
+            return _role_error('角色不存在', status.HTTP_404_NOT_FOUND)
+
+        if is_builtin_group(role):
+            template_key = role.name
+        else:
+            template_key = (request.data.get('template') or '').strip()
+        if template_key not in ROLE_TEMPLATES:
+            return _role_error('角色模板不存在')
+
+        permissions, _missing = resolve_permissions(ROLE_TEMPLATES[template_key]['permissions'])
+        if _ungrantable_permissions(request.user, permissions):
+            return _role_error('不能授予自己未拥有的权限', status.HTTP_403_FORBIDDEN)
+
+        count, _ = apply_role_template(role, template_key)
+        _record_operation(request, 'system_role', 'apply_template', success=True, detail=f'role_id={role.id}, template={template_key}, count={count}')
+        return Response({'success': True, 'message': '已应用角色模板', 'data': RoleSerializer(role).data})
 
 
 class PermissionListAPIView(APIView):
@@ -812,7 +973,14 @@ class RolePermissionAPIView(APIView):
         except ValueError as exc:
             return Response({'success': False, 'message': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-        role.permissions.set(Permission.objects.filter(id__in=permission_ids))
+        if is_builtin_group(role):
+            return Response({'success': False, 'message': '内置角色权限由模板维护，不可手动修改，可使用“恢复模板权限”'}, status=status.HTTP_400_BAD_REQUEST)
+
+        permissions = list(Permission.objects.select_related('content_type').filter(id__in=permission_ids))
+        if _ungrantable_permissions(request.user, permissions):
+            return Response({'success': False, 'message': '不能授予自己未拥有的权限'}, status=status.HTTP_403_FORBIDDEN)
+
+        role.permissions.set(permissions)
         _record_operation(request, 'system_role', 'assign_permissions', success=True, detail=f'role_id={role.id}, count={len(permission_ids)}')
         return Response({'success': True, 'message': '角色权限已更新'})
 

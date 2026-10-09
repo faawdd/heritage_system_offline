@@ -136,3 +136,78 @@ def parse_two_line_file(content, filename, zone_type='auto'):
             raise ValueError('未识别到保护范围或建控地带要素；请为未标注的 KML 选择两线类型')
         raise ValueError('所选两线类型下未找到有效的面或闭合边界线')
     return result, counts
+
+def parse_body_boundary_file(content, filename):
+    """Return body (本体) boundary rings from a KML-family upload.
+
+    Features explicitly labelled as 保护范围 / 建控地带 (the "two lines") and
+    annotation features are ignored; every other polygon / closed line counts.
+    """
+    kml_content = _extract_kml(content, filename)
+    try:
+        root = ET.fromstring(kml_content)
+    except ET.ParseError as exc:
+        raise ValueError('KML/XML 文件解析失败') from exc
+    if _local_name(root.tag) != 'kml':
+        raise ValueError('文件根节点不是 KML')
+
+    rings = []
+
+    def visit(node, folder_names):
+        tag = _local_name(node.tag)
+        name_node = next((child for child in node if _local_name(child.tag) == 'name'), None)
+        name = (name_node.text or '').strip() if name_node is not None else ''
+        next_folders = folder_names + ([name] if tag == 'Folder' and name else [])
+
+        if tag == 'Placemark':
+            labels = ' '.join(next_folders + ([name] if name else []))
+            if any(marker in labels.lower() for marker in ('_dimension_', '_text_', '标注', '注记')):
+                return
+            if any(label in labels for label in ('保护范围', '建控', '建设控制', '控制地带')):
+                return
+            rings.extend(_placemark_rings(node))
+            return
+
+        for child in node:
+            if _local_name(child.tag) in {'Document', 'Folder', 'Placemark'}:
+                visit(child, next_folders)
+
+    visit(root, [])
+    if not rings:
+        raise ValueError('未在文件中找到有效的本体范围面或闭合边界线')
+    return rings
+
+
+def normalize_boundary_rings(value):
+    """Validate JSON text / list of rings [[ [lon, lat], ... ], ...]; return rings (closed)."""
+    import json
+
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return []
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError as exc:
+            raise ValueError('坐标必须是合法的 JSON') from exc
+    if not isinstance(value, list):
+        raise ValueError('坐标格式错误，应为多边形环数组')
+    rings = []
+    for ring in value:
+        if not isinstance(ring, list):
+            raise ValueError('坐标格式错误，每个环应为点数组')
+        points = []
+        for point in ring:
+            if not isinstance(point, (list, tuple)) or len(point) < 2:
+                raise ValueError('坐标点格式错误，应为 [经度, 纬度]')
+            try:
+                lon, lat = float(point[0]), float(point[1])
+            except (TypeError, ValueError) as exc:
+                raise ValueError('坐标点必须是数字') from exc
+            if not math.isfinite(lon) or not math.isfinite(lat) or not -180 <= lon <= 180 or not -90 <= lat <= 90:
+                raise ValueError('坐标超出经纬度范围')
+            points.append([lon, lat])
+        closed = _close_ring(points)
+        if closed is None:
+            raise ValueError('每个环至少需要 3 个不同的坐标点')
+        rings.append(closed)
+    return rings

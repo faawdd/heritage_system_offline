@@ -7,6 +7,9 @@ import 'ol/ol.css'
 import App from './App.vue'
 import router from './router'
 import './assets/styles.css'
+import { applyAppearance } from './utils/appearance'
+
+applyAppearance()
 
 const app = createApp(App)
 app.use(createPinia())

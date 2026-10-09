@@ -183,6 +183,32 @@
           </div>
         </el-form-item>
 
+        <el-form-item label="本体范围坐标">
+          <div class="two-line-file-controls">
+            <div class="two-line-file-actions">
+              <input
+                ref="bodyFileInputRef"
+                class="two-line-file-input"
+                type="file"
+                accept=".ovkml,.ovkmz,.kml,.kmz"
+                @change="handleBodyFileChange"
+              />
+              <el-button type="primary" :loading="bodyBusy" @click="bodyFileInputRef?.click()">上传矢量文件</el-button>
+              <el-button v-if="dialog.form.body_boundary" type="danger" plain :loading="bodyBusy" @click="clearBodyBoundary">
+                清空本体范围
+              </el-button>
+              <span class="muted-text">{{ bodySummary }}</span>
+            </div>
+            <el-input
+              v-model="dialog.form.body_boundary"
+              type="textarea"
+              :rows="4"
+              placeholder="[[[经度,纬度],[经度,纬度],[经度,纬度]], ...]"
+            />
+            <span class="muted-text">支持 OVKML、OVKMZ、KML、KMZ；仅识别本体面要素，带“保护范围/建控地带”标注的要素会被忽略。也可直接编辑上方坐标并保存。该坐标用于不可移动文物登记表的本体保护范围坐标。</span>
+          </div>
+        </el-form-item>
+
         <el-form-item label="保护范围坐标">
           <el-input
             v-model="dialog.form.protection_zone"
@@ -211,7 +237,7 @@
 </template>
 
 <script setup>
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 import {
@@ -220,6 +246,8 @@ import {
   fetchHeritageSiteManageList,
   uploadHeritageTwoLineFile,
   deleteHeritageTwoLineFile,
+  uploadHeritageBodyBoundaryFile,
+  deleteHeritageBodyBoundary,
   importHeritageSiteManage,
   patchHeritageSiteManage
 } from '../../api/heritageApi'
@@ -236,6 +264,16 @@ const coordinateExportMode = ref('point')
 const twoLineFileInputRef = ref(null)
 const twoLineFileBusy = ref(false)
 const twoLineZoneType = ref('auto')
+const bodyFileInputRef = ref(null)
+const bodyBusy = ref(false)
+const bodySummary = computed(() => {
+  try {
+    const rings = JSON.parse(dialog.form.body_boundary || '[]')
+    return Array.isArray(rings) && rings.length ? `当前 ${rings.length} 个边界，共 ${rings.reduce((n, r) => n + r.length, 0)} 个点` : '尚未设置本体范围'
+  } catch {
+    return '坐标格式待修正'
+  }
+})
 
 const filters = reactive({
   keyword: '',
@@ -264,7 +302,8 @@ const dialog = reactive({
     manager: '',
     description: '',
     protection_zone: '',
-    control_zone: ''
+    control_zone: '',
+    body_boundary: ''
   }
 })
 
@@ -325,6 +364,7 @@ function openEdit(row) {
     description: row.description || '',
     protection_zone: row.protection_zone || '',
     control_zone: row.control_zone || '',
+    body_boundary: row.body_boundary || '',
     two_line_file: row.two_line_file || null
   }
   twoLineZoneType.value = 'auto'
@@ -364,6 +404,51 @@ async function handleTwoLineFileChange(event) {
     ElMessage.error(error?.message || '两线文件上传失败')
   } finally {
     twoLineFileBusy.value = false
+  }
+}
+
+async function handleBodyFileChange(event) {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file || !dialog.editId) {
+    return
+  }
+  bodyBusy.value = true
+  try {
+    const result = await uploadHeritageBodyBoundaryFile(dialog.editId, file)
+    if (!result.success) {
+      throw new Error(result.message || '本体范围上传失败')
+    }
+    applyBodyBoundary(JSON.stringify(result.data?.body_boundary || []))
+    ElMessage.success(result.message || '本体范围已导入')
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.message || error?.message || '本体范围上传失败')
+  } finally {
+    bodyBusy.value = false
+  }
+}
+
+async function clearBodyBoundary() {
+  bodyBusy.value = true
+  try {
+    const result = await deleteHeritageBodyBoundary(dialog.editId)
+    if (!result.success) {
+      throw new Error(result.message || '清空失败')
+    }
+    applyBodyBoundary('')
+    ElMessage.success('本体范围坐标已清空')
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.message || error?.message || '清空失败')
+  } finally {
+    bodyBusy.value = false
+  }
+}
+
+function applyBodyBoundary(text) {
+  dialog.form.body_boundary = text === '[]' ? '' : text
+  const row = rows.value.find((item) => String(item.id) === String(dialog.editId))
+  if (row) {
+    row.body_boundary = dialog.form.body_boundary
   }
 }
 
@@ -422,7 +507,8 @@ async function submitEdit() {
       longitude: Number(dialog.form.longitude),
       latitude: Number(dialog.form.latitude),
       protection_zone: normalizeZoneJson(dialog.form.protection_zone, '保护范围'),
-      control_zone: normalizeZoneJson(dialog.form.control_zone, '建控地带')
+      control_zone: normalizeZoneJson(dialog.form.control_zone, '建控地带'),
+      body_boundary: normalizeZoneJson(dialog.form.body_boundary, '本体范围')
     }
 
     const result = await patchHeritageSiteManage(dialog.editId, payload)

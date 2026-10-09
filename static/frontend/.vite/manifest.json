@@ -28,8 +28,8 @@
     "file": "assets/vendor-vue-B68ugBY9.css",
     "src": "_vendor-vue-!~{002}~.js"
   },
-  "_vendor-vue-BTXAX9yG.js": {
-    "file": "assets/vendor-vue-BTXAX9yG.js",
+  "_vendor-vue-Dr22kgGr.js": {
+    "file": "assets/vendor-vue-Dr22kgGr.js",
     "name": "vendor-vue",
     "imports": [
       "_vendor-misc-BJwlgrkc.js"
@@ -39,25 +39,30 @@
     ]
   },
   "index.html": {
-    "file": "assets/index-DxoFEFPY.js",
+    "file": "assets/index-CUPatnCL.js",
     "name": "index",
     "src": "index.html",
     "isEntry": true,
     "imports": [
-      "_vendor-vue-BTXAX9yG.js",
+      "_vendor-vue-Dr22kgGr.js",
       "_vendor-ol-BaGXwt6Z.js",
       "_vendor-misc-BJwlgrkc.js",
       "_vendor-echarts-kW7DVlUo.js"
     ],
     "css": [
-      "assets/index-pra6WTDM.css"
+      "assets/index-C1fXu7CR.css"
     ],
     "assets": [
-      "assets/login-illustration-B9XkfA8Q.png"
+      "assets/login-illustration-B9XkfA8Q.png",
+      "assets/logo-CNVw97pt.png"
     ]
   },
   "src/assets/login-illustration.png": {
     "file": "assets/login-illustration-B9XkfA8Q.png",
     "src": "src/assets/login-illustration.png"
+  },
+  "src/assets/logo.png": {
+    "file": "assets/logo-CNVw97pt.png",
+    "src": "src/assets/logo.png"
   }
 }

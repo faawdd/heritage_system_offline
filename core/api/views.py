@@ -21,7 +21,7 @@ from django.contrib.auth.models import User
 from django.utils import timezone
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from rest_framework_simplejwt.tokens import AccessToken
-from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -38,7 +38,7 @@ from core.services.heritage_service import (
     get_heritage_stats_meta,
 )
 from core.services.system_service import get_system_version_payload
-from core.services.two_line_file import parse_two_line_file
+from core.services.two_line_file import normalize_boundary_rings, parse_body_boundary_file, parse_two_line_file
 from core.ovkml_converter import build_csv_outputs, parse_kml_or_kmz
 from core.services.report_service import create_report, get_completed_period_bounds, render_report_html
 
@@ -441,6 +441,7 @@ class HeritageSiteManageListAPIView(APIView):
                 'manager': item.manager,
                 'description': item.description,
                 'protection_zone': item.protection_zone,
+                'body_boundary': item.body_boundary,
                 'control_zone': item.control_zone,
                 'two_line_file': self._two_line_file_payload(item),
             }
@@ -514,6 +515,13 @@ class HeritageSiteManageDetailAPIView(APIView):
         for field in text_fields:
             if field in request.data:
                 setattr(site, field, (request.data.get(field) or '').strip())
+
+        if 'body_boundary' in request.data:
+            try:
+                rings = normalize_boundary_rings(request.data.get('body_boundary'))
+            except ValueError as exc:
+                return Response({'success': False, 'message': f'本体范围坐标无效：{exc}'}, status=400)
+            site.body_boundary = json.dumps(rings, ensure_ascii=False) if rings else ''
 
         if 'longitude' in request.data:
             try:
@@ -645,6 +653,66 @@ class HeritageTwoLineFileAPIView(APIView):
             'message': '两线文件及其坐标已删除',
             'data': {'protection_zone': [], 'control_zone': []},
         })
+
+
+class HeritageBodyBoundaryAPIView(APIView):
+    """单个文物点本体保护范围坐标：读取 / 上传矢量文件或提交坐标 / 清空。"""
+    permission_classes = [IsManagementAdmin]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    @staticmethod
+    def _rings(site):
+        try:
+            value = json.loads(site.body_boundary) if site.body_boundary else []
+        except ValueError:
+            return []
+        return value if isinstance(value, list) else []
+
+    def get(self, request, site_id):
+        site = HeritageSite.objects.filter(id=site_id).first()
+        if not site:
+            return Response({'success': False, 'message': '文物档案不存在'}, status=404)
+        return Response({'success': True, 'data': {'body_boundary': self._rings(site)}})
+
+    def post(self, request, site_id):
+        if not can_modify_core_data(request.user):
+            return Response({'success': False, 'message': '当前角色仅可查看，禁止修改'}, status=403)
+        site = HeritageSite.objects.filter(id=site_id).first()
+        if not site:
+            return Response({'success': False, 'message': '文物档案不存在'}, status=404)
+
+        upload = request.FILES.get('file')
+        try:
+            if upload:
+                rings = parse_body_boundary_file(upload.read(), upload.name or '')
+            else:
+                rings = normalize_boundary_rings(request.data.get('body_boundary'))
+        except ValueError as exc:
+            return Response({'success': False, 'message': str(exc)}, status=400)
+        except Exception:
+            logger.exception('解析本体范围文件失败: site_id=%s', site_id)
+            return Response({'success': False, 'message': '文件解析失败'}, status=400)
+
+        site.body_boundary = json.dumps(rings, ensure_ascii=False) if rings else ''
+        site.save(update_fields=['body_boundary'])
+        return Response({
+            'success': True,
+            'message': '本体范围坐标已更新' if rings else '本体范围坐标已清空',
+            'data': {'body_boundary': rings, 'ring_count': len(rings)},
+        })
+
+    def put(self, request, site_id):
+        return self.post(request, site_id)
+
+    def delete(self, request, site_id):
+        if not can_modify_core_data(request.user):
+            return Response({'success': False, 'message': '当前角色仅可查看，禁止修改'}, status=403)
+        site = HeritageSite.objects.filter(id=site_id).first()
+        if not site:
+            return Response({'success': False, 'message': '文物档案不存在'}, status=404)
+        site.body_boundary = ''
+        site.save(update_fields=['body_boundary'])
+        return Response({'success': True, 'message': '本体范围坐标已清空', 'data': {'body_boundary': []}})
 
 
 class HeritageSiteManageImportAPIView(APIView):
