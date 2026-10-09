@@ -72,6 +72,41 @@ export async function fetchSystemRoles() {
   return response.data
 }
 
+export async function fetchRoleTemplates() {
+  const response = await client.get('/api/v1/system/role-templates/')
+  return response.data
+}
+
+export async function createSystemRole(payload) {
+  const response = await client.post('/api/v1/system/roles/', payload)
+  return response.data
+}
+
+export async function renameSystemRole(roleId, name) {
+  const response = await client.patch(`/api/v1/system/roles/${roleId}/`, { name })
+  return response.data
+}
+
+export async function deleteSystemRole(roleId) {
+  const response = await client.delete(`/api/v1/system/roles/${roleId}/`)
+  return response.data
+}
+
+export async function applyRoleTemplate(roleId, template) {
+  const response = await client.post(`/api/v1/system/roles/${roleId}/apply-template/`, { template })
+  return response.data
+}
+
+export async function fetchRolePermissions(roleId) {
+  const response = await client.get(`/api/v1/system/roles/${roleId}/permissions/`)
+  return response.data
+}
+
+export async function updateRolePermissions(roleId, permissionIds) {
+  const response = await client.put(`/api/v1/system/roles/${roleId}/permissions/`, { permission_ids: permissionIds })
+  return response.data
+}
+
 export async function fetchSystemPermissions() {
   const response = await client.get('/api/v1/system/permissions/')
   return response.data

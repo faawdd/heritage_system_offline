@@ -204,6 +204,8 @@ const defaultSystemName = isDesktop
   ? '文物综合管理平台'
   : '鄯善县文物管理平台'
 const systemName = computed(() => localStorage.getItem('heritage_system_name') || defaultSystemName)
+import { appearanceState, setAppearance } from '../utils/appearance'
+
 const THEME_MODE_KEY = 'heritage_theme_mode'
 const SIDEBAR_COLLAPSE_KEY = 'heritage_sidebar_collapsed'
 const themeMode = ref('system')
@@ -406,10 +408,11 @@ const menuGroups = computed(() => {
       .filter((group) => Array.isArray(group.items) && group.items.length > 0)
   }
 
-  if (dynamic.length > 0) {
-    return restrictForNonSuperAdmin(ensureHeritageEntries(dynamic))
-  }
-  return restrictForNonSuperAdmin(ensureHeritageEntries(staticMenuGroups))
+  const base = dynamic.length > 0 ? ensureHeritageEntries(dynamic) : ensureHeritageEntries(staticMenuGroups)
+  return [
+    ...restrictForNonSuperAdmin(base),
+    { key: 'personal', title: '个人设置', items: [{ label: '外观设置', to: '/settings/appearance' }] }
+  ]
 })
 
 function isSuperAdminUser() {
@@ -604,6 +607,7 @@ function getResolvedTheme(mode) {
 function applyTheme(mode) {
   const resolved = getResolvedTheme(mode)
   document.documentElement.setAttribute('data-theme', resolved)
+  setAppearance({ themeMode: mode })
 }
 
 function setThemeMode(mode) {
@@ -677,6 +681,15 @@ function toggleGroup(key) {
     [key]: !current
   }
 }
+
+watch(
+  () => appearanceState.themeMode,
+  (value) => {
+    if (value !== themeMode.value) {
+      themeMode.value = value
+    }
+  }
+)
 
 watch(
   () => themeMode.value,

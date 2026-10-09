@@ -14,6 +14,7 @@ from django.core.management.base import BaseCommand
 from django.contrib.auth.models import User, Group, Permission
 from django.contrib.contenttypes.models import ContentType
 from core.models import InspectionRecord, HeritageSite, ProjectAudit, UserProfile
+from core.role_templates import ROLE_TEMPLATES
 
 
 class Command(BaseCommand):
@@ -60,97 +61,12 @@ class Command(BaseCommand):
         # 权限配置定义：四层权限体系
         # ============================================================================
         groups_config = {
-            # 🔵 第一层：文物看护员（巡查人员）
-            '文物看护员': {
-                'description': '巡查人员，仅能使用文物点巡查上报功能',
-                'permissions': [
-                    # 文物档案：仅查看权限
-                    'view_heritagesite',
-                    # 巡查记录：完整权限（但视图层会限制为自己的记录）
-                    'add_inspectionrecord',
-                    'change_inspectionrecord',
-                    'view_inspectionrecord',
-                    # 个人资料：修改自己的信息
-                    'change_userprofile',
-                    'view_userprofile',
-                ],
-            },
-            # 🟡 第二层：管理员（文保科工作人员）
-            '管理员': {
-                'description': '文保科工作人员和领导，拥有大部分管理权限（不影响底层数据安全）',
-                'permissions': [
-                    # 不可移动文物档案：增删改查
-                    'add_heritagesite',
-                    'change_heritagesite',
-                    'view_heritagesite',
-                    # 巡查记录：完整权限（包括删除）
-                    'add_inspectionrecord',
-                    'change_inspectionrecord',
-                    'view_inspectionrecord',
-                    'delete_inspectionrecord',
-                    # 项目建设审批：完整权限
-                    'add_projectaudit',
-                    'change_projectaudit',
-                    'view_projectaudit',
-                    'delete_projectaudit',
-                    # 坐标数据：完整权限
-                    'add_coordinate',
-                    'change_coordinate',
-                    'view_coordinate',
-                    'delete_coordinate',
-                    # 用户管理：创建和修改（不能删除）
-                    'add_user',
-                    'change_user',
-                    'view_user',
-                    # 用户组：查看和编辑（不能删除）
-                    'add_group',
-                    'change_group',
-                    'view_group',
-                    # 用户资料：完整权限
-                    'add_userprofile',
-                    'change_userprofile',
-                    'view_userprofile',
-                ],
-            },
-            # 🟢 第二层：管理员用户组（受限管理）
-            '管理员用户组': {
-                'description': '可执行大部分管理操作，但仅能查看文物点和巡查底层数据，不能修改',
-                'permissions': [
-                    # 不可移动文物档案：仅查看
-                    'view_heritagesite',
-                    # 巡查记录：仅查看
-                    'view_inspectionrecord',
-                    # 项目建设审批：完整权限
-                    'add_projectaudit',
-                    'change_projectaudit',
-                    'view_projectaudit',
-                    'delete_projectaudit',
-                    # 坐标数据：完整权限
-                    'add_coordinate',
-                    'change_coordinate',
-                    'view_coordinate',
-                    'delete_coordinate',
-                    # KML 上传记录：完整权限
-                    'add_kmluploadrecord',
-                    'change_kmluploadrecord',
-                    'view_kmluploadrecord',
-                    'delete_kmluploadrecord',
-                    # 采集数据：仅查看
-                    'view_immovableheritage',
-                    'view_heritagephoto',
-                    # 用户与用户组：仅查看
-                    'view_user',
-                    'view_group',
-                    # 用户资料和审计：仅查看
-                    'view_userprofile',
-                    'view_usermanagementaudit',
-                ],
-            },
-            # 🔴 第三层：超级管理员（系统最高权限）
-            '超级管理员': {
-                'description': '系统最高权限，具有所有功能访问权限',
-                'permissions': 'all',  # 特殊标记：授予所有权限
-            },
+            name: {'description': tpl['description'], 'permissions': tpl['permissions']}
+            for name, tpl in ROLE_TEMPLATES.items()
+        }
+        groups_config['超级管理员'] = {
+            'description': '系统最高权限，具有所有功能访问权限',
+            'permissions': 'all',
         }
 
         # 创建或更新用户组

@@ -46,7 +46,8 @@
 
 body {
   margin: 0;
-  font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-family: var(--app-font-family, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif);
+  font-size: var(--app-font-size, 14px);
   background: var(--bg-gradient), var(--bg);
   color: var(--text);
 }
@@ -801,4 +802,11 @@ section,
   .stat-card {
     padding: 12px;
   }
+}
+
+.hint-text {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted, #8a94a6);
 }

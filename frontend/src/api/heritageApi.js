@@ -43,6 +43,18 @@ export async function deleteHeritageTwoLineFile(siteId) {
   return response.data
 }
 
+export async function uploadHeritageBodyBoundaryFile(siteId, file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  const response = await client.post(`/api/v1/heritage/sites/${siteId}/body-boundary/`, formData)
+  return response.data
+}
+
+export async function deleteHeritageBodyBoundary(siteId) {
+  const response = await client.delete(`/api/v1/heritage/sites/${siteId}/body-boundary/`)
+  return response.data
+}
+
 export async function importHeritageSiteManage(file) {
   const formData = new FormData()
   formData.append('file', file)

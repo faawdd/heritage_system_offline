@@ -2037,7 +2037,30 @@ def land_project_edit_view(request):
     return redirect('/static/frontend/projects')
 
 
-@staff_member_required
+def _management_api_required(view_func):
+    @wraps(view_func)
+    def wrapped(request, *args, **kwargs):
+        user = getattr(request, 'user', None)
+        if not user or not user.is_authenticated:
+            from rest_framework.exceptions import AuthenticationFailed
+            from rest_framework_simplejwt.authentication import JWTAuthentication
+
+            try:
+                authentication = JWTAuthentication().authenticate(request)
+            except AuthenticationFailed:
+                return JsonResponse({'success': False, 'message': '登录已失效，请重新登录'}, status=401)
+            if authentication is None:
+                return JsonResponse({'success': False, 'message': '请先登录'}, status=401)
+            request.user = authentication[0]
+
+        if not is_management_admin(request.user):
+            return JsonResponse({'success': False, 'message': '需要管理权限'}, status=403)
+        return view_func(request, *args, **kwargs)
+
+    return wrapped
+
+
+@_management_api_required
 def land_project_list_api(request):
     """用地项目列表API。"""
     if not is_management_admin(request.user):
@@ -2127,7 +2150,7 @@ def land_project_list_api(request):
     return JsonResponse({'success': True, 'rows': rows, 'summary': summary})
 
 
-@staff_member_required
+@_management_api_required
 def land_project_detail_api(request, project_id):
     """用地项目详情API。"""
     if not is_management_admin(request.user):
@@ -2304,29 +2327,6 @@ def _parse_date_value(raw_value, field_name):
         return datetime.strptime(text, '%Y-%m-%d').date()
     except ValueError:
         raise ValueError(f'{field_name} 格式错误，需为 YYYY-MM-DD')
-
-
-def _management_api_required(view_func):
-    @wraps(view_func)
-    def wrapped(request, *args, **kwargs):
-        user = getattr(request, 'user', None)
-        if not user or not user.is_authenticated:
-            from rest_framework.exceptions import AuthenticationFailed
-            from rest_framework_simplejwt.authentication import JWTAuthentication
-
-            try:
-                authentication = JWTAuthentication().authenticate(request)
-            except AuthenticationFailed:
-                return JsonResponse({'success': False, 'message': '登录已失效，请重新登录'}, status=401)
-            if authentication is None:
-                return JsonResponse({'success': False, 'message': '请先登录'}, status=401)
-            request.user = authentication[0]
-
-        if not is_management_admin(request.user):
-            return JsonResponse({'success': False, 'message': '需要管理权限'}, status=403)
-        return view_func(request, *args, **kwargs)
-
-    return wrapped
 
 
 @csrf_exempt
@@ -4200,6 +4200,39 @@ def app_showcase_view(request):
 from django.contrib.auth.decorators import login_required
 
 
+def _body_boundary_for_heritage(heritage, site=None):
+    """文物本体保护范围坐标环：通过四普编号（survey_code ↔ sip_code）关联 HeritageSite.body_boundary。"""
+    if site is None:
+        code = (getattr(heritage, 'survey_code', '') or '').strip()
+        if code:
+            site = HeritageSite.objects.filter(sip_code=code).order_by('id').first()
+    if site is None:
+        return []
+    return _parse_boundary_rings(site.body_boundary)
+
+
+def _body_boundary_rows(rings):
+    """展示行：区块序号/点序号/经度/纬度（去掉闭合重复点）。"""
+    rows = []
+    for block_index, ring in enumerate(rings, start=1):
+        points = ring[:-1] if len(ring) > 1 and ring[0] == ring[-1] else ring
+        for point_index, (lon, lat) in enumerate(points, start=1):
+            rows.append({
+                'block': block_index,
+                'index': point_index,
+                'longitude': f"{lon:.8f}",
+                'latitude': f"{lat:.8f}",
+            })
+    return rows
+
+
+def _format_body_boundary_lines(rings):
+    rows = _body_boundary_rows(rings)
+    if not rows:
+        return ['无']
+    return [f"区块{row['block']} 点{row['index']}：经度 {row['longitude']}，纬度 {row['latitude']}" for row in rows]
+
+
 def _format_coord_point_lines(points):
     if not points:
         return ['无']
@@ -4344,6 +4377,7 @@ def heritage_detail_preview_view(request, pk):
     from .models import ImmovableHeritage, HeritagePhoto
     from django.shortcuts import get_object_or_404
 
+    boundary_site = None
     heritage = (
         ImmovableHeritage.objects.select_related("collector", "input_by", "reviewer")
         .prefetch_related("photos")
@@ -4359,6 +4393,7 @@ def heritage_detail_preview_view(request, pk):
     else:
         # 兼容旧档案库：当 pk 来自 HeritageSite 时，回退到基础档案并构造预览对象。
         site = get_object_or_404(HeritageSite, pk=pk)
+        boundary_site = site
         heritage = SimpleNamespace(
             survey_code=site.sip_code or f"HS-{site.id}",
             previous_survey_code="",
@@ -4416,7 +4451,7 @@ def heritage_detail_preview_view(request, pk):
     # 度分秒在视图层计算，保持模板简洁
     lon_dms = _decimal_to_dms(heritage.longitude, is_longitude=True)
     lat_dms = _decimal_to_dms(heritage.latitude,  is_longitude=False)
-    coord_points = _build_coord_points_display(heritage.coord_list)
+    body_boundary_rows = _body_boundary_rows(_body_boundary_for_heritage(heritage, boundary_site))
     cover_photo_url = _safe_file_url(cover_photo.image if cover_photo else None)
     other_photo_items = [
         {
@@ -4445,7 +4480,7 @@ def heritage_detail_preview_view(request, pk):
         "photos":               all_photos,
         "lon_dms":              lon_dms,
         "lat_dms":              lat_dms,
-        "coord_points":         coord_points,
+        "body_boundary_rows":   body_boundary_rows,
         "collector_display":    _display_user_name(heritage.collector),
         "input_by_display":     _display_user_name(heritage.input_by),
         "reviewer_display":     _display_user_name(heritage.reviewer),
@@ -4637,14 +4672,14 @@ def _build_immovable_heritage_docx_stream(heritage):
     _insert_photos_into_cell(photo_cell, list(heritage.photos.all()))
 
     document.add_paragraph("")
-    p_coord_title = document.add_paragraph("区块2坐标点信息")
+    p_coord_title = document.add_paragraph("本体保护范围坐标")
     p_coord_title.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
     for run in p_coord_title.runs:
         run.bold = True
         run.font.size = Pt(14)
         run.font.name = "宋体"
 
-    for line in _format_coord_point_lines(heritage.coord_list):
+    for line in _format_body_boundary_lines(_body_boundary_for_heritage(heritage)):
         p_coord_line = document.add_paragraph(line)
         p_coord_line.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
         for run in p_coord_line.runs:

@@ -22,6 +22,7 @@ import DataManagementView from '../views/system/data/DataManagementView.vue'
 import OfflineTileManagerView from '../views/system/data/OfflineTileManagerView.vue'
 import UserListView from '../views/system/user/UserListView.vue'
 import RoleListView from '../views/system/role/RoleListView.vue'
+import AppearanceSettingsView from '../views/settings/AppearanceSettingsView.vue'
 import { useAuthStore } from '../stores/system/authStore'
 
 const routes = [
@@ -51,6 +52,7 @@ const routes = [
       { path: 'heritage/:siteId', component: HeritageDetailView, props: true },
       { path: 'gis/kml-management', component: KmlManagementView },
       { path: 'gis/ovkml-convert', component: OvkmlConvertView },
+      { path: 'settings/appearance', component: AppearanceSettingsView },
       { path: 'system/users', component: UserListView },
       { path: 'system/roles', component: RoleListView },
       { path: 'system/ai-config', component: DeepSeekConfigView },
