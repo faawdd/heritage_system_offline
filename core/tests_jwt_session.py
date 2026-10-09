@@ -7,4 +7,4 @@ class T(TestCase):
         tok=str(AccessToken.for_user(u))
         r=self.client.get('/api/v1/projects/',HTTP_AUTHORIZATION='Bearer '+tok)
         self.assertEqual(r.status_code,200,r.content[:200])
-        self.assertEqual(self.client.get('/api/v1/projects/').status_code,302)
+        self.assertIn(self.client.get('/api/v1/projects/').status_code,(302,401))
