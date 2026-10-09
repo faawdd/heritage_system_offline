@@ -9,6 +9,27 @@ from django.utils.html import format_html
 from .device_detector import is_mobile_device
 
 
+class JWTBearerSessionMiddleware:
+    """无会话 Cookie（新浏览器/无痕窗口）时，用 Authorization: Bearer 令牌识别用户，
+    使基于 Django 用户的视图（如 staff_member_required）与前端 JWT 登录保持一致。"""
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        header = request.META.get('HTTP_AUTHORIZATION', '')
+        if header.lower().startswith('bearer ') and not request.user.is_authenticated:
+            try:
+                from rest_framework_simplejwt.authentication import JWTAuthentication
+                result = JWTAuthentication().authenticate(request)
+            except Exception:
+                result = None
+            if result:
+                request.user = result[0]
+                # 令牌认证不依赖 Cookie，无需 CSRF 校验
+                request._dont_enforce_csrf_checks = True
+        return self.get_response(request)
+
+
 class FirstLoginPasswordChangeMiddleware:
     """
     在用户首次登录时显示提示，建议修改密码
