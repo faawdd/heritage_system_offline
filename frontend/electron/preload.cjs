@@ -9,5 +9,6 @@ contextBridge.exposeInMainWorld('desktopSetup', {
 })
 
 contextBridge.exposeInMainWorld('desktopAuth', {
-  loginSucceeded: () => ipcRenderer.invoke('desktop-auth:login-succeeded')
+  loginSucceeded: () => ipcRenderer.invoke('desktop-auth:login-succeeded'),
+  requireLogin: () => ipcRenderer.invoke('desktop-auth:require-login')
 })

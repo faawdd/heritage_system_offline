@@ -199,7 +199,8 @@ import {
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
-const defaultSystemName = window.desktopMeta?.runtime === 'electron'
+const isDesktop = window.desktopMeta?.runtime === 'electron'
+const defaultSystemName = isDesktop
   ? '文物综合管理平台'
   : '鄯善县文物管理平台'
 const systemName = computed(() => localStorage.getItem('heritage_system_name') || defaultSystemName)
@@ -719,6 +720,10 @@ onUnmounted(() => {
 
 async function logout() {
   await authStore.logout()
+  if (isDesktop && window.desktopAuth?.requireLogin) {
+    const result = await window.desktopAuth.requireLogin()
+    if (result?.success) return
+  }
   await router.replace('/login')
 }
 </script>
