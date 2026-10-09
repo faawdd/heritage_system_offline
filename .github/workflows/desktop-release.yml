@@ -157,12 +157,25 @@ jobs:
         shell: pwsh
         run: ./scripts/build_desktop_runtime.ps1
 
-      - name: Build backend runtime (macOS/Linux)
-        if: runner.os != 'Windows'
+      - name: Build backend runtime (macOS)
+        if: runner.os == 'macOS'
         shell: bash
         run: |
           chmod +x ./scripts/build_desktop_runtime.sh
           ./scripts/build_desktop_runtime.sh
+
+      # bullseye 的 glibc 2.31 保证银河麒麟等旧发行版能加载打包的 libpython。
+      - name: Build backend runtime (Linux, glibc 2.31 container)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          chmod +x ./scripts/build_desktop_runtime.sh
+          docker run --rm -v "$PWD":/work -w /work python:3.11-bullseye \
+            bash -c "git config --global --add safe.directory /work && ./scripts/build_desktop_runtime.sh"
+          sudo chown -R "$(id -u):$(id -g)" desktop_runtime .desktop-build
+          MAX_GLIBC="$(objdump -T desktop_runtime/app/_internal/libpython3.11.so.1.0 | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -1)"
+          echo "libpython requires up to $MAX_GLIBC"
+          [ "$(printf 'GLIBC_2.31\n%s\n' "$MAX_GLIBC" | sort -V | tail -1)" = "GLIBC_2.31" ] || { echo "Backend needs glibc newer than 2.31"; exit 1; }
 
       - name: Validate desktop runtime layout (Windows)
         if: runner.os == 'Windows'
