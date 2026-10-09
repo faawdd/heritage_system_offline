@@ -836,8 +836,23 @@ p.account a:hover {
 .security-question-row input,
 .recovery-answer-row input { min-width: 0; min-height: 40px; padding: 0 10px; border: 1px solid #d8e0da; border-radius: 4px; background: #fff; color: #26332d; font: inherit; font-size: 13px; }
 .recovery-answer-row { display: grid; gap: 6px; color: #45534a; font-size: 13px; }
-.forgot-password-link { width: auto; padding: 2px 0; border: 0; background: transparent; color: #168b5d; font-size: 13px; line-height: 1.4; }
-.forgot-password-link:hover { background: transparent !important; color: #0e704a; text-decoration: underline; }
+.desktop-login-shell.is-electron-login .forgot-password-link {
+  width: auto;
+  padding: 2px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #168b5d;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.desktop-login-shell.is-electron-login .forgot-password-link:hover {
+  background: transparent;
+  color: #0e704a;
+  text-decoration: underline;
+}
 
 :global(.desktop-auth-overlay .el-dialog) {
   display: flex;
