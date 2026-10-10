@@ -3,7 +3,7 @@ from unittest import mock
 
 from django.test import TestCase
 
-from core.models import ImmovableHeritage
+from core.models import HeritageSite, ImmovableHeritage
 from core.services import sipu_import
 from core.services.sipu_client import dms_to_decimal, parse_form
 
@@ -41,6 +41,72 @@ class SipuImportTests(TestCase):
         self.assertEqual(heritage.county, '阜康市')
         self.assertEqual(heritage.longitude, Decimal('87.50000000'))
         self.assertEqual(len(heritage.coord_list), 1)
+        self.assertEqual(HeritageSite.objects.count(), 1)
+        self.assertEqual(HeritageSite.objects.get().registration_id, heritage.pk)
+
+    def test_import_is_visible_to_management_map_and_kml(self):
+        from django.contrib.auth import get_user_model
+        from core.services.heritage_service import get_heritage_map_points
+        from core.views import _analyze_conflicts
+        rings = [[[87.4, 44.3], [87.6, 44.3], [87.6, 44.5], [87.4, 44.3]]]
+        sipu_import.apply_payload(
+            self._payload(rings={'body': rings}), {}, self._options(), {})
+        site = HeritageSite.objects.get()
+        self.assertEqual(site._load_polygon_rings(site.body_boundary), [
+            [(87.4, 44.3), (87.6, 44.3), (87.6, 44.5), (87.4, 44.3)]])
+        self.assertEqual(get_heritage_map_points()[0]['id'], site.pk)
+        conflicts = _analyze_conflicts(
+            [{'geometry_type': 'Point', 'coordinates': [87.55, 44.35]}], 10)
+        self.assertEqual(conflicts[0]['site_id'], site.pk)
+        self.client.force_login(get_user_model().objects.create_superuser('admin', password='test-pass'))
+        resp = self.client.get('/api/v1/heritage/sites/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()['pagination']['total'], 1)
+        self.assertEqual(resp.json()['rows'][0]['registration_id'], site.registration_id)
+        resp = self.client.get('/api/v1/heritage/immovable/', {'record_id': site.registration_id})
+        self.assertEqual(resp.json()['pagination']['total'], 1)
+        self.assertIn('sipu_choices', resp.json()['meta'])
+        resp = self.client.patch(
+            f'/api/v1/heritage/immovable/{site.registration_id}/',
+            {'name': '更新墓'}, content_type='application/json')
+        self.assertEqual(resp.status_code, 200)
+        site.refresh_from_db()
+        self.assertEqual(site.name, '更新墓')
+        resp = self.client.patch(
+            f'/api/v1/heritage/sites/{site.pk}/',
+            {'name': '管理页更新墓'}, content_type='application/json')
+        self.assertEqual(resp.status_code, 200)
+        site.registration.refresh_from_db()
+        self.assertEqual(site.registration.name, '管理页更新墓')
+
+    def test_same_name_is_not_identity_and_existing_code_is_reused(self):
+        existing = HeritageSite.objects.create(
+            sip_code='650000-0001', name='旧名称', category='GYZ', level='DS',
+            longitude=1, latitude=1)
+        sipu_import.apply_payload(self._payload(), {}, self._options(), {})
+        existing.refresh_from_db()
+        self.assertIsNotNone(existing.registration_id)
+        payload = self._payload()
+        payload['row']['id'] = 'rid-2'
+        payload['row']['code'] = payload['cover']['values']['code'] = '650000-0002'
+        payload['basic']['values']['category'] = ['0100']
+        sipu_import.apply_payload(payload, {}, self._options(), {})
+        self.assertEqual(HeritageSite.objects.count(), 2)
+        self.assertEqual(HeritageSite.objects.get(sip_code='650000-0002').category, 'GYZ')
+
+    def test_data_sync_preserves_registry_link(self):
+        import io
+        from core.services import data_sync
+        sipu_import.apply_payload(self._payload(), {}, self._options(), {})
+        site = HeritageSite.objects.get()
+        _filename, package = data_sync.build_export_package(['heritage'], include_media=False)
+        HeritageSite.objects.all().delete()
+        ImmovableHeritage.objects.all().delete()
+        report = data_sync.apply_import_package(
+            io.BytesIO(package), ['heritage'], mode='replace', import_media=False)
+        self.assertEqual(report['skipped_count'], 0)
+        restored = HeritageSite.objects.get(pk=site.pk)
+        self.assertEqual(restored.registration_id, site.registration_id)
 
     def test_survey_code_conflict_gets_suffix(self):
         ImmovableHeritage.objects.create(survey_code='650000-0001', name='已有', sipu_id='other', longitude=1, latitude=1)
@@ -67,6 +133,36 @@ class SipuDisplayTests(TestCase):
         resp = self.client.get(f'/mobile/collect/{h.pk}/preview/')
         self.assertContains(resp, '补充信息（四普系统）')
         self.assertContains(resp, '主体')
+
+
+class RegistryBackfillTests(TestCase):
+    def test_backfill_3386_existing_imports_is_idempotent(self):
+        from importlib import import_module
+        from types import SimpleNamespace
+        from django.db import connection
+        from django.db.migrations.executor import MigrationExecutor
+        migration = import_module('core.migrations.0038_heritagesite_registration')
+        apps = MigrationExecutor(connection).loader.project_state(
+            ('core', '0038_heritagesite_registration')).apps
+        ImmovableHeritage.objects.bulk_create([
+            ImmovableHeritage(
+                survey_code=f'REPAIR-{i}', sipu_id=f'remote-{i}', name='同名文物',
+                longitude=87.5, latitude=44.3, category='GWZ', protection_level='DS')
+            for i in range(3386)
+        ])
+        existing = HeritageSite.objects.create(
+            sip_code='REPAIR-0', name='已有文物', category='GYZ', level='DS',
+            longitude=1, latitude=1, body_boundary='[[[1,1],[2,1],[2,2],[1,1]]]')
+        manual = ImmovableHeritage.objects.create(
+            survey_code='MANUAL', name='未导入四普的采集记录', longitude=1, latitude=1)
+        editor = SimpleNamespace(connection=connection)
+        for _ in range(2):
+            migration.backfill_registry(apps, editor)
+        self.assertEqual(HeritageSite.objects.count(), 3386)
+        self.assertEqual(HeritageSite.objects.exclude(registration=None).count(), 3386)
+        existing.refresh_from_db()
+        self.assertEqual(existing.body_boundary, '[[[1,1],[2,1],[2,2],[1,1]]]')
+        self.assertFalse(HeritageSite.objects.filter(registration=manual).exists())
 
 
 class HeritageInferenceTests(TestCase):

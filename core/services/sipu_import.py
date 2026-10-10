@@ -18,12 +18,12 @@ from core.models import (
     HeritageMaterial,
     HeritagePhoto,
     HeritageSipuRelation,
-    HeritageSite,
     ImmovableHeritage,
     SipuDictItem,
     SipuImportJob,
 )
 from core.services.heritage_inference import infer_all
+from core.services.heritage_registry import sync_registration
 from core.services.sipu_client import (
     LIST_PAGE_SIZE,
     SipuAuthError,
@@ -494,19 +494,12 @@ def apply_payload(payload, dicts, options, site_index):
             ])
             stats['relations'] = len(relation_rows)
 
-        if options.get('sync_sites') and 'boundary' in options['modules']:
-            site = site_index.get(fields['name'])
-            rings = payload.get('rings') or {}
-            if site and (rings.get('body') or rings.get('protection') or rings.get('control')):
-                import json as _json
-                changed = []
-                for attr, key in (('body_boundary', 'body'), ('protection_zone', 'protection'), ('control_zone', 'control')):
-                    if rings.get(key) and (options['scope'] == 'all' or not getattr(site, attr)):
-                        setattr(site, attr, _json.dumps(rings[key], ensure_ascii=False))
-                        changed.append(attr)
-                if changed:
-                    site.save(update_fields=changed)
-                    stats['sites_synced'] = 1
+        sync_registration(
+            heritage,
+            sync_boundaries=options.get('sync_sites', True) and 'boundary' in options['modules'],
+            overwrite_boundaries=options['scope'] == 'all',
+        )
+        stats['sites_synced'] = 1
     return stats
 
 
@@ -591,8 +584,6 @@ def run_import_job(job_id, cookie, options):
         job.save(update_fields=['total', 'stats', 'updated_at'])
 
         site_index = {}
-        if options.get('sync_sites'):
-            site_index = {s.name: s for s in HeritageSite.objects.all()}
 
         processed = 0
         page_size = options['page_size']

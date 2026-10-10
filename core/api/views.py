@@ -33,6 +33,7 @@ from core.permissions.api_permissions import IsManagementAdmin
 from core.services import data_sync
 from core.services import offline_tiles
 from core.services import sipu_display
+from core.services.heritage_registry import sync_registration, sync_site_to_registration
 from core.services.heritage_service import (
     get_heritage_detail_payload,
     get_heritage_map_points,
@@ -427,7 +428,7 @@ class HeritageSiteManageListAPIView(APIView):
         page = max(int(request.GET.get('page', 1) or 1), 1)
         page_size = min(max(int(request.GET.get('page_size', 20) or 20), 1), 200)
 
-        queryset = HeritageSite.objects.select_related('two_line_file').all().order_by('id')
+        queryset = HeritageSite.objects.select_related('two_line_file', 'registration').all().order_by('id')
 
         if keyword:
             queryset = queryset.filter(
@@ -449,7 +450,9 @@ class HeritageSiteManageListAPIView(APIView):
             {
                 'id': item.id,
                 'name': item.name,
-                'preview_url': legacy_views.build_heritage_preview_entry_url(request.user, item.id),
+                'registration_id': item.registration_id,
+                'preview_url': legacy_views.build_heritage_preview_entry_url(
+                    request.user, item.registration_id or item.id),
                 'sip_code': item.sip_code,
                 'category': item.category,
                 'category_label': item.get_category_display(),
@@ -473,7 +476,6 @@ class HeritageSiteManageListAPIView(APIView):
                 'success': True,
                 'rows': rows,
                 'meta': {
-                    'sipu_choices': sipu_display.dict_choices(sipu_display.load_dict_map()),
                     'category_choices': [{'value': code, 'label': label} for code, label in HeritageSite.CATEGORY_CHOICES],
                     'level_choices': [{'value': code, 'label': label} for code, label in HeritageSite.LEVEL_CHOICES],
                 },
@@ -560,8 +562,11 @@ class HeritageSiteManageDetailAPIView(APIView):
             return Response({'success': False, 'message': '经纬度不能为空'}, status=400)
 
         try:
-            site.save()
+            with transaction.atomic():
+                site.save()
+                sync_site_to_registration(site)
         except Exception as exc:
+            logger.exception('保存文物点及完整登记档案失败: site_id=%s', site_id)
             return Response({'success': False, 'message': f'保存失败: {exc}'}, status=400)
 
         return Response({'success': True, 'message': '文物档案已更新'})
@@ -986,6 +991,12 @@ class ImmovableHeritageListAPIView(APIView):
         page_size = min(max(int(request.GET.get('page_size', 20) or 20), 1), 200)
 
         queryset = ImmovableHeritage.objects.select_related('collector', 'input_by', 'reviewer').all().order_by('id')
+        record_id = request.GET.get('record_id')
+        if record_id:
+            try:
+                queryset = queryset.filter(pk=int(record_id))
+            except (TypeError, ValueError):
+                return Response({'success': False, 'message': '档案编号非法'}, status=400)
 
         if keyword:
             queryset = queryset.filter(
@@ -1064,6 +1075,7 @@ class ImmovableHeritageListAPIView(APIView):
                     'level_choices': [{'value': code, 'label': label} for code, label in ImmovableHeritage.PROTECTION_LEVEL_CHOICES],
                     'ownership_choices': [{'value': code, 'label': label} for code, label in ImmovableHeritage.OWNERSHIP_CHOICES],
                     'preservation_choices': [{'value': code, 'label': label} for code, label in ImmovableHeritage.PRESERVATION_STATUS_CHOICES],
+                    'sipu_choices': sipu_display.dict_choices(sipu_display.load_dict_map()),
                 },
                 'pagination': {
                     'page': page,
@@ -1251,8 +1263,12 @@ class ImmovableHeritageDetailAPIView(APIView):
                     return Response({'success': False, 'message': '公布日期格式非法，应为YYYY-MM-DD'}, status=400)
 
         try:
-            heritage.save()
+            with transaction.atomic():
+                heritage.save()
+                if heritage.sipu_id or HeritageSite.objects.filter(registration=heritage).exists():
+                    sync_registration(heritage, sync_boundaries=False)
         except Exception as exc:
+            logger.exception('保存文物登记档案失败: heritage_id=%s', site_id)
             return Response({'success': False, 'message': f'保存失败: {exc}'}, status=400)
 
         return Response({'success': True, 'message': '文物档案已更新'})

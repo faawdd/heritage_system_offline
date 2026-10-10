@@ -53,7 +53,7 @@ SYNC_DATASETS = OrderedDict([
         'label': '文物档案',
         'description': '不可移动文物档案、采集记录与照片',
         'models': [
-            'core.HeritageSite', 'core.ImmovableHeritage', 'core.HeritagePhoto',
+            'core.ImmovableHeritage', 'core.HeritageSite', 'core.HeritagePhoto',
             'core.HeritageConstituent', 'core.HeritageDrawing',
             'core.HeritageMaterial', 'core.HeritageSipuRelation', 'core.SipuDictItem',
         ],

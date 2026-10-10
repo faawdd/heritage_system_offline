@@ -1,11 +1,11 @@
 <template>
   <section>
-    <header class="page-header">
+    <header v-if="!recordId" class="page-header">
       <h1>采集记录管理</h1>
       <p>管理不可移动文物采集记录，支持查询、编辑以及 CSV 导入导出</p>
     </header>
 
-    <div class="toolbar card top-space">
+    <div v-if="!recordId" class="toolbar card top-space">
       <el-input
         v-model="filters.keyword"
         placeholder="文物名称/四普编号/地址/管理单位"
@@ -29,7 +29,7 @@
       </el-upload>
     </div>
 
-    <div class="card top-space">
+    <div v-if="!recordId" class="card top-space">
       <el-table :data="rows" stripe v-loading="loading">
         <el-table-column prop="sip_code" label="四普编号" width="150" />
         <el-table-column label="文物名称" min-width="200">
@@ -73,7 +73,7 @@
       </div>
     </div>
 
-    <el-dialog v-model="dialog.visible" title="编辑采集记录" width="920px">
+    <el-dialog v-model="dialog.visible" :title="recordId ? '编辑完整文物档案' : '编辑采集记录'" width="920px" @closed="emit('closed')">
       <el-form label-width="110px" label-position="left">
         <el-row :gutter="12">
           <el-col :span="12">
@@ -452,6 +452,8 @@ import {
 } from '../../api/heritageApi'
 
 const authStore = useAuthStore()
+const props = defineProps({ recordId: { type: Number, default: null } })
+const emit = defineEmits(['closed', 'saved'])
 const isSuperAdmin = computed(() => Boolean(authStore.user?.is_superuser))
 
 const loading = ref(false)
@@ -549,7 +551,8 @@ function buildParams() {
     page_size: pagination.page_size,
     keyword: filters.keyword,
     category: filters.category,
-    level: filters.level
+    level: filters.level,
+    record_id: props.recordId
   }
 }
 
@@ -666,11 +669,12 @@ function openEdit(row) {
   Object.assign(detail, { constituents: [], drawings: [], materials: [], relations: [] })
   fetchImmovableHeritageDetail(row.id)
     .then((result) => {
-      if (result.success) {
-        Object.assign(detail, result.data)
+      if (!result.success) {
+        throw new Error(result.message || '加载四普关联资料失败')
       }
+      Object.assign(detail, result.data)
     })
-    .catch(() => {})
+    .catch((error) => ElMessage.error(error?.message || '加载四普关联资料失败'))
   dialog.visible = true
 }
 
@@ -770,6 +774,7 @@ async function submitEdit() {
     }
     ElMessage.success('保存成功')
     dialog.visible = false
+    emit('saved')
     await loadRows()
   } catch (error) {
     ElMessage.error(error?.message || '保存失败')
@@ -825,7 +830,17 @@ async function beforeImport(file) {
   return false
 }
 
-loadRows()
+loadRows().then(() => {
+  if (props.recordId) {
+    const row = rows.value.find((item) => item.id === props.recordId)
+    if (row) {
+      openEdit(row)
+    } else {
+      ElMessage.error('无法加载完整文物档案')
+      emit('closed')
+    }
+  }
+})
 </script>
 
 <style scoped>

@@ -64,9 +64,9 @@
           </div>
         </el-form-item>
 
-        <el-form-item label="同步文物点边界">
+        <el-form-item label="更新已有文物点边界">
           <el-switch v-model="form.sync_sites" :disabled="running" />
-          <div class="hint">按名称把矢量范围同步到“文物点”（HeritageSite）的本体/保护区/建控地带边界。</div>
+          <div class="hint">档案始终按四普编号关联到不可移动文物管理、文物一张图和 KML 检查；新文物点同时保存已导入的边界。此开关仅控制是否更新已有文物点的本体/保护区/建控地带边界。</div>
         </el-form-item>
 
         <el-form-item label="并发线程数">

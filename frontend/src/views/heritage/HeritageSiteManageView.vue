@@ -68,9 +68,10 @@
             <span v-else class="muted-text">未上传</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="90" fixed="right">
+        <el-table-column label="操作" width="180" fixed="right">
           <template #default="scope">
             <el-button link type="primary" @click="openEdit(scope.row)">编辑</el-button>
+            <el-button v-if="scope.row.registration_id" link type="primary" @click="registrationId = scope.row.registration_id">完整档案</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -233,11 +234,20 @@
         <el-button type="primary" :loading="dialog.loading" @click="submitEdit">保存</el-button>
       </template>
     </el-dialog>
+    <ImmovableHeritageManageView
+      v-if="registrationId"
+      :key="registrationId"
+      :record-id="registrationId"
+      @closed="registrationId = null"
+      @saved="loadRows"
+    />
   </section>
 </template>
 
 <script setup>
 import { computed, reactive, ref } from 'vue'
+import ImmovableHeritageManageView from './ImmovableHeritageManageView.vue'
+const registrationId = ref(null)
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 import {

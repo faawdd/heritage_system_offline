@@ -19,6 +19,10 @@ class HeritageSite(models.Model):
 
     name = models.CharField("文物名称", max_length=200)
     sip_code = models.CharField("四普编号", max_length=50, unique=True)
+    registration = models.OneToOneField(
+        'ImmovableHeritage', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='registry_site', verbose_name='完整文物登记档案',
+    )
     category = models.CharField("类别", max_length=10, choices=CATEGORY_CHOICES)
     level = models.CharField("保护级别", max_length=10, choices=LEVEL_CHOICES)
     address = models.CharField("详细地址", max_length=500)
