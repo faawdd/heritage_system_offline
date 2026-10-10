@@ -13,7 +13,7 @@ class HeritageSite(models.Model):
         ('SKT', '石窟寺及石刻'), ('JDJW', '近现代重要史迹及代表性建筑'),
         ('KRJ', '坎儿井'), ('QT', '其他')
     ]
-    LEVEL_CHOICES = [('GB', '全国重点文物保护单位'), ('SB', '自治区级文物保护单位'), ('XB', '县级文物保护单位'), ('DS', '尚未定级的不可移动文物')]
+    LEVEL_CHOICES = [('GB', '全国重点文物保护单位'), ('SB', '省（自治区、直辖市）级文物保护单位'), ('XB', '市（县）级文物保护单位'), ('DS', '尚未定级的不可移动文物')]
     KANERJING_CATEGORY_CODE = 'KRJ'
 
     name = models.CharField("文物名称", max_length=200)
@@ -374,7 +374,7 @@ class LandUseProjectApproval(models.Model):
     # 流程B字段
     archaeology_request_num = models.CharField('考古请示文号', max_length=120, blank=True, default='')
     archaeology_report_path = models.CharField('考古调查报告路径', max_length=500, blank=True, default='')
-    region_approval_num = models.CharField('自治区文物局批复文号', max_length=120, blank=True, default='')
+    region_approval_num = models.CharField('省级文物行政部门批复文号', max_length=120, blank=True, default='')
     city_final_reply_num = models.CharField('市文物局最终复函号', max_length=120, blank=True, default='')
 
     # 坎儿井保护加固与水利部门意见（涉及坎儿井时按流程要求编制方案并征求意见）
@@ -382,7 +382,7 @@ class LandUseProjectApproval(models.Model):
     kanerjing_protection_plan_path = models.CharField('坎儿井保护加固方案路径', max_length=500, blank=True, default='')
     water_department_opinion = models.TextField('水利部门意见', blank=True, default='')
 
-    # 逐级报审：市级之外，依法需要时可报自治区/国务院文物行政部门
+    # 逐级报审：依法需要时可报省级/国务院文物行政部门
     requires_state_council_approval = models.BooleanField('是否需报国务院文物行政部门', default=False)
     state_council_approval_num = models.CharField('国务院文物行政部门批复文号', max_length=120, blank=True, default='')
 
@@ -398,16 +398,8 @@ class LandUseProjectApproval(models.Model):
 
     @classmethod
     def suggest_next_shanshan_num(cls, year=None):
-        """按年度扫描历史文号，返回推荐的下一个编号文本。"""
-        target_year = int(year or timezone.localdate().year)
-        pattern = re.compile(rf'^鄯文旅字-{target_year}-(\d+)号$')
-        max_no = 0
-        for value in cls.objects.exclude(shanshan_request_num='').values_list('shanshan_request_num', flat=True):
-            matched = pattern.match((value or '').strip())
-            if not matched:
-                continue
-            max_no = max(max_no, int(matched.group(1)))
-        return f'鄯文旅字-{target_year}-{max_no + 1}号'
+        """保留旧接口，不再推荐缺少当地发文规则依据的文号。"""
+        return ''
 
     class Meta:
         verbose_name = '用地项目审批归档'
@@ -460,7 +452,7 @@ class LandUseProjectDocument(models.Model):
         (CATEGORY_COUNTY_REQUEST, '县局请示（上行文）'),
         (CATEGORY_CITY_REPLY, '市局来函/回复意见'),
         (CATEGORY_ARCHAEOLOGY_REQUEST, '考古请示'),
-        (CATEGORY_REGION_APPROVAL, '自治区文物局批复'),
+        (CATEGORY_REGION_APPROVAL, '省级文物行政部门批复'),
         (CATEGORY_CITY_FINAL_REPLY, '市文物局最终复函'),
         (CATEGORY_STATE_COUNCIL_APPROVAL, '国务院文物行政部门批复'),
         (CATEGORY_FINAL_REPLY, '给项目方复函'),
@@ -887,7 +879,7 @@ class ImmovableHeritage(models.Model):
         unique=True,
         blank=True,
         default='',
-        help_text='系统自动生成，格式：SS-CJ-YYYY-NNNN（如 SS-CJ-2026-0001）',
+        help_text='系统自动生成，格式：CJ-YYYY-NNNN；历史编号保持不变',
     )
     previous_survey_code = models.CharField(
         verbose_name='原三普编号',
@@ -1274,24 +1266,20 @@ class ImmovableHeritage(models.Model):
         return f'[{self.survey_code}] {self.name}（{self.era}）'
 
     def _generate_next_collection_code(self) -> str:
-        """生成年度顺序采集编号：SS-CJ-YYYY-NNNN。"""
+        """生成年度顺序采集编号：CJ-YYYY-NNNN。"""
         year = (self.collected_at or timezone.now()).year
-        prefix = f"SS-CJ-{year}-"
+        prefix = f"CJ-{year}-"
 
-        latest_code = (
+        existing_codes = (
             self.__class__.objects
             .filter(survey_code__startswith=prefix)
-            .order_by('-survey_code')
             .values_list('survey_code', flat=True)
-            .first()
         )
-
-        seq = 1
-        if latest_code:
-            match = re.match(rf"^{re.escape(prefix)}(\d{{4}})$", latest_code)
-            if match:
-                seq = int(match.group(1)) + 1
-
+        numbers = [
+            int(match.group(1)) for code in existing_codes
+            if (match := re.fullmatch(rf'{re.escape(prefix)}(\d+)', code))
+        ]
+        seq = max(numbers, default=0) + 1
         return f"{prefix}{seq:04d}"
 
     def save(self, *args, **kwargs):

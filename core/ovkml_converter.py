@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+import math
 import zipfile
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -77,10 +78,19 @@ def serialize_coords(coords: Sequence[Coord], decimals: int = 10) -> str:
 
 
 class CoordinateTransformer:
-    def __init__(self, input_crs: str, output_crs: str, central_meridian: float = 90):
+    def __init__(self, input_crs: str, output_crs: str, central_meridian: Optional[float] = None):
         self.input_crs = input_crs
         self.output_crs = output_crs
-        self.central_meridian = float(central_meridian)
+        self.central_meridian = None
+        if input_crs == 'cgcs2000_proj':
+            if central_meridian in (None, ''):
+                raise ValueError('投影坐标必须填写来源坐标系的中央经线，不可按部署地区推断')
+            try:
+                self.central_meridian = float(central_meridian)
+            except (TypeError, ValueError):
+                raise ValueError('中央经线必须为有效数值')
+            if not math.isfinite(self.central_meridian) or not 73 <= self.central_meridian <= 135:
+                raise ValueError('中央经线须在73°到135°之间')
         self._transformer_cache: Dict[Tuple[str, str], Any] = {}
         self._proj_cache: Dict[float, Any] = {}
         self._epsg_map = {
@@ -112,7 +122,7 @@ class CoordinateTransformer:
         if Transformer is None or CRS is None:
             raise RuntimeError("输出为 cgcs2000_proj 需要安装 pyproj")
 
-            cm = self._central_meridian_3deg(lon)
+        cm = self._central_meridian_3deg(lon)
         if cm not in self._proj_cache:
             proj_crs = CRS.from_proj4(
                 f"+proj=tmerc +lat_0=0 +lon_0={cm} +k=1 +x_0=500000 +y_0=0 +ellps=GRS80 +units=m +no_defs"
@@ -125,7 +135,9 @@ class CoordinateTransformer:
 
     def transform_lonlat(self, lon: float, lat: float) -> Tuple[float, float]:
         if Transformer is None or CRS is None:
-            return lon, lat
+            if self.input_crs == self.output_crs and self.input_crs != 'cgcs2000_proj':
+                return lon, lat
+            raise RuntimeError('坐标转换需要安装 pyproj，不能在未转换的情况下返回原坐标')
 
         if self.input_crs == "cgcs2000_proj":
             target = "EPSG:4490" if self.output_crs != "wgs84" else "EPSG:4326"
@@ -139,9 +151,6 @@ class CoordinateTransformer:
             return lon, lat
 
         if self.input_crs == self.output_crs:
-            return lon, lat
-
-        if Transformer is None or CRS is None:
             return lon, lat
 
         src = self._epsg_map[self.input_crs]
@@ -252,7 +261,7 @@ def walk_kml(node: ET.Element, folder_stack: List[str], out_records: List[Placem
         walk_kml(child, folder_stack, out_records, transformer)
 
 
-def parse_ovkml(content: bytes, input_crs: str, output_crs: str, central_meridian: float = 90) -> List[PlacemarkRecord]:
+def parse_ovkml(content: bytes, input_crs: str, output_crs: str, central_meridian: Optional[float] = None) -> List[PlacemarkRecord]:
     root = ET.fromstring(content)
     transformer = CoordinateTransformer(input_crs=input_crs, output_crs=output_crs, central_meridian=central_meridian)
     records: List[PlacemarkRecord] = []
@@ -286,7 +295,7 @@ def parse_kml_or_kmz(
     content: bytes,
     input_crs: str,
     output_crs: str,
-    central_meridian: float = 90,
+    central_meridian: Optional[float] = None,
 ) -> Tuple[List[PlacemarkRecord], str]:
     """
     解析KML/OVKML/KMZ/OVKMZ文件。

@@ -31,8 +31,8 @@
               <el-input v-model="keyword" placeholder="输入文物名称搜索" clearable />
               <el-checkbox-group v-model="activeLevels" class="heritage-level-group">
                 <el-checkbox label="GB">全国重点</el-checkbox>
-                <el-checkbox label="SB">自治区级</el-checkbox>
-                <el-checkbox label="XB">县级</el-checkbox>
+                <el-checkbox label="SB">省级</el-checkbox>
+                <el-checkbox label="XB">市（县）级</el-checkbox>
                 <el-checkbox label="DS">尚未定级</el-checkbox>
               </el-checkbox-group>
               <el-button type="primary" @click="loadData" :loading="loading">刷新点位</el-button>

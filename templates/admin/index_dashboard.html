@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>鄯善县文物数字化管理平台 - 首页</title>
+    <title>文物综合管理平台 - 首页</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
     <style>
         * {
@@ -123,7 +123,7 @@
     <div class="dashboard-container">
         <div class="header">
             <h1>📊 文物数据统计概览</h1>
-            <p>鄯善县不可移动文物实时数据展示</p>
+            <p>不可移动文物实时数据展示</p>
         </div>
 
         <!-- 设备检测和移动端导航 -->
@@ -150,14 +150,14 @@
                 <div class="stat-label">全国重点</div>
             </div>
             <div class="stat-card regional">
-                <div class="stat-label">自治区级</div>
+                <div class="stat-label">省级</div>
                 <div class="stat-number" id="regional-count">--</div>
                 <div class="stat-label">区级保护</div>
             </div>
             <div class="stat-card county">
-                <div class="stat-label">县级</div>
+                <div class="stat-label">市（县）级</div>
                 <div class="stat-number" id="county-count">--</div>
-                <div class="stat-label">县级保护</div>
+                <div class="stat-label">市（县）级保护</div>
             </div>
             <div class="stat-card kanerjing" style="border-top-color: #E6A23C;">
                 <div class="stat-label">坎儿井</div>
@@ -217,7 +217,7 @@
                     levelChart = new Chart(ctx, {
                         type: 'doughnut',
                         data: {
-                            labels: ['国家级', '自治区级', '县级'],
+                            labels: ['国家级', '省级', '市（县）级'],
                             datasets: [{
                                 data: [data.national || 0, data.regional || 0, data.county || 0],
                                 backgroundColor: ['#E6A23C', '#67C26A', '#F56C6C'],

@@ -39,7 +39,7 @@
 
       <el-form-item label="效果预览">
         <div class="appearance-preview">
-          <strong>吐鲁番文物保护管理系统</strong>
+          <strong>文物综合管理平台</strong>
           <p>这是一段预览文字：不可移动文物 0123456789 ABC abc。</p>
           <el-button type="primary" size="small">示例按钮</el-button>
         </div>

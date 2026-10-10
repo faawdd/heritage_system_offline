@@ -151,9 +151,7 @@ const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
 const isDesktop = window.desktopMeta?.runtime === 'electron'
-const defaultSystemName = isDesktop
-  ? '文物综合管理平台'
-  : '鄯善县文物综合管理平台'
+const defaultSystemName = '文物综合管理平台'
 const systemName = computed(() => String(route.query.system_name || defaultSystemName))
 
 const loading = ref(false)

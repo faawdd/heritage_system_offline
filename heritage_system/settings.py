@@ -44,8 +44,10 @@ else:
 
     env = _SimpleEnv()
 
-SYSTEM_REGION = env('SYSTEM_REGION', default='鄯善县')
-SYSTEM_NAME = env('SYSTEM_NAME', default=f'{SYSTEM_REGION}文物管理平台')
+SYSTEM_REGION = env('SYSTEM_REGION', default='')
+SYSTEM_NAME = env('SYSTEM_NAME', default=f'{SYSTEM_REGION}文物综合管理平台')
+APP_DOWNLOAD_URL = env('APP_DOWNLOAD_URL', default='')
+APP_DOWNLOAD_QR_URL = env('APP_DOWNLOAD_QR_URL', default='')
 SYSTEM_VERSION_BASE = env('SYSTEM_VERSION_BASE', default='v2.2')
 
 
@@ -100,7 +102,7 @@ SECRET_KEY = env(
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = False if DESKTOP_MODE else str(env('DJANGO_DEBUG', default='0')).lower() in ('1', 'true', 'yes', 'on')
-ALLOWED_HOSTS = ['beichenhome.top', 'localhost', '127.0.0.1', '[::1]']
+ALLOWED_HOSTS = [host.strip() for host in env('DJANGO_ALLOWED_HOSTS', default='localhost,127.0.0.1,[::1]').split(',') if host.strip()]
 if DESKTOP_MODE:
     ALLOWED_HOSTS = ['localhost', '127.0.0.1', '[::1]']
     configured_desktop_system_name = str(os.environ.get('SYSTEM_NAME') or '').strip()
@@ -109,7 +111,7 @@ if DESKTOP_MODE:
         SYSTEM_REGION = str(os.environ.get('SYSTEM_REGION') or '').strip()
 
 # CSRF 信任域名 - 生产环境保持HTTPS配置
-CSRF_TRUSTED_ORIGINS = ['https://beichenhome.top:9081']
+CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in env('DJANGO_CSRF_TRUSTED_ORIGINS', default='').split(',') if origin.strip()]
 FORCE_HTTPS = False if DESKTOP_MODE else str(env('DJANGO_FORCE_HTTPS', default='1')).lower() in ('1', 'true', 'yes', 'on')
 SECURE_SSL_REDIRECT = FORCE_HTTPS
 SESSION_COOKIE_SECURE = FORCE_HTTPS
@@ -243,11 +245,7 @@ REST_FRAMEWORK = {
     ]
 }
 
-CORS_ALLOWED_ORIGINS = [
-    "https://beichenhome.top:9081",
-    "http://localhost:8080", # 假设的 Flutter Web 调试地址
-    "http://localhost:5173", # Vue3 + Vite 本地开发地址
-]
+CORS_ALLOWED_ORIGINS = [origin.strip() for origin in env('DJANGO_CORS_ALLOWED_ORIGINS', default='http://localhost:8080,http://localhost:5173').split(',') if origin.strip()]
 CORS_ALLOW_CREDENTIALS = True
 
 # 未登录访问受保护页面时统一跳转到 Vue 入口页（由前端路由接管登录）

@@ -1,4 +1,4 @@
-# 鄯善县文物数字化管理平台 - 版本信息
+# 文物综合管理平台 - 版本信息
 
 __version__ = "1.0"
 __version_name__ = "初始版本"
@@ -10,7 +10,7 @@ VERSION = {
     'version_name': __version_name__,
     'release_date': __release_date__,
     'author': __author__,
-    'description': '鄯善县文物数字化管理平台'
+    'description': '文物综合管理平台'
 }
 
 # 版本历史记录

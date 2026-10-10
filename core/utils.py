@@ -158,9 +158,8 @@ def build_project_doc_context(project):
     sign_dt = project.application_date or project.received_date or timezone.now()
     sign_date = f"{sign_dt.year}年{sign_dt.month}月{sign_dt.day}日"
 
-    year = sign_dt.year
-    file_id = project.archive_number or f"鄯文旅字〔{year}〕{project.id}号"
-    recipient = '吐鲁番市文物局'
+    file_id = project.archive_number or ''
+    recipient = ''
     scale = getattr(project, 'project_scale', '') or ''
 
     remark_json = _safe_load_json(project.remarks)
@@ -172,7 +171,10 @@ def build_project_doc_context(project):
     if project.related_site:
         related_site_text = f"，涉及文物点：{project.related_site.name}"
 
-    construction_content = getattr(project, 'construction_content', '') or project.survey_conclusion or f"本期拟建项目位于{project.project_unit or '鄯善县境内'}{related_site_text}"
+    construction_content = getattr(project, 'construction_content', '') or project.survey_conclusion
+    if not construction_content:
+        location_text = f"位于{project.related_site.address}" if project.related_site and project.related_site.address else ''
+        construction_content = f"本期拟建项目{location_text}{related_site_text}"
     route_desc = project.ovital_query_record or project.site_survey_record or ''
 
     coordinates = _extract_coordinates(project)

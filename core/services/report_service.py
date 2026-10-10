@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from django.conf import settings
 
 from django.db.models import Count
 from django.template.loader import render_to_string
@@ -163,7 +164,8 @@ def build_report_context(period, period_start, period_end):
 
 def render_report_html(period, period_start, period_end):
     context = build_report_context(period, period_start, period_end)
-    context['report_title'] = f"鄯善县文物保护工作{PERIOD_LABELS[period]}"
+    context['system_region'] = settings.SYSTEM_REGION
+    context['report_title'] = f"{settings.SYSTEM_REGION}文物保护工作{PERIOD_LABELS[period]}"
     html = render_to_string('reports/report_detail.html', context)
     return html, context
 

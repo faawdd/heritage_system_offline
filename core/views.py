@@ -28,6 +28,8 @@ from .land_project_services import (
     ALLOWED_DOCUMENT_EXTENSIONS,
     DOCUMENT_NUM_FIELDS,
 )
+from core.services.heritage_service import site_township
+from core.services.heritage_inference import parse_address
 import base64
 import hashlib
 import hmac
@@ -259,32 +261,6 @@ def system_version_api(request):
         'version': VERSION,
         'version_history': VERSION_HISTORY,
     })
-
-TOWNSHIP_NORMALIZATION_RULES = [
-    ('东巴扎回族乡', '东巴扎回族乡'),
-    ('东巴扎乡', '东巴扎回族乡'),
-    ('火车站镇', '火车站镇'),
-    ('吐峪沟乡', '吐峪沟乡'),
-    ('吐峪沟镇', '吐峪沟乡'),
-    ('七克台镇', '七克台镇'),
-    ('七克台乡', '七克台镇'),
-    ('七台镇', '七克台镇'),
-    ('连木沁镇', '连木沁镇'),
-    ('连木沁乡', '连木沁镇'),
-    ('达朗坎乡', '达朗坎乡'),
-    ('达浪坎乡', '达朗坎乡'),
-    ('鲁克沁镇', '鲁克沁镇'),
-    ('辟展镇', '辟展镇'),
-    ('辟展乡', '辟展镇'),
-    ('鄯善镇', '鄯善镇'),
-    ('迪坎镇', '迪坎镇'),
-    ('迪坎乡', '迪坎镇'),
-]
-
-TOWNSHIP_STANDARD_TO_KEYWORDS = {}
-for keyword, standard_name in TOWNSHIP_NORMALIZATION_RULES:
-    TOWNSHIP_STANDARD_TO_KEYWORDS.setdefault(standard_name, set()).add(keyword)
-
 
 @staff_member_required
 def heritage_detail_view(request, pk):
@@ -2089,11 +2065,8 @@ def land_project_list_api(request):
 
     if workflow_path in {'ARCHAEOLOGY_FLOW', 'DIRECT_REPLY'}:
         filtered_ids = []
-        for item in queryset.only('id', 'is_overlap_artifact', 'overlapped_relics_info'):
-            overlap_rows = item.overlapped_relics_info if isinstance(item.overlapped_relics_info, list) else []
-            has_high_level_overlap = any((row or {}).get('site_level') in {'GB', 'SB'} for row in overlap_rows)
-            is_feasible_by_level = not has_high_level_overlap
-            current_path = 'ARCHAEOLOGY_FLOW' if (item.is_overlap_artifact and is_feasible_by_level) else 'DIRECT_REPLY'
+        for item in queryset.only('id', 'is_overlap_artifact', 'overlapped_relics_info', 'spatial_check_at'):
+            current_path, _advice = resolve_workflow_path(item)
             if current_path == workflow_path:
                 filtered_ids.append(item.id)
         queryset = queryset.filter(id__in=filtered_ids)
@@ -2102,7 +2075,7 @@ def land_project_list_api(request):
     for item in queryset.order_by('-receive_date', '-updated_at')[:300]:
         overlap_rows = item.overlapped_relics_info if isinstance(item.overlapped_relics_info, list) else []
         has_high_level_overlap = any((row or {}).get('site_level') in {'GB', 'SB'} for row in overlap_rows)
-        is_feasible_by_level = not has_high_level_overlap
+        is_feasible_by_level = True
         item_path, item_advice = resolve_workflow_path(item)
 
         rows.append({
@@ -2205,7 +2178,7 @@ def land_project_detail_api(request, project_id):
 
     overlap_rows = project.overlapped_relics_info if isinstance(project.overlapped_relics_info, list) else []
     has_high_level_overlap = any((row or {}).get('site_level') in {'GB', 'SB'} for row in overlap_rows)
-    is_feasible_by_level = not has_high_level_overlap
+    is_feasible_by_level = True
     guide = build_workflow_guide(project)
 
     kml_record = project.kml_record
@@ -3036,7 +3009,7 @@ def land_project_link_kml_record_api(request, project_id):
 
 @staff_member_required
 def land_project_next_doc_num_api(request):
-    """文号推荐：根据年度历史数据推荐下一个鄯文旅字文号。"""
+    """兼容旧文号接口，不猜测当地发文编号规则。"""
     if not is_management_admin(request.user):
         return JsonResponse({'success': False, 'message': '无权限'}, status=403)
 
@@ -3103,11 +3076,9 @@ def _resolve_official_doc_template_path(document_type):
     template_map = {
         'requestInstruction': [
             'qing_shi.docx',
-            '上行文-2026-11号  关于国网吐鲁番供电公司东进坎变至底湖变35千伏线路新建工程选址征求文物保护工作意见的请示.docx',
         ],
         'replyLetter': [
             'fu_han.docx',
-            '给企业回函-关于国网吐鲁番供电公司东进坎变至底湖变35千伏线路新建工程选址涉及文物保护.docx',
         ],
     }
 
@@ -3354,7 +3325,7 @@ def _validate_ai_result_fields(doc_type, ai_result):
 
 
 def _build_project_feasibility_context(project):
-    """根据重叠文物级别生成可行性结论与不可行原因文本。"""
+    """报告空间风险，不以保护级别代替人工审批结论。"""
     overlap_rows = project.overlapped_relics_info if isinstance(project.overlapped_relics_info, list) else []
     high_level_rows = [
         row for row in overlap_rows
@@ -3363,8 +3334,8 @@ def _build_project_feasibility_context(project):
 
     level_map = {
         'GB': '全国重点文物保护单位',
-        'SB': '自治区级文物保护单位',
-        'XB': '县级文物保护单位',
+        'SB': '省（自治区、直辖市）级文物保护单位',
+        'XB': '市（县）级文物保护单位',
         'DS': '尚未定级的不可移动文物',
     }
     high_level_table_rows = []
@@ -3381,31 +3352,17 @@ def _build_project_feasibility_context(project):
 
     has_overlap = bool(project.is_overlap_artifact)
     has_high_level_overlap = bool(high_level_rows)
-    is_feasible_by_level = not has_high_level_overlap
+    is_feasible_by_level = True
 
     if not has_overlap:
         infeasible_reason = ''
-        workflow_advice = '未涉及文物，可直接向项目方出具不涉及文物标准复函。'
-        conclusion = '经核查，该项目不涉及文物保护范围，可按程序推进。'
-    elif is_feasible_by_level:
-        infeasible_reason = ''
-        workflow_advice = '涉及文物但未触及自治区及以上级别，可按流程上报市局并进入考古调查。'
-        conclusion = '经核查，该项目涉及文物，但未触及自治区及以上级别文物，可按程序上报并开展后续考古调查。'
+        workflow_advice = '空间核查未涉及已登记文物，按现有流程核实后出具复函。'
+        conclusion = '经空间核查，项目未涉及当前已登记文物；本次核查不代替现场勘查、审批意见或开工许可。'
     else:
-        names = [
-            (row.get('heritage_name') or '').strip()
-            for row in high_level_rows
-            if isinstance(row, dict)
-        ]
-        unique_names = [name for idx, name in enumerate(names) if name and name not in names[:idx]]
-        level_scope = '自治区及以上级别文物'
-        if unique_names:
-            heritage_text = '、'.join(unique_names[:5])
-            infeasible_reason = f'项目范围涉及{level_scope}（{heritage_text}）'
-        else:
-            infeasible_reason = f'项目范围涉及{level_scope}'
-        workflow_advice = '涉及自治区及以上级别文物，项目不可行，应直接向项目方出具不予同意复函。'
-        conclusion = f'经核查，{infeasible_reason}，依据文物保护相关要求，不予同意该项目选址。'
+        infeasible_reason = ''
+        risk_note = '涉及省级及以上保护单位，须重点核实保护要求；' if has_high_level_overlap else ''
+        workflow_advice = f'{risk_note}按现有程序报审，不依据保护级别自动作出同意或不同意结论。'
+        conclusion = '经空间核查，项目涉及已登记文物，应核实保护范围、避让方案和审批要求；本次核查不代替审批意见或开工许可。'
 
     return {
         'hasOverlapArtifact': has_overlap,
@@ -3452,15 +3409,10 @@ def _generate_official_doc_json_with_deepseek(payload, project):
     feasibility = _build_project_feasibility_context(project)
     feasibility_hint = ''
     if doc_type == 'fu_han':
-        if feasibility.get('hasHighLevelOverlap'):
+        if feasibility.get('hasOverlapArtifact'):
             feasibility_hint = (
-                f"\n【核验结论约束】：{feasibility.get('infeasibleReason')}，"
-                "本项目选址不予同意。请在正文处理意见中明确写出“不予同意选址”结论。"
-            )
-        elif feasibility.get('hasOverlapArtifact'):
-            feasibility_hint = (
-                "\n【核验结论约束】：项目涉及文物但未触及自治区及以上级别，"
-                "可进入上报与考古流程，复函中应写明后续遵循程序要求。"
+                "\n【核验结论约束】：项目涉及已登记文物。保护级别只用于风险提示，"
+                "不得仅依据级别自动生成同意、不同意或开工许可结论；应说明需按实际审批程序办理。"
             )
         else:
             feasibility_hint = (
@@ -3498,7 +3450,7 @@ def _generate_official_doc_json_with_deepseek(payload, project):
     _validate_ai_result_fields(doc_type, ai_result)
 
     if doc_type == 'fu_han' and feasibility.get('hasHighLevelOverlap'):
-        enforce_sentence = feasibility.get('replyConclusion') or '经核查，该项目选址不予同意。'
+        enforce_sentence = feasibility['replyConclusion']
         original = str(ai_result.get('bodyText2') or '').strip()
         if enforce_sentence not in original:
             merged = f"{original} {enforce_sentence}".strip() if original else enforce_sentence
@@ -3759,19 +3711,7 @@ def heritage_dashboard_view(request):
 
 
 def _extract_township_name(address):
-    if not address:
-        return ''
-
-    text = str(address).strip()
-    for keyword, standard_name in TOWNSHIP_NORMALIZATION_RULES:
-        if keyword in text:
-            return standard_name
-
-    match = re.search(r'鄯善县(?:吐鲁番市鄯善县)*(?:东北)?([\u4e00-\u9fa5]{1,12}?(?:回族乡|乡|镇|街道))', text)
-    if match:
-        return match.group(1)
-
-    return ''
+    return parse_address(address)['township']
 
 
 def _to_township_full_name(township_name):
@@ -3884,11 +3824,11 @@ def heritage_classification_stats_api(request):
         if township_field:
             queryset = queryset.filter(**{f'{township_field}__icontains': township})
         else:
-            township_keywords = TOWNSHIP_STANDARD_TO_KEYWORDS.get(township, {township})
-            township_query = Q()
-            for keyword in township_keywords:
-                township_query |= Q(address__icontains=keyword)
-            queryset = queryset.filter(township_query)
+            matching_ids = [
+                site.pk for site in queryset.select_related('registration')
+                if site_township(site) == township
+            ]
+            queryset = queryset.filter(pk__in=matching_ids)
     if address_keyword:
         queryset = queryset.filter(**{f'{address_field}__icontains': address_keyword})
 
@@ -3916,8 +3856,8 @@ def heritage_classification_stats_api(request):
 
     if group_key == 'township' and not group_field:
         township_counter = {}
-        for item in queryset.values(address_field):
-            township_name = _extract_township_name(item.get(address_field))
+        for item in queryset.select_related('registration'):
+            township_name = site_township(item)
             key = township_name or '未标注乡镇'
             township_counter[key] = township_counter.get(key, 0) + 1
         sorted_items = sorted(township_counter.items(), key=lambda x: x[1], reverse=True)
@@ -4092,30 +4032,9 @@ def kanerjing_stats_api(request):
         count = kanerjing_sites.filter(level=level_code).count()
         level_breakdown[level_name] = count
     
-    # 地址分组按镇/乡统计，只保留“xx镇/xx乡”层级。
-    def normalize_address(address):
-        if not address:
-            return '未标注镇乡'
-
-        text = str(address).strip()
-        if not text:
-            return '未标注镇乡'
-
-        # 复用统一乡镇提取规则，避免把完整行政区划误当作乡镇标签。
-        township_name = _extract_township_name(text)
-        if township_name:
-            return township_name
-
-        # 兜底：取地址中最后一个“xx镇/xx乡/xx回族乡/xx街道”。
-        fallback_matches = re.findall(r'([\u4e00-\u9fa5]{1,12}(?:回族乡|乡|镇|街道))', text)
-        if fallback_matches:
-            return fallback_matches[-1]
-
-        return '未标注镇乡'
-
     address_counter = {}
-    for address in kanerjing_sites.values_list('address', flat=True):
-        normalized = normalize_address(address)
+    for site in kanerjing_sites.select_related('registration'):
+        normalized = site_township(site) or '未标注镇乡'
         address_counter[normalized] = address_counter.get(normalized, 0) + 1
 
     address_distribution = [
@@ -4172,10 +4091,10 @@ def inspection_mobile_list_view(request):
 
 
 def app_showcase_view(request):
-    """鄯善文保 App 展示与下载页（公开访问）"""
+    """文物保护 App 展示与下载页（公开访问）"""
     context = {
-        'download_url': 'https://share.fnnas.net/s/49a5a7b485784cf4a1',
-        'qr_code_url': 'https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=https%3A%2F%2Fshare.fnnas.net%2Fs%2F49a5a7b485784cf4a1',
+        'download_url': settings.APP_DOWNLOAD_URL,
+        'qr_code_url': settings.APP_DOWNLOAD_QR_URL,
         'features': [
             '文物点巡查上报：支持现场拍照、位置记录与问题描述，提升巡查效率。',
             '巡查记录管理：随时查看历史巡查内容，支持按时间快速追溯。',
@@ -4724,7 +4643,7 @@ def _build_immovable_heritage_docx_stream(heritage):
 @login_required
 def export_immovable_heritage_docx_view(request, pk):
     """
-    一键导出：鄯善县不可移动文物采集登记表（.docx）
+    一键导出：不可移动文物采集登记表（.docx）
     - python-docx 动态绘制复杂表格
     - A4 纵向 + 标准页边距
     - 单元格合并 + 现场照片插入
@@ -4744,4 +4663,3 @@ def export_immovable_heritage_docx_view(request, pk):
     )
     response["Content-Type"] = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     return response
-

@@ -8,7 +8,7 @@
         </div>
         <el-tag :type="statusTagType" effect="dark">{{ detail.status_label || '-' }}</el-tag>
         <el-tag v-if="guide.path_label" :type="pathTagType" effect="plain">{{ guide.path_label }}</el-tag>
-        <el-tag v-if="detail.has_high_level_overlap" type="danger">涉及自治区及以上级别文物</el-tag>
+        <el-tag v-if="detail.has_high_level_overlap" type="danger">省级及以上文物风险提示（非审批结论）</el-tag>
       </div>
       <div class="header-actions">
         <el-button @click="goList">返回列表</el-button>

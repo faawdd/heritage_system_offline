@@ -1,45 +1,19 @@
 import json
-import re
 
 from core.models import HeritageSite, InspectionRecord
-
-
-TOWNSHIP_NORMALIZATION_RULES = [
-    ('东巴扎回族乡', '东巴扎回族乡'),
-    ('东巴扎乡', '东巴扎回族乡'),
-    ('火车站镇', '火车站镇'),
-    ('吐峪沟乡', '吐峪沟乡'),
-    ('吐峪沟镇', '吐峪沟乡'),
-    ('七克台镇', '七克台镇'),
-    ('七克台乡', '七克台镇'),
-    ('七台镇', '七克台镇'),
-    ('连木沁镇', '连木沁镇'),
-    ('连木沁乡', '连木沁镇'),
-    ('达朗坎乡', '达朗坎乡'),
-    ('达浪坎乡', '达朗坎乡'),
-    ('鲁克沁镇', '鲁克沁镇'),
-    ('辟展镇', '辟展镇'),
-    ('辟展乡', '辟展镇'),
-    ('鄯善镇', '鄯善镇'),
-    ('迪坎镇', '迪坎镇'),
-    ('迪坎乡', '迪坎镇'),
-]
+from core.services.heritage_inference import parse_address
 
 
 def _extract_township_name(address):
-    if not address:
-        return ''
+    return parse_address(address)['township']
 
-    text = str(address).strip()
-    for keyword, standard_name in TOWNSHIP_NORMALIZATION_RULES:
-        if keyword in text:
-            return standard_name
 
-    match = re.search(r'鄯善县(?:吐鲁番市鄯善县)*(?:东北)?([\u4e00-\u9fa5]{1,12}?(?:回族乡|乡|镇|街道))', text)
-    if match:
-        return match.group(1)
-
-    return ''
+def site_township(site):
+    registration = site.registration
+    if registration and registration.township:
+        return registration.township
+    region_names = [registration.province, registration.city, registration.county] if registration else []
+    return parse_address(site.address, region_names)['township']
 
 
 def _parse_zone(zone_text):
@@ -81,8 +55,8 @@ def get_heritage_map_points():
 
 def get_heritage_stats_meta():
     township_counter = {}
-    for address in HeritageSite.objects.values_list('address', flat=True):
-        township_name = _extract_township_name(address)
+    for site in HeritageSite.objects.select_related('registration').all():
+        township_name = site_township(site)
         if township_name:
             township_counter[township_name] = township_counter.get(township_name, 0) + 1
 

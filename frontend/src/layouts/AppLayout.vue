@@ -200,9 +200,7 @@ const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 const isDesktop = window.desktopMeta?.runtime === 'electron'
-const defaultSystemName = isDesktop
-  ? '文物综合管理平台'
-  : '鄯善县文物管理平台'
+const defaultSystemName = '文物综合管理平台'
 const systemName = computed(() => localStorage.getItem('heritage_system_name') || defaultSystemName)
 import { appearanceState, setAppearance } from '../utils/appearance'
 
@@ -443,7 +441,7 @@ function isDjangoAdminPath(path) {
   if (typeof path !== 'string') {
     return false
   }
-  return path.startsWith('/admin/') || path.startsWith('https://beichenhome.top:9081/admin')
+  return path.startsWith('/admin/')
 }
 
 const collapsedShortcutGroups = computed(() => {

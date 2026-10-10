@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>鄯善文保 App - 下载</title>
+    <title>文物保护 App - 下载</title>
     <style>
         :root {
             --primary: #2563eb;
@@ -482,7 +482,7 @@
         <!-- Hero Section -->
         <section class="hero">
             <span class="badge">官方发布</span>
-            <h1>鄯善文保 App</h1>
+            <h1>文物保护 App</h1>
             <p class="hero-subtitle">文物巡查、记录管理、信息协同的一体化解决方案</p>
         </section>
 
@@ -513,7 +513,8 @@
         <section class="download-section">
             <div class="download-info">
                 <h2>立即下载</h2>
-                <p>扫描右侧二维码或点击按钮下载最新版本，即可开始使用鄯善文保 App。无需注册，看护员首次登录可快速验证。</p>
+                {% if download_url %}
+                <p>请下载与本部署配套的文物保护 App，并确认其服务器地址指向本系统。</p>
                 <div class="btn-group">
                     <a href="{{ download_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-primary">
                         ⬇️ 点击立即下载
@@ -523,11 +524,16 @@
                     </a>
                 </div>
                 <div class="download-url">{{ download_url }}</div>
+                {% else %}
+                <p>本部署尚未配置配套 App 下载地址，请联系本系统管理员。</p>
+                {% endif %}
             </div>
+            {% if download_url and qr_code_url %}
             <div class="qr-box">
-                <img src="{{ qr_code_url }}" alt="鄯善文保 App 下载二维码">
+                <img src="{{ qr_code_url }}" alt="文物保护 App 下载二维码">
                 <span class="qr-label">用手机扫描下载</span>
             </div>
+            {% endif %}
         </section>
 
         <!-- Features Section -->
@@ -560,7 +566,7 @@
 
     <!-- Footer -->
     <footer class="footer">
-        <p>鄯善县文物数字化管理平台 · 对外展示页 · © 2026</p>
+        <p>文物综合管理平台 · 对外展示页 · © 2026</p>
     </footer>
 
     <script>

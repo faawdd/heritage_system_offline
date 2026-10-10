@@ -393,7 +393,7 @@ def verify_project_spatial_safety(project_id, threshold_m: int = None, user=None
         unique.append(item)
 
     has_high_level_overlap = any(item.get('is_high_level_protected') for item in unique)
-    is_feasible_by_level = not has_high_level_overlap
+    is_feasible_by_level = True  # Compatibility field: protection level alone does not decide approval.
 
     with transaction.atomic():
         project.is_overlap_artifact = bool(unique)
@@ -415,6 +415,7 @@ def verify_project_spatial_safety(project_id, threshold_m: int = None, user=None
     return {
         'project_id': str(project.id),
         'is_overlap_artifact': bool(unique),
+        'has_high_level_overlap': has_high_level_overlap,
         'is_feasible_by_level': is_feasible_by_level,
         'status': project.status,
         'kml_record_id': record.id,
@@ -500,18 +501,9 @@ def build_project_media_path(project: LandUseProjectApproval, section: str, file
     return os.path.join(base, filename)
 
 
-def _is_feasible_for_overlap(project: LandUseProjectApproval) -> bool:
-    rows = project.overlapped_relics_info if isinstance(project.overlapped_relics_info, list) else []
-    has_high_level = any((row or {}).get('site_level') in HIGH_PROTECTION_LEVEL_CODES for row in rows)
-    return not has_high_level
-
-
 def get_status_controls(status: str, project: LandUseProjectApproval = None) -> Dict[str, bool]:
     """前端按钮控制：基于状态机输出可用操作。"""
-    feasible_overlap = _is_feasible_for_overlap(project) if project else False
-    can_direct_reply = status == LandUseProjectApproval.STATUS_PRELIM_SAFE or (
-        status == LandUseProjectApproval.STATUS_CHECK_OVERLAP and not feasible_overlap
-    )
+    can_direct_reply = status == LandUseProjectApproval.STATUS_PRELIM_SAFE
 
     is_overlap = bool(project.is_overlap_artifact) if project else False
 
@@ -535,7 +527,7 @@ def get_status_controls(status: str, project: LandUseProjectApproval = None) -> 
             LandUseProjectApproval.STATUS_CHECK_OVERLAP,
             LandUseProjectApproval.STATUS_FIELD_DONE,
             LandUseProjectApproval.STATUS_CITY_REVIEWING,
-        } and feasible_overlap,
+        } and is_overlap,
         'upload_archaeology_report': status == LandUseProjectApproval.STATUS_ARCHAEOLOGY,
         # 坎儿井保护加固方案与水利部门意见：项目确认涉及文物后即可录入，专项流转前需补齐。
         'update_kanerjing_info': is_overlap and status not in {
@@ -611,8 +603,6 @@ def apply_workflow_action(project: LandUseProjectApproval, action: str, payload:
             LandUseProjectApproval.STATUS_CHECK_OVERLAP,
         }:
             raise ValueError('当前状态不允许录入县局请示')
-        if project.status == LandUseProjectApproval.STATUS_CHECK_OVERLAP and not _is_feasible_for_overlap(project):
-            raise ValueError('当前项目涉及自治区及以上级别文物，判定为不可行，不得进入考古上报流程')
         req_num = (payload.get('shanshan_request_num') or '').strip()
         if not req_num:
             raise ValueError('县局请示文号不能为空')
@@ -633,11 +623,6 @@ def apply_workflow_action(project: LandUseProjectApproval, action: str, payload:
             if not final_reply:
                 raise ValueError('不涉及文物时，需填写给企业最终复函号')
             project.final_reply_to_company = final_reply
-        elif project.status == LandUseProjectApproval.STATUS_CHECK_OVERLAP and not _is_feasible_for_overlap(project):
-            final_reply = (payload.get('final_reply_to_company') or '').strip()
-            if not final_reply:
-                raise ValueError('项目不可行时，需填写给企业最终复函号')
-            project.final_reply_to_company = final_reply
         else:
             raise ValueError('当前状态不允许录入复函结果')
         project.status = LandUseProjectApproval.STATUS_REPLY_RECEIVED
@@ -649,8 +634,6 @@ def apply_workflow_action(project: LandUseProjectApproval, action: str, payload:
             LandUseProjectApproval.STATUS_CITY_REVIEWING,
         }:
             raise ValueError('当前状态不允许发起考古流转')
-        if project.is_overlap_artifact and not _is_feasible_for_overlap(project):
-            raise ValueError('当前项目涉及自治区及以上级别文物，判定为不可行，不得进入考古流转')
         if project.involves_kanerjing:
             if not project.kanerjing_protection_plan_path:
                 raise ValueError('涉及坎儿井时，需先上传坎儿井保护加固方案')
@@ -668,9 +651,9 @@ def apply_workflow_action(project: LandUseProjectApproval, action: str, payload:
         region_approval_num = (payload.get('region_approval_num') or '').strip()
         city_final_reply_num = (payload.get('city_final_reply_num') or '').strip()
         if not project.archaeology_report_path:
-            raise ValueError('请先上传自治区考古研究所PDF报告')
+            raise ValueError('请先上传考古调查机构PDF报告')
         if not region_approval_num:
-            raise ValueError('自治区文物局批复文号不能为空')
+            raise ValueError('省级文物行政部门批复文号不能为空')
         if not city_final_reply_num:
             raise ValueError('市文物局复函文号不能为空')
         project.region_approval_num = region_approval_num
@@ -804,9 +787,7 @@ def resolve_workflow_path(project: LandUseProjectApproval) -> Tuple[str, str]:
         return PATH_PENDING, '尚未完成初步核查，请先上传选址KML并执行叠加核验。'
     if not project.is_overlap_artifact:
         return PATH_DIRECT_REPLY, '初步核查未涉及已登记文物：报送上行文申请联合现场勘查，之后直接出具复函。'
-    if _is_feasible_for_overlap(project):
-        return PATH_ARCHAEOLOGY, '涉及文物但未触及自治区及以上级别：先提出避让或优化方案意见，无法避让的进入专项保护程序。'
-    return PATH_DIRECT_REPLY, '涉及自治区及以上级别文物：应优先要求避让或调整选址，据此出具不予同意的复函。'
+    return PATH_ARCHAEOLOGY, '涉及已登记文物：先核实保护要求并提出避让或优化方案，按现有流程报审；保护级别仅作风险提示，不自动决定审批结论。'
 
 
 def _step_states(project: LandUseProjectApproval, path: str) -> List[Dict]:
@@ -922,11 +903,7 @@ def build_workflow_todos(project: LandUseProjectApproval, path: str) -> List[Dic
                 'action': 'record_city_reply',
                 'kind': 'workflow',
                 'label': '直接出具复函',
-                'description': (
-                    '未涉及文物，可直接向项目方出具标准复函。'
-                    if not project.is_overlap_artifact
-                    else '涉及高等级文物且无法避让，向项目方出具不予同意的复函。'
-                ),
+                'description': '未涉及文物，可按程序向项目方出具复函。',
                 'enabled': not reply_blockers,
                 'blockers': reply_blockers,
                 'required_documents': [reply_category],
@@ -1000,7 +977,7 @@ def build_workflow_todos(project: LandUseProjectApproval, path: str) -> List[Dic
         })
 
     if status == LandUseProjectApproval.STATUS_ARCHAEOLOGY:
-        blockers = [] if project.archaeology_report_path else ['请先上传自治区考古研究所调查报告PDF']
+        blockers = [] if project.archaeology_report_path else ['请先上传考古调查机构调查报告PDF']
         required_docs = list(ACTION_REQUIRED_DOCUMENTS['record_archaeology_reply'])
         extra_docs = (
             [LandUseProjectDocument.CATEGORY_STATE_COUNCIL_APPROVAL]
@@ -1013,12 +990,12 @@ def build_workflow_todos(project: LandUseProjectApproval, path: str) -> List[Dic
             'action': 'record_archaeology_reply',
             'kind': 'workflow',
             'label': '录入考古与逐级报审结果',
-            'description': '登记自治区文物局批复与市文物局最终复函；依法需报国务院的一并登记。',
+            'description': '登记省级文物行政部门批复与市级文物行政部门最终复函；依法需报国务院的一并登记。',
             'enabled': not blockers,
             'blockers': blockers,
             'required_documents': required_docs,
             'fields': [
-                _field('region_approval_num', '自治区文物局批复文号',
+                _field('region_approval_num', '省级文物行政部门批复文号',
                        value=(project.region_approval_num
                               or latest_document_num(project, LandUseProjectDocument.CATEGORY_REGION_APPROVAL))),
                 _field('city_final_reply_num', '市文物局最终复函号',

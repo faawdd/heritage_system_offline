@@ -1,8 +1,7 @@
 """
 管理命令：创建基层文物看护员账号
-用法：python manage.py create_inspectors
-     python manage.py create_inspectors --reset-passwords  (重置密码)
-     python manage.py create_inspectors --delete  (删除所有账号)
+用法：python manage.py create_inspectors --inspectors-file 名单.json --security-questions-file 安全问题.json
+     同一名单配合 --reset-passwords 重置密码，或 --delete 删除名单中的账号
 """
 import json
 from pathlib import Path
@@ -16,43 +15,26 @@ from core.models import InspectionRecord, UserProfile
 from core.services.account_security import hash_security_questions
 
 class Command(BaseCommand):
-    help = '创建18名基层文物看护员账号'
-
-    # 看护员信息数据（姓名、手机号）
-    INSPECTORS_DATA = [
-        ('阿力木·艾尼', '13565713009'),
-        ('吴蕊', '13999048119'),
-        ('阿力木·牙库甫', '17794888003'),
-        ('玉素甫·木合买提', '13999694846'),
-        ('刘生', '13565588002'),
-        ('佐日古丽·艾比布力', '13239957706'),
-        ('亚库甫·司马义', '18999465525'),
-        ('武娜', '15160841026'),
-        ('吾甫尔·哈山', '15022877179'),
-        ('艾孜海尔·阿布都热合曼', '18699531152'),
-        ('玉素甫·依明', '18399483332'),
-        ('白克力·艾海提', '13999471400'),
-        ('依卖尔江·乌斯曼', '15309951715'),
-        ('沙塔尔·热西提', '13109037072'),
-        ('卡哈尔·努尤木', '13899311791'),
-        ('买买提·沙塔尔', '13999698842'),
-        ('赵强', '13899319788'),
-        ('卞和好', '18196081222'),
-    ]
+    help = '从部署方提供的名单创建基层文物看护员账号'
     
     # 默认初始密码
     DEFAULT_PASSWORD = 'Heritage2026!'
 
     def add_arguments(self, parser):
         parser.add_argument(
+            '--inspectors-file',
+            required=True,
+            help='看护员名单 JSON 文件，格式为 [{"name": "姓名", "username": "登录名"}]',
+        )
+        parser.add_argument(
             '--delete',
             action='store_true',
-            help='删除已创建的看护员账号（用于重置）',
+            help='经交互确认后删除名单中的看护员账号',
         )
         parser.add_argument(
             '--reset-passwords',
             action='store_true',
-            help='重置所有看护员密码为初始密码',
+            help='重置名单中的看护员密码为初始密码',
         )
         parser.add_argument(
             '--security-questions-file',
@@ -60,6 +42,24 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        try:
+            rows = json.loads(Path(options['inspectors_file']).read_text(encoding='utf-8'))
+            if not isinstance(rows, list) or not rows:
+                raise ValueError('名单必须为非空数组')
+            self.INSPECTORS_DATA = []
+            for row in rows:
+                if not isinstance(row, dict):
+                    raise ValueError('名单条目必须为对象')
+                name = row.get('name')
+                username = row.get('username')
+                if not isinstance(name, str) or not name.strip() or not isinstance(username, str) or not username.strip():
+                    raise ValueError('每条名单必须提供姓名与登录名')
+                self.INSPECTORS_DATA.append((name.strip(), username.strip()))
+            if len({username for _, username in self.INSPECTORS_DATA}) != len(self.INSPECTORS_DATA):
+                raise ValueError('名单中登录名不能重复')
+        except (OSError, ValueError, TypeError) as exc:
+            raise CommandError(f'看护员名单文件无效: {exc}') from exc
+
         # 创建或获取"文物看护员"用户组
         inspector_group, created = Group.objects.get_or_create(name='文物看护员')
         
@@ -96,27 +96,26 @@ class Command(BaseCommand):
         self.create_inspectors()
 
     def create_inspectors(self):
-        """创建18名看护员账户"""
+        """创建名单中的看护员账户"""
         created_count = 0
         updated_count = 0
         
         self.stdout.write('\n' + '='*80)
-        self.stdout.write('开始创建基层文物看护员账号（使用手机号作为登录账户）')
+        self.stdout.write('开始创建名单中的基层文物看护员账号')
         self.stdout.write('='*80 + '\n')
         
         # 获取用户组
         inspector_group = Group.objects.get(name='文物看护员')
         
         # 显示表头
-        self.stdout.write(f"{'操作':<6} | {'姓名':<15} | {'手机号（账号）':<13} | {'密码状态':<20}")
+        self.stdout.write(f"{'操作':<6} | {'姓名':<15} | {'登录名':<13} | {'密码状态':<20}")
         self.stdout.write('-' * 80)
         
         for name, phone in self.INSPECTORS_DATA:
             try:
                 user, created = User.objects.get_or_create(
-                    username=phone,  # 使用手机号作为username
+                    username=phone,
                     defaults={
-                        'email': phone,  # 邮箱也存储手机号
                         'first_name': name,
                         'last_name': '看护员',
                         'is_staff': True,  # 允许访问后台
@@ -171,24 +170,25 @@ class Command(BaseCommand):
         self.stdout.write(self.style.WARNING('⚠️  已设置初始密码；登录后必须修改并完成安全问题确认。\n'))
         
         self.stdout.write('📝 首次登录建议事项：')
-        self.stdout.write('  1. 使用手机号登录：')
+        self.stdout.write('  1. 使用名单中的登录名登录：')
         for name, phone in self.INSPECTORS_DATA[:3]:
             self.stdout.write(f'     {name} → 账号: {phone}')
-        self.stdout.write(f'     ... 等其他 {len(self.INSPECTORS_DATA)-3} 人')
-        self.stdout.write(f'\n  2. 密码: {self.DEFAULT_PASSWORD}')
+        if len(self.INSPECTORS_DATA) > 3:
+            self.stdout.write(f'     ... 等其他 {len(self.INSPECTORS_DATA)-3} 人')
+        self.stdout.write('\n  2. 使用管理员告知的初始密码')
         self.stdout.write('  3. 首次登录后系统会提示修改密码')
         self.stdout.write('  4. 修改为更复杂的密码（8位以上，包含大小写和数字）')
         self.stdout.write('  5. 登录后可在"日常办公 → 巡查记录"中添加巡查数据\n')
 
     def reset_passwords(self):
-        """重置所有看护员密码"""
+        """重置名单中的看护员密码"""
         reset_count = 0
         
         self.stdout.write('\n' + '='*80)
-        self.stdout.write('重置所有看护员密码')
+        self.stdout.write('重置名单中的看护员密码')
         self.stdout.write('='*80 + '\n')
         
-        self.stdout.write(f"{'姓名':<15} | {'手机号':<13} | {'密码状态':<20}")
+        self.stdout.write(f"{'姓名':<15} | {'登录名':<13} | {'密码状态':<20}")
         self.stdout.write('-' * 80)
         
         for name, phone in self.INSPECTORS_DATA:
@@ -224,9 +224,9 @@ class Command(BaseCommand):
         self.stdout.write('所有重置账户首次登录均需修改密码并完成安全问题确认。\n')
 
     def delete_inspectors(self):
-        """删除所有看护员账户"""
+        """删除名单中的看护员账户"""
         self.stdout.write('\n' + '='*80)
-        self.stdout.write('确认删除所有看护员账户？')
+        self.stdout.write('确认删除名单中的看护员账户？')
         self.stdout.write('='*80 + '\n')
         
         # 确认删除
@@ -238,7 +238,7 @@ class Command(BaseCommand):
         
         delete_count = 0
         
-        self.stdout.write(f"{'状态':<6} | {'姓名':<15} | {'手机号':<13}\n")
+        self.stdout.write(f"{'状态':<6} | {'姓名':<15} | {'登录名':<13}\n")
         self.stdout.write('-' * 60)
         
         for name, phone in self.INSPECTORS_DATA:

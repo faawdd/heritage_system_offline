@@ -605,7 +605,7 @@ class ProjectAdmin(admin.ModelAdmin):
             coordinates = project.coordinates.all().order_by('tower_no')
 
             issue_date = project.application_date or project.received_date or timezone.now()
-            file_id = project.archive_number or f"鄯文旅字〔{issue_date.year}〕{project.id}号"
+            file_id = project.archive_number or ''
 
             context = {
                 'project_name': project.project_name,
@@ -809,7 +809,7 @@ class CoordinateAdmin(admin.ModelAdmin):
 
 # 修改后台标题，统一显示动态版本号
 sys_version = getattr(settings, 'SYS_VERSION', 'BuildUnknown')
-system_name = getattr(settings, 'SYSTEM_NAME', '鄯善县文物管理平台')
+system_name = getattr(settings, 'SYSTEM_NAME', '文物综合管理平台')
 admin.site.site_header = f'{system_name} ({sys_version})'
 admin.site.site_title = f'{system_name} ({sys_version})'
 admin.site.index_title = f'欢迎使用{system_name}，当前版本 {sys_version}'
@@ -1319,6 +1319,5 @@ class HeritagePhotoAdmin(admin.ModelAdmin):
     )
     readonly_fields = ('uploaded_at',)
     ordering = ('-uploaded_at', '-id')
-
 
 

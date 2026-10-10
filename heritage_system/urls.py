@@ -66,7 +66,7 @@ urlpatterns = [
     re_path(r'^admin/core/projectaudit(?:/.*)?$', RedirectView.as_view(url='/admin/land-projects/', permanent=False, query_string=True), name='projectaudit_legacy_redirect'),
     path('app-download/', app_showcase_view, name='app_showcase'),
     path('download/', app_showcase_view, name='app_showcase_alias'),
-    path('mobile/collect/', heritage_collect_view, name='heritage_collect'),  # 鄯善县不可移动文物采集
+    path('mobile/collect/', heritage_collect_view, name='heritage_collect'),  # 不可移动文物采集
     path('mobile/collect/<int:pk>/preview/', heritage_detail_preview_view, name='heritage_detail_preview'),  # 采集登记表预览
     path('mobile/collect/<int:pk>/export-docx/', export_immovable_heritage_docx_view, name='export_immovable_heritage_docx'),
     path('admin/home/', admin_index_view, name='admin_home'),  # 自定义首页

@@ -39,7 +39,7 @@ from core.services.heritage_service import (
     get_heritage_map_points,
     get_heritage_stats_meta,
 )
-from core.services.system_service import get_system_version_payload
+from core.services.system_service import collection_region_defaults, get_system_version_payload
 from core.services.two_line_file import normalize_boundary_rings, parse_body_boundary_file, parse_two_line_file
 from core.ovkml_converter import build_csv_outputs, parse_kml_or_kmz
 from core.services.report_service import create_report, get_completed_period_bounds, render_report_html
@@ -47,17 +47,16 @@ from core.services.report_service import create_report, get_completed_period_bou
 logger = logging.getLogger(__name__)
 
 
-def _build_inspection_photo_url(photo_field) -> str:
+def _build_inspection_photo_url(photo_field, request) -> str:
     if not photo_field:
         return ''
 
-    base_url = os.environ.get('DJANGO_WEB_BASE_URL', 'https://beichenhome.top:9081').rstrip('/')
     photo_path = str(getattr(photo_field, 'url', photo_field) or '').strip()
     if not photo_path:
         return ''
     if photo_path.startswith('http://') or photo_path.startswith('https://'):
         return photo_path
-    return f"{base_url}/{photo_path.lstrip('/')}"
+    return request.build_absolute_uri(photo_path)
 
 
 class HealthAPIView(APIView):
@@ -1349,9 +1348,7 @@ class ImmovableHeritageCollectAPIView(APIView):
                         'protection_level': 'DS',
                         'ownership': 'state',
                         'preservation_status': '一般',
-                        'province': '新疆维吾尔自治区',
-                        'city': '吐鲁番市',
-                        'county': '鄯善县',
+                        **collection_region_defaults(),
                     },
                 },
             }
@@ -1777,7 +1774,7 @@ class InspectionListAPIView(APIView):
             'issue_details': item.issue_details or '',
             'latitude': item.latitude,
             'longitude': item.longitude,
-            'photo_url': _build_inspection_photo_url(item.photo),
+            'photo_url': _build_inspection_photo_url(item.photo, request),
         }
 
     def _parse_bool(self, value, default=True):
@@ -2016,7 +2013,7 @@ class InspectionDetailAPIView(APIView):
                     'issue_details': item.issue_details or '',
                     'latitude': item.latitude,
                     'longitude': item.longitude,
-                    'photo_url': _build_inspection_photo_url(item.photo),
+                    'photo_url': _build_inspection_photo_url(item.photo, request),
                 },
             }
         )
@@ -2514,12 +2511,19 @@ class GisOvkmlConvertAPIView(APIView):
         upload_file = request.FILES.get('ovkml_file')
         input_crs = (request.data.get('input_crs') or 'wgs84').strip()
         output_crs = (request.data.get('output_crs') or 'cgcs2000').strip()
-        central_meridian = request.data.get('central_meridian') or '90'
+        central_meridian = request.data.get('central_meridian')
         action = (request.data.get('action') or 'convert').strip()
         deduplicate = str(request.data.get('deduplicate') or 'true').lower() in {'1', 'true', 'on', 'yes'}
 
         if not upload_file:
             return Response({'success': False, 'message': '请先选择 KML/KMZ/OVKML/OVKMZ 文件。'}, status=400)
+        if input_crs == 'cgcs2000_proj':
+            try:
+                central_meridian = float(central_meridian)
+            except (TypeError, ValueError):
+                return Response({'success': False, 'message': '投影坐标必须填写有效的中央经线。'}, status=400)
+        else:
+            central_meridian = None
 
         filename = (upload_file.name or '').lower()
         is_dxf = filename.endswith('.dxf')
@@ -2539,10 +2543,11 @@ class GisOvkmlConvertAPIView(APIView):
                 raw_content,
                 input_crs=input_crs,
                 output_crs=output_crs,
-                central_meridian=float(central_meridian),
+                central_meridian=central_meridian,
             )
             file_format = file_format or parsed_format
         except Exception as exc:
+            logger.exception('OVKML坐标转换失败')
             return Response({'success': False, 'message': f'转换解析失败：{exc}'}, status=400)
 
         if not records:

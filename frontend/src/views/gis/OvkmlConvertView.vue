@@ -22,8 +22,8 @@
         </el-form-item>
 
           <el-form-item v-if="form.input_crs === 'cgcs2000_proj'" label="中央经线">
-            <el-input-number v-model="form.central_meridian" :min="60" :max="135" :step="3" />
-            <span class="form-hint">DXF 为投影米制坐标时填写，例如鄯善常用 90°</span>
+            <el-input-number v-model="form.central_meridian" :min="73" :max="135" placeholder="来源坐标系中央经线" />
+            <span class="form-hint">按来源坐标系填写中央经线；缺失时不能可靠转换，不按地区默认值推断。</span>
           </el-form-item>
 
         <el-form-item label="输出坐标系">
@@ -90,7 +90,7 @@ const loading = ref(false)
 const form = reactive({
   input_crs: 'wgs84',
   output_crs: 'cgcs2000',
-  central_meridian: 90,
+  central_meridian: undefined,
   deduplicate: true
 })
 
@@ -115,7 +115,10 @@ function buildFormData(action) {
   formData.set('ovkml_file', file)
   formData.set('input_crs', form.input_crs)
   formData.set('output_crs', form.output_crs)
-  formData.set('central_meridian', String(form.central_meridian))
+  if (form.input_crs === 'cgcs2000_proj') {
+    if (!Number.isFinite(form.central_meridian)) throw new Error('请填写来源坐标系的中央经线')
+    formData.set('central_meridian', String(form.central_meridian))
+  }
   formData.set('deduplicate', form.deduplicate ? 'true' : 'false')
   formData.set('action', action)
   return formData
