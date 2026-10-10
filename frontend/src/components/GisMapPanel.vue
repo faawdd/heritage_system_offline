@@ -9,6 +9,9 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import Map from 'ol/Map'
 import View from 'ol/View'
+import { ElMessage } from 'element-plus'
+import { fetchHeritageMapPoints } from '../api/heritageApi'
+import { fitHeritagePoints, nationalViewOptions } from '../utils/mapViewport'
 import BaseMapSwitcher from './maps/BaseMapSwitcher.vue'
 import {
   createOfflineTileLayer,
@@ -28,19 +31,24 @@ function refreshBasemap() {
   refreshBasemapLayers({ img: onlineLayers }, offlineLayer, 'img')
 }
 
-onMounted(() => {
+onMounted(async () => {
   onlineLayers = createTiandituLayerGroup('img')
   offlineLayer = createOfflineTileLayer()
   mapRef = new Map({
     target: mapEl.value,
     layers: [...onlineLayers, offlineLayer],
-    view: new View({
-      center: [9826439, 4753279],
-      zoom: 5
-    })
+    view: new View(nationalViewOptions())
   })
   refreshBasemap()
   stopWatchingBasemap = watchBasemapChanges(refreshBasemap)
+  fitHeritagePoints(mapRef, [])
+  try {
+    const result = await fetchHeritageMapPoints()
+    if (!result.success) throw new Error(result.message || '加载文物分布失败')
+    fitHeritagePoints(mapRef, result.rows || [])
+  } catch (error) {
+    ElMessage.error(error?.message || '加载文物分布失败')
+  }
 })
 
 onBeforeUnmount(() => {

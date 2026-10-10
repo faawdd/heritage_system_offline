@@ -614,8 +614,11 @@ def apply_workflow_action(project: LandUseProjectApproval, action: str, payload:
         if project.status == LandUseProjectApproval.STATUS_CHECK_OVERLAP and not _is_feasible_for_overlap(project):
             raise ValueError('当前项目涉及自治区及以上级别文物，判定为不可行，不得进入考古上报流程')
         req_num = (payload.get('shanshan_request_num') or '').strip()
-        if not re.match(r'^鄯文旅字-\d{4}-\d+号$', req_num):
-            raise ValueError('县局请示文号格式错误，应为：鄯文旅字-2026-xx号')
+        if not req_num:
+            raise ValueError('县局请示文号不能为空')
+        max_length = LandUseProjectApproval._meta.get_field('shanshan_request_num').max_length
+        if len(req_num) > max_length:
+            raise ValueError(f'县局请示文号不能超过{max_length}个字符')
         project.shanshan_request_num = req_num
         project.status = LandUseProjectApproval.STATUS_CITY_REVIEWING
 
@@ -948,8 +951,8 @@ def build_workflow_todos(project: LandUseProjectApproval, path: str) -> List[Dic
                 _field('shanshan_request_num', '县局请示文号',
                        value=(project.shanshan_request_num
                               or latest_document_num(project, LandUseProjectDocument.CATEGORY_COUNTY_REQUEST)),
-                       placeholder=LandUseProjectApproval.suggest_next_shanshan_num(),
-                       hint='格式：鄯文旅字-2026-xx号'),
+                       placeholder='请输入实际公文文号',
+                       hint='按当地实际文号填写，不限制前缀、年份及编号格式'),
             ],
         })
 

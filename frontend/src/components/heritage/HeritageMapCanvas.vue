@@ -33,6 +33,7 @@ import Style from 'ol/style/Style'
 import Overlay from 'ol/Overlay'
 
 import BaseMapSwitcher from '../maps/BaseMapSwitcher.vue'
+import { fitHeritagePoints, nationalViewOptions, validLonLat } from '../../utils/mapViewport'
 import {
   createOfflineTileLayer,
   createTiandituLayerGroup,
@@ -121,6 +122,7 @@ function applyPoints() {
   })
 
   rows.forEach((item) => {
+    if (!validLonLat(item.lng, item.lat)) return
     const feature = new Feature({
       geometry: new Point(fromLonLat([item.lng, item.lat])),
       payload: item
@@ -128,6 +130,7 @@ function applyPoints() {
     feature.setStyle(markerStyle(item.level))
     vectorSource.addFeature(feature)
   })
+  fitHeritagePoints(mapRef.value, props.points || [])
 }
 
 function applyAbnormalPoints() {
@@ -137,7 +140,7 @@ function applyAbnormalPoints() {
   ;(props.abnormalPoints || []).forEach((item) => {
     const lon = Number(item?.longitude)
     const lat = Number(item?.latitude)
-    if (!Number.isFinite(lon) || !Number.isFinite(lat)) {
+    if (!validLonLat(item?.longitude, item?.latitude)) {
       return
     }
     const coordinate = fromLonLat([lon, lat])
@@ -175,10 +178,7 @@ onMounted(() => {
   const map = new Map({
     target: mapEl.value,
     layers: [...onlineBaseLayers, offlineBaseLayer, abnormalHeatLayer, vectorLayer, abnormalLayer],
-    view: new View({
-      center: fromLonLat([90.21, 42.84]),
-      zoom: 9
-    })
+    view: new View(nationalViewOptions())
   })
 
   map.on('click', (evt) => {
@@ -220,11 +220,11 @@ onMounted(() => {
   if (typeof ResizeObserver !== 'undefined' && mapEl.value) {
     mapResizeObserver = new ResizeObserver(() => {
       cancelAnimationFrame(mapResizeFrame)
-      mapResizeFrame = requestAnimationFrame(() => map.updateSize())
+      mapResizeFrame = requestAnimationFrame(() => fitHeritagePoints(map, props.points || []))
     })
     mapResizeObserver.observe(mapEl.value)
   }
-  requestAnimationFrame(() => map.updateSize())
+  requestAnimationFrame(() => fitHeritagePoints(map, props.points || []))
 })
 
 onBeforeUnmount(() => {

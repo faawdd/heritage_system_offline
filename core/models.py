@@ -1,7 +1,6 @@
 from django.db import models, IntegrityError, transaction
 from django.db.models import Q
 from django.contrib.auth.models import User
-from django.core.validators import RegexValidator
 from django.utils import timezone
 import uuid
 import json
@@ -369,12 +368,6 @@ class LandUseProjectApproval(models.Model):
         max_length=100,
         blank=True,
         default='',
-        validators=[
-            RegexValidator(
-                regex=r'^鄯文旅字-\d{4}-\d+号$',
-                message='县局请示文号格式应为：鄯文旅字-2026-xx号',
-            )
-        ],
     )
     city_reply_num = models.CharField('市局复函文号', max_length=120, blank=True, default='')
 

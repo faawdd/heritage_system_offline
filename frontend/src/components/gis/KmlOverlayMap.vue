@@ -131,6 +131,7 @@ import {
 import { fetchGisKmlBatchKmlContent } from '../../api/gisApi'
 import { fetchGisKmlRecordKmlContent } from '../../api/gisApi'
 import { fetchHeritageMapPoints } from '../../api/heritageApi'
+import { fitMapExtent, nationalViewOptions, validLonLat } from '../../utils/mapViewport'
 
 const props = defineProps({
   selectedRecords: {
@@ -1140,13 +1141,15 @@ function fitAll() {
   if (!mapRef.value) {
     return
   }
-  const extents = [kmlSource, conflictSource, protectionZoneSource, controlZoneSource]
+  const focusSources = kmlSource.getFeatures().length || conflictSource.getFeatures().length
+    ? [kmlSource, conflictSource, conflictBoundarySource]
+    : [heritageSource, heritageBoundarySource, protectionZoneSource, controlZoneSource]
+  const extents = focusSources
     .map((source) => source.getExtent())
     .filter((extent) => extent && Number.isFinite(extent[0]))
 
   if (extents.length === 0) {
-    mapRef.value.getView().setCenter(fromLonLat([90.21, 42.84]))
-    mapRef.value.getView().setZoom(9)
+    fitMapExtent(mapRef.value, null)
     return
   }
 
@@ -1157,7 +1160,7 @@ function fitAll() {
     Math.max(combined[3], current[3])
   ], extents[0].slice())
 
-  mapRef.value.getView().fit(extent, {
+  fitMapExtent(mapRef.value, extent, {
     padding: [24, 24, 24, 24],
     maxZoom: 16,
     duration: 220
@@ -1169,9 +1172,7 @@ function syncMapSizeAndView() {
     return
   }
   mapRef.value.updateSize()
-  if (kmlSource.getFeatures().length > 0 || conflictSource.getFeatures().length > 0) {
-    fitAll()
-  }
+  fitAll()
 }
 
 function switchBase(mode) {
@@ -1252,6 +1253,7 @@ function updateBoundaryZoomVisibility() {
 async function loadHeritageLayer() {
   try {
     const result = await fetchHeritageMapPoints()
+    if (!result.success) throw new Error(result.message || '文物点图层加载失败')
     const rows = result?.rows || []
     heritageSource.clear()
     heritageBoundarySource.clear()
@@ -1262,7 +1264,7 @@ async function loadHeritageLayer() {
     rows.forEach((row) => {
       const lon = Number(row?.longitude ?? row?.lng)
       const lat = Number(row?.latitude ?? row?.lat)
-      if (!Number.isFinite(lon) || !Number.isFinite(lat)) {
+      if (!validLonLat(row?.longitude ?? row?.lng, row?.latitude ?? row?.lat)) {
         return
       }
 
@@ -1286,7 +1288,10 @@ async function loadHeritageLayer() {
         if (!Array.isArray(ring) || ring.length < 3) {
           return
         }
-        const coords = ring.map((pt) => fromLonLat([Number(pt[0]), Number(pt[1])]))
+        const coords = ring
+          .filter((pt) => validLonLat(pt?.[0], pt?.[1]))
+          .map((pt) => fromLonLat([Number(pt[0]), Number(pt[1])]))
+        if (coords.length < 3) return
         const polygonFeature = new Feature({ geometry: new Polygon([coords]) })
         polygonFeature.set('isHeritage', true)
         polygonFeature.set('site_id', siteId)
@@ -1306,8 +1311,8 @@ async function loadHeritageLayer() {
             return
           }
           const coordinates = zoneRing
-            .map((point) => [Number(point?.[0]), Number(point?.[1])])
-            .filter((point) => Number.isFinite(point[0]) && Number.isFinite(point[1]))
+            .filter((point) => validLonLat(point?.[0], point?.[1]))
+            .map((point) => [Number(point[0]), Number(point[1])])
             .map((point) => fromLonLat(point))
           if (coordinates.length < 3) {
             return
@@ -1643,10 +1648,7 @@ onMounted(() => {
       elementBubbleLayer,
       measureLayer
     ],
-    view: new View({
-      center: fromLonLat([90.21, 42.84]),
-      zoom: 9
-    })
+    view: new View(nationalViewOptions())
   })
 
   map.on('click', (evt) => {

@@ -21,6 +21,7 @@ import Stroke from 'ol/style/Stroke'
 import Style from 'ol/style/Style'
 
 import BaseMapSwitcher from '../maps/BaseMapSwitcher.vue'
+import { fitMapExtent, nationalViewOptions, validLonLat } from '../../utils/mapViewport'
 import {
   createOfflineTileLayer,
   createTiandituLayerGroup,
@@ -31,17 +32,21 @@ import {
 const props = defineProps({
   longitude: {
     type: Number,
-    default: 90.21
+    default: null
   },
   latitude: {
     type: Number,
-    default: 42.84
+    default: null
   },
   protectionZoneData: {
     type: Array,
     default: () => []
   },
   controlZoneData: {
+    type: Array,
+    default: () => []
+  },
+  bodyBoundaryData: {
     type: Array,
     default: () => []
   }
@@ -59,29 +64,39 @@ function ringToMercator(ring) {
     return []
   }
   return ring
-    .filter((item) => Array.isArray(item) && item.length >= 2)
+    .filter((item) => Array.isArray(item) && validLonLat(item[0], item[1]))
     .map((item) => fromLonLat([Number(item[0]), Number(item[1])]))
 }
 
 function applyMapFeatures() {
   source.clear()
 
-  const centerFeature = new Feature({
-    geometry: new Point(fromLonLat([props.longitude, props.latitude]))
-  })
-  centerFeature.setStyle(
-    new Style({
-      image: new CircleStyle({
-        radius: 7,
-        fill: new Fill({ color: '#0d9488' }),
-        stroke: new Stroke({ color: '#ffffff', width: 2 })
-      })
+  if (validLonLat(props.longitude, props.latitude)) {
+    const centerFeature = new Feature({
+      geometry: new Point(fromLonLat([props.longitude, props.latitude]))
     })
-  )
-  source.addFeature(centerFeature)
+    centerFeature.setStyle(
+      new Style({
+        image: new CircleStyle({
+          radius: 7,
+          fill: new Fill({ color: '#0d9488' }),
+          stroke: new Stroke({ color: '#ffffff', width: 2 })
+        })
+      })
+    )
+    source.addFeature(centerFeature)
+  }
 
-  const protectionRing = ringToMercator(props.protectionZoneData)
-  if (protectionRing.length >= 3) {
+  const protectionRings = normalizeRings(props.protectionZoneData)
+  for (const ring of normalizeRings(props.bodyBoundaryData)) {
+    const feature = new Feature({ geometry: new Polygon([ring]) })
+    feature.setStyle(new Style({
+      stroke: new Stroke({ color: '#0d9488', width: 2 }),
+      fill: new Fill({ color: 'rgba(13, 148, 136, 0.12)' })
+    }))
+    source.addFeature(feature)
+  }
+  for (const protectionRing of protectionRings) {
     const feature = new Feature({ geometry: new Polygon([protectionRing]) })
     feature.setStyle(
       new Style({
@@ -92,8 +107,8 @@ function applyMapFeatures() {
     source.addFeature(feature)
   }
 
-  const controlRing = ringToMercator(props.controlZoneData)
-  if (controlRing.length >= 3) {
+  const controlRings = normalizeRings(props.controlZoneData)
+  for (const controlRing of controlRings) {
     const feature = new Feature({ geometry: new Polygon([controlRing]) })
     feature.setStyle(
       new Style({
@@ -103,6 +118,13 @@ function applyMapFeatures() {
     )
     source.addFeature(feature)
   }
+  fitMapExtent(mapRef, source.getExtent())
+}
+
+function normalizeRings(value) {
+  if (!Array.isArray(value) || !value.length) return []
+  const rings = Array.isArray(value[0]?.[0]) ? value : [value]
+  return rings.map(ringToMercator).filter((ring) => ring.length >= 3)
 }
 
 onMounted(() => {
@@ -116,11 +138,9 @@ onMounted(() => {
       offlineBaseLayer,
       new VectorLayer({ source })
     ],
-    view: new View({
-      center: fromLonLat([props.longitude, props.latitude]),
-      zoom: 14
-    })
+    view: new View(nationalViewOptions())
   })
+  fitMapExtent(mapRef, source.getExtent())
   const refreshBasemap = () => refreshBasemapLayers({ img: onlineBaseLayers }, offlineBaseLayer, 'img')
   refreshBasemap()
   stopWatchingBasemap = watchBasemapChanges(refreshBasemap)
@@ -132,7 +152,7 @@ onBeforeUnmount(() => {
 })
 
 watch(
-  () => [props.longitude, props.latitude, props.protectionZoneData, props.controlZoneData],
+  () => [props.longitude, props.latitude, props.protectionZoneData, props.controlZoneData, props.bodyBoundaryData],
   () => applyMapFeatures(),
   { deep: true }
 )

@@ -129,6 +129,7 @@ def get_heritage_detail_payload(site_id):
         'latitude': float(heritage.latitude),
         'description': heritage.description,
         'manager': heritage.manager,
+        'body_boundary_data': _parse_zone(heritage.body_boundary),
         'protection_zone_data': _parse_zone(heritage.protection_zone),
         'control_zone_data': _parse_zone(heritage.control_zone),
         'inspection_records': inspection_rows,

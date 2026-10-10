@@ -29,6 +29,7 @@
         <HeritageZoneMap
           :longitude="detail.longitude"
           :latitude="detail.latitude"
+          :body-boundary-data="detail.body_boundary_data || []"
           :protection-zone-data="detail.protection_zone_data || []"
           :control-zone-data="detail.control_zone_data || []"
         />

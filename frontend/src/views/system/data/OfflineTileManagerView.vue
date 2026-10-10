@@ -74,7 +74,8 @@ import Map from 'ol/Map'
 import View from 'ol/View'
 import TileLayer from 'ol/layer/Tile'
 import XYZ from 'ol/source/XYZ'
-import { fromLonLat } from 'ol/proj'
+import { transformExtent } from 'ol/proj'
+import { fitMapExtent, nationalViewOptions } from '../../../utils/mapViewport'
 
 import {
   deleteOfflineTileSet,
@@ -185,14 +186,14 @@ function renderPreview() {
     crossOrigin: 'anonymous'
   })
   const layers = [new TileLayer({ source })]
-  const center = tileSet.bounds?.length === 4
-    ? fromLonLat([(tileSet.bounds[0] + tileSet.bounds[2]) / 2, (tileSet.bounds[1] + tileSet.bounds[3]) / 2])
-    : fromLonLat([90.21, 42.84])
   previewMap = new Map({
     target: mapElement.value,
     layers,
-    view: new View({ center, zoom: Math.min(Math.max(tileSet.min_zoom + 2, 3), tileSet.max_zoom) })
+    view: new View(nationalViewOptions())
   })
+  const bounds = tileSet.bounds
+  fitMapExtent(previewMap, Array.isArray(bounds) && bounds.length === 4 && bounds.every(Number.isFinite)
+    ? transformExtent(bounds, 'EPSG:4326', 'EPSG:3857') : null)
 }
 
 watch(selectedTileSet, async () => {
