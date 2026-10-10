@@ -1565,7 +1565,7 @@ def _run_sipu_boundary_import_job(job_id, cookie: str, scope: str, user_county: 
         job.status = SipuImportJob.STATUS_SUCCESS
         job.save(update_fields=['status', 'updated_at'])
     except Exception as exc:
-        logging.getLogger(__name__).exception('四普边界导入任务失败: job_id=%s', job_id)
+        logging.getLogger(__name__).exception('四普数据导入任务失败: job_id=%s', job_id)
         job.status = SipuImportJob.STATUS_FAILED
         job.error_message = str(exc)
         job.save(update_fields=['status', 'error_message', 'updated_at'])
