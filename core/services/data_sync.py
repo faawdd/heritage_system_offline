@@ -52,7 +52,11 @@ SYNC_DATASETS = OrderedDict([
     ('heritage', {
         'label': '文物档案',
         'description': '不可移动文物档案、采集记录与照片',
-        'models': ['core.HeritageSite', 'core.ImmovableHeritage', 'core.HeritagePhoto'],
+        'models': [
+            'core.HeritageSite', 'core.ImmovableHeritage', 'core.HeritagePhoto',
+            'core.HeritageConstituent', 'core.HeritageDrawing',
+            'core.HeritageMaterial', 'core.HeritageSipuRelation', 'core.SipuDictItem',
+        ],
     }),
     ('inspection', {
         'label': '巡查记录',

@@ -32,6 +32,7 @@ from core.permission_decorators import can_modify_core_data, is_management_admin
 from core.permissions.api_permissions import IsManagementAdmin
 from core.services import data_sync
 from core.services import offline_tiles
+from core.services import sipu_display
 from core.services.heritage_service import (
     get_heritage_detail_payload,
     get_heritage_map_points,
@@ -134,11 +135,13 @@ class SystemVersionAPIView(APIView):
 
 
 class SipuBoundaryImportStartAPIView(APIView):
-    """系统管理-数据管理：按用户手动提供的四普 Cookie，创建后台导入任务（立即返回，避免网关504超时）。"""
+    """系统管理-数据管理：四普系统文物数据全量导入，按用户提供的四普 Cookie 创建后台任务（立即返回，避免网关超时）。"""
 
     permission_classes = [IsManagementAdmin]
 
     def post(self, request):
+        from core.services import sipu_import
+
         cookie = (request.data.get('cookie') or '').strip()
         if not cookie:
             return Response({'success': False, 'message': '请先填写四普系统的 Cookie。'}, status=400)
@@ -146,7 +149,17 @@ class SipuBoundaryImportStartAPIView(APIView):
         scope = (request.data.get('scope') or 'missing').strip()
         if scope not in {'missing', 'all'}:
             scope = 'missing'
-        user_county = (request.data.get('user_county') or '').strip()
+        file_mode = (request.data.get('file_mode') or 'cover').strip()
+        if file_mode not in sipu_import.FILE_MODES:
+            file_mode = 'cover'
+        category = (request.data.get('category') or '').strip()
+        if category not in sipu_import.CATEGORY_MAP:
+            category = ''
+        region_code = re.sub(r'\D', '', str(request.data.get('region_code') or ''))[:6]
+        modules = request.data.get('modules')
+        modules = sipu_import.normalize_modules(modules if isinstance(modules, list) else None)
+        if not modules:
+            return Response({'success': False, 'message': '请至少选择一类导入内容。'}, status=400)
 
         def _parse_int(key, default, min_value, max_value):
             try:
@@ -155,29 +168,36 @@ class SipuBoundaryImportStartAPIView(APIView):
                 value = default
             return max(min_value, min(max_value, value))
 
-        limit = _parse_int('limit', 0, 0, 100000)
-        page_size = _parse_int('page_size', 80, 1, 500)
-        max_workers = _parse_int('max_workers', 8, 1, 32)
+        options = {
+            'scope': scope,
+            'file_mode': file_mode,
+            'category': category,
+            'region_code': region_code,
+            'modules': modules,
+            'sync_sites': bool(request.data.get('sync_sites', True)),
+            'limit': _parse_int('limit', 0, 0, 100000),
+            'page_size': _parse_int('page_size', 90, 1, 90),
+            'max_workers': _parse_int('max_workers', 6, 1, 16),
+        }
 
         try:
-            job_id = legacy_views.start_sipu_boundary_import_job(
-                request.user, cookie, scope=scope, user_county=user_county,
-                limit=limit, page_size=page_size, max_workers=max_workers,
-            )
+            job_id = sipu_import.start_import_job(request.user, cookie, options)
         except Exception:
-            logger.exception('创建四普文物矢量图导入任务失败')
+            logger.exception('创建四普文物数据导入任务失败')
             return Response({'success': False, 'message': '创建导入任务失败，请稍后重试'}, status=500)
 
         return Response({'success': True, 'data': {'job_id': str(job_id)}})
 
 
 class SipuBoundaryImportStatusAPIView(APIView):
-    """查询四普边界导入任务进度，供前端轮询展示进度条。"""
+    """查询四普数据导入任务进度，供前端轮询展示进度条与各类数据导入统计。"""
 
     permission_classes = [IsManagementAdmin]
 
     def get(self, request, job_id):
-        status_payload = legacy_views.get_sipu_boundary_import_job_status(job_id)
+        from core.services import sipu_import
+
+        status_payload = sipu_import.get_job_status(job_id)
         if not status_payload:
             return Response({'success': False, 'message': '任务不存在'}, status=404)
         return Response({'success': True, 'data': status_payload})
@@ -453,6 +473,7 @@ class HeritageSiteManageListAPIView(APIView):
                 'success': True,
                 'rows': rows,
                 'meta': {
+                    'sipu_choices': sipu_display.dict_choices(sipu_display.load_dict_map()),
                     'category_choices': [{'value': code, 'label': label} for code, label in HeritageSite.CATEGORY_CHOICES],
                     'level_choices': [{'value': code, 'label': label} for code, label in HeritageSite.LEVEL_CHOICES],
                 },
@@ -1029,6 +1050,8 @@ class ImmovableHeritageListAPIView(APIView):
                     'threat_factors': item.threat_factors,
                     'remarks': item.remarks,
                     'coord_list': item.coord_list,
+                    'inferred_fields': sipu_display.inferred_labels(item),
+                    **sipu_display.serialize_scalar(item),
                 }
             )
 
@@ -1054,6 +1077,44 @@ class ImmovableHeritageListAPIView(APIView):
 class ImmovableHeritageDetailAPIView(APIView):
     permission_classes = [IsManagementAdmin]
 
+    def get(self, request, site_id):
+        heritage = ImmovableHeritage.objects.filter(id=site_id).first()
+        if not heritage:
+            return Response({'success': False, 'message': '文物档案不存在'}, status=404)
+        return Response({
+            'success': True,
+            'data': {
+                'constituents': [
+                    {
+                        'type': '本体构成' if c.constitute_type == '1' else '附属构成',
+                        'name': c.name, 'category': c.category, 'number': c.number,
+                        'area': c.area, 'remark': c.remark,
+                    }
+                    for c in heritage.constituents.all()
+                ],
+                'drawings': [
+                    {
+                        'name': d.name, 'counter': d.counter, 'scale': d.scale, 'drawer': d.drawer,
+                        'draw_time': d.draw_time, 'remark': d.remark,
+                        'url': d.file.url if d.file else '',
+                    }
+                    for d in heritage.drawings.all()
+                ],
+                'materials': [
+                    {
+                        'name': m.name, 'counter': m.counter, 'number': m.number,
+                        'save_place': m.save_place, 'remark': m.remark,
+                        'url': m.file.url if m.file else '',
+                    }
+                    for m in heritage.materials.all()
+                ],
+                'relations': [
+                    {'kind': r.get_kind_display(), 'name': r.name, **(r.data or {})}
+                    for r in heritage.sipu_relations.all()
+                ],
+            },
+        })
+
     def patch(self, request, site_id):
         if not can_modify_core_data(request.user):
             return Response({'success': False, 'message': '当前角色仅可查看，禁止修改'}, status=403)
@@ -1072,6 +1133,20 @@ class ImmovableHeritageDetailAPIView(APIView):
         for field in text_fields:
             if field in request.data:
                 setattr(heritage, field, (request.data.get(field) or '').strip())
+
+        for name, _label, kind in sipu_display.SIPU_FIELDS:
+            if name not in request.data:
+                continue
+            raw = request.data.get(name)
+            if kind == 'codes':
+                codes = sipu_display.clean_codes(raw)
+                if codes is None:
+                    return Response({'success': False, 'message': f'{name} 格式非法'}, status=400)
+                setattr(heritage, name, codes)
+            elif kind == 'bool':
+                setattr(heritage, name, raw if isinstance(raw, bool) else None)
+            else:
+                setattr(heritage, name, str(raw or '').strip())
 
         if 'category' in request.data:
             category = (request.data.get('category') or '').strip()
@@ -1191,6 +1266,8 @@ class ImmovableHeritageDetailAPIView(APIView):
             return Response({'success': False, 'message': '文物档案不存在'}, status=404)
 
         photo_paths = list(heritage.photos.exclude(image='').values_list('image', flat=True))
+        photo_paths += list(heritage.drawings.exclude(file='').values_list('file', flat=True))
+        photo_paths += list(heritage.materials.exclude(file='').values_list('file', flat=True))
         record_name = heritage.name
         try:
             heritage.delete()

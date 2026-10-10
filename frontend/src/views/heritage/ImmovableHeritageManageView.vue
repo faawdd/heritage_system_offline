@@ -253,6 +253,124 @@
           <el-input v-model="dialog.form.remarks" type="textarea" :rows="2" />
         </el-form-item>
 
+        <el-divider content-position="left">四普补充信息</el-divider>
+        <el-alert
+          v-if="dialog.inferred.length"
+          type="info"
+          :closable="false"
+          show-icon
+          style="margin-bottom: 12px"
+          :title="`以下字段由系统根据地址、简介、三普记录自动推断，请核对：${dialog.inferred.join('、')}`"
+        />
+        <el-row :gutter="12">
+          <el-col :span="12">
+            <el-form-item label="行政区划代码">
+              <el-input :model-value="dialog.countyCode" disabled />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="审定人">
+              <el-input v-model="dialog.form.sipu_auditor" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="12">
+          <el-col :span="12">
+            <el-form-item label="登记类型">
+              <el-select v-model="dialog.form.registration_type" clearable style="width: 100%">
+                <el-option v-for="o in sipuChoices.registration_type" :key="o.value" :label="o.label" :value="o.value" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="变更类型">
+              <el-select v-model="dialog.form.change_type" clearable style="width: 100%">
+                <el-option v-for="o in sipuChoices.change_type" :key="o.value" :label="o.label" :value="o.value" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="12">
+          <el-col :span="12">
+            <el-form-item label="开放状况">
+              <el-select v-model="dialog.form.open_status" clearable style="width: 100%">
+                <el-option v-for="o in sipuChoices.open_status" :key="o.value" :label="o.label" :value="o.value" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="是否单一范围">
+              <el-select v-model="dialog.form.is_single_area" clearable style="width: 100%">
+                <el-option label="是" :value="true" />
+                <el-option label="否" :value="false" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-form-item label="所属保护单位">
+          <el-input v-model="dialog.form.parent_unit_name" />
+        </el-form-item>
+        <el-form-item v-for="item in sipuMultiFields" :key="item.key" :label="item.label">
+          <el-select v-model="dialog.form[item.key]" multiple clearable style="width: 100%">
+            <el-option v-for="o in sipuChoices[item.key]" :key="o.value" :label="o.label" :value="o.value" />
+          </el-select>
+        </el-form-item>
+
+        <template v-if="detail.constituents.length || detail.drawings.length || detail.materials.length || detail.relations.length">
+          <el-divider content-position="left">四普关联资料（只读）</el-divider>
+          <el-collapse>
+            <el-collapse-item v-if="detail.constituents.length" :title="`文物构成（${detail.constituents.length}）`">
+              <el-table :data="detail.constituents" size="small" border>
+                <el-table-column prop="type" label="类型" width="90" />
+                <el-table-column prop="name" label="名称" min-width="160" />
+                <el-table-column prop="number" label="数量" width="80" />
+                <el-table-column prop="area" label="面积" width="100" />
+                <el-table-column prop="remark" label="备注" min-width="140" show-overflow-tooltip />
+              </el-table>
+            </el-collapse-item>
+            <el-collapse-item v-if="detail.drawings.length" :title="`图纸（${detail.drawings.length}）`">
+              <el-table :data="detail.drawings" size="small" border>
+                <el-table-column label="名称" min-width="160">
+                  <template #default="scope">
+                    <a v-if="scope.row.url" :href="scope.row.url" target="_blank" rel="noopener noreferrer">{{ scope.row.name }}</a>
+                    <span v-else>{{ scope.row.name }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="counter" label="编号" width="100" />
+                <el-table-column prop="scale" label="比例尺" width="90" />
+                <el-table-column prop="drawer" label="绘制人" width="100" />
+                <el-table-column prop="draw_time" label="绘制时间" width="110" />
+                <el-table-column prop="remark" label="备注" min-width="120" show-overflow-tooltip />
+              </el-table>
+            </el-collapse-item>
+            <el-collapse-item v-if="detail.materials.length" :title="`其他资料（${detail.materials.length}）`">
+              <el-table :data="detail.materials" size="small" border>
+                <el-table-column label="名称" min-width="180">
+                  <template #default="scope">
+                    <a v-if="scope.row.url" :href="scope.row.url" target="_blank" rel="noopener noreferrer">{{ scope.row.name }}</a>
+                    <span v-else>{{ scope.row.name }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="counter" label="编号" width="100" />
+                <el-table-column prop="number" label="数量" width="80" />
+                <el-table-column prop="save_place" label="保存地点" min-width="120" />
+                <el-table-column prop="remark" label="备注" min-width="120" show-overflow-tooltip />
+              </el-table>
+            </el-collapse-item>
+            <el-collapse-item v-if="detail.relations.length" :title="`关联专项 / 三普对应记录（${detail.relations.length}）`">
+              <el-table :data="detail.relations" size="small" border>
+                <el-table-column prop="kind" label="类型" width="120" />
+                <el-table-column prop="name" label="名称" min-width="150" />
+                <el-table-column prop="no" label="编号" min-width="140" />
+                <el-table-column prop="category" label="类别" width="110" />
+                <el-table-column prop="rank" label="级别" width="90" />
+                <el-table-column prop="year" label="年代" width="90" />
+                <el-table-column prop="address" label="地址" min-width="180" show-overflow-tooltip />
+              </el-table>
+            </el-collapse-item>
+          </el-collapse>
+        </template>
+
         <el-form-item label="坐标点列表">
           <div class="coord-editor">
             <div class="coord-editor-actions">
@@ -326,6 +444,7 @@ import { useAuthStore } from '../../stores/system/authStore'
 
 import {
   exportImmovableHeritage,
+  fetchImmovableHeritageDetail,
   fetchImmovableHeritageList,
   importImmovableHeritage,
   deleteImmovableHeritage,
@@ -343,6 +462,15 @@ const categoryOptions = ref([])
 const levelOptions = ref([])
 const ownershipOptions = ref([])
 const preservationOptions = ref([])
+const sipuChoices = ref({})
+const sipuMultiFields = [
+  { key: 'era_stat', label: '年代（统计分期）' },
+  { key: 'use_purposes', label: '使用用途' },
+  { key: 'industries', label: '所属行业、系统' },
+  { key: 'protect_measures', label: '已完成保护措施' },
+  { key: 'listed_catalogs', label: '所列名录/规划/数据库' }
+]
+const detail = reactive({ constituents: [], drawings: [], materials: [], relations: [] })
 
 const filters = reactive({
   keyword: '',
@@ -360,6 +488,8 @@ const dialog = reactive({
   visible: false,
   loading: false,
   editId: null,
+  inferred: [],
+  countyCode: '',
   form: {
     survey_code: '',
     name: '',
@@ -398,6 +528,17 @@ const dialog = reactive({
     threat_factors: '',
     description: '',
     remarks: '',
+    registration_type: '',
+    change_type: '',
+    open_status: '',
+    is_single_area: null,
+    parent_unit_name: '',
+    sipu_auditor: '',
+    era_stat: [],
+    use_purposes: [],
+    industries: [],
+    protect_measures: [],
+    listed_catalogs: [],
     coord_list: []
   }
 })
@@ -426,6 +567,7 @@ async function loadRows() {
     levelOptions.value = result.meta?.level_choices || []
     ownershipOptions.value = result.meta?.ownership_choices || []
     preservationOptions.value = result.meta?.preservation_choices || []
+    sipuChoices.value = result.meta?.sipu_choices || {}
   } catch (error) {
     ElMessage.error(error?.message || '加载失败')
   } finally {
@@ -506,8 +648,29 @@ function openEdit(row) {
     threat_factors: row.threat_factors || '',
     description: row.description || '',
     remarks: row.remarks || '',
+    registration_type: row.registration_type || '',
+    change_type: row.change_type || '',
+    open_status: row.open_status || '',
+    is_single_area: row.is_single_area ?? null,
+    parent_unit_name: row.parent_unit_name || '',
+    sipu_auditor: row.sipu_auditor || '',
+    era_stat: [...(row.era_stat || [])],
+    use_purposes: [...(row.use_purposes || [])],
+    industries: [...(row.industries || [])],
+    protect_measures: [...(row.protect_measures || [])],
+    listed_catalogs: [...(row.listed_catalogs || [])],
     coord_list: Array.isArray(row.coord_list) ? row.coord_list : []
   }
+  dialog.inferred = row.inferred_fields || []
+  dialog.countyCode = row.county_code || ''
+  Object.assign(detail, { constituents: [], drawings: [], materials: [], relations: [] })
+  fetchImmovableHeritageDetail(row.id)
+    .then((result) => {
+      if (result.success) {
+        Object.assign(detail, result.data)
+      }
+    })
+    .catch(() => {})
   dialog.visible = true
 }
 

@@ -4465,12 +4465,27 @@ def heritage_detail_preview_view(request, pk):
     ]
     other_photo_pages = _chunk_items(other_photo_items, 4)
 
+    sipu_rows, sipu_inferred, sipu_children = [], [], {}
+    if isinstance(heritage, ImmovableHeritage):
+        from .services import sipu_display
+        sipu_rows = sipu_display.display_rows(heritage, sipu_display.load_dict_map())
+        sipu_inferred = sipu_display.inferred_labels(heritage)
+        sipu_children = {
+            "constituents": list(heritage.constituents.all()),
+            "drawings": list(heritage.drawings.all()),
+            "materials": list(heritage.materials.all()),
+            "relations": list(heritage.sipu_relations.all()),
+        }
+
     view_mode = (request.GET.get("mode") or "view").strip().lower()
     if view_mode not in {"view", "print"}:
         view_mode = "view"
 
     context = {
         "heritage":             heritage,
+        "sipu_rows":            sipu_rows,
+        "sipu_inferred":        sipu_inferred,
+        "sipu_children":        sipu_children,
         "cover_photo":          cover_photo,
         "cover_photo_url":      cover_photo_url,
         "other_photos":         other_photos,

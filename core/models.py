@@ -544,7 +544,7 @@ class LandUseProjectOperationLog(models.Model):
 
 
 class SipuImportJob(models.Model):
-    """四普系统文物矢量图边界导入任务：记录后台线程的分页导入进度，供前端轮询展示进度条。"""
+    """四普系统文物数据全量导入任务：记录后台线程的分页导入进度，供前端轮询展示进度条。"""
 
     STATUS_RUNNING = 'running'
     STATUS_SUCCESS = 'success'
@@ -565,6 +565,10 @@ class SipuImportJob(models.Model):
     unmatched_items = models.JSONField('未匹配明细', default=list, blank=True)
     no_geometry_items = models.JSONField('无矢量数据明细', default=list, blank=True)
     error_message = models.TextField('错误信息', blank=True, default='')
+    options = models.JSONField('导入选项', default=dict, blank=True)
+    stats = models.JSONField('导入统计', default=dict, blank=True)
+    failed_count = models.IntegerField('失败数', default=0)
+    failed_items = models.JSONField('失败明细', default=list, blank=True)
     created_by = models.ForeignKey(
         User, on_delete=models.SET_NULL, null=True, blank=True, related_name='sipu_import_jobs', verbose_name='发起人',
     )
@@ -575,7 +579,7 @@ class SipuImportJob(models.Model):
         return f"SipuImportJob({self.id})-{self.status}"
 
     class Meta:
-        verbose_name = '四普边界导入任务'
+        verbose_name = '四普数据导入任务'
         verbose_name_plural = verbose_name
         ordering = ['-created_at']
 
@@ -1204,6 +1208,62 @@ class ImmovableHeritage(models.Model):
         blank=True,
         help_text='审核完成的日期与时间',
     )
+
+    # ------------------------------------------------------------------
+    # 九、四普系统导入数据
+    # ------------------------------------------------------------------
+    sipu_id = models.CharField(
+        verbose_name='四普系统记录ID',
+        max_length=64,
+        unique=True,
+        null=True,
+        blank=True,
+        default=None,
+        help_text='四普系统中该文物的 culRid，用于重复导入时幂等更新',
+    )
+    sipu_data = models.JSONField(
+        verbose_name='四普补充数据',
+        default=dict,
+        blank=True,
+        help_text='未映射为专门字段的四普登记项、自动推断字段清单与导入告警；选项含义见 SipuDictItem',
+    )
+    county_code = models.CharField('县级行政区划代码', max_length=12, blank=True, default='', db_index=True)
+    registration_type = models.CharField(
+        '登记类型代码', max_length=20, blank=True, default='',
+        help_text='四普封面 searchtype：新发现/复查/拆分/合并等，含义见 SipuDictItem',
+    )
+    change_type = models.CharField('变更类型代码', max_length=20, blank=True, default='')
+    era_stat = models.JSONField('年代（统计分期）代码', default=list, blank=True)
+    parent_unit_name = models.CharField('所属文物保护单位名称', max_length=200, blank=True, default='')
+    is_single_area = models.BooleanField('是否单一范围', null=True, blank=True, default=None)
+    open_status = models.CharField('开放状况代码', max_length=10, blank=True, default='')
+    use_purposes = models.JSONField('使用用途代码', default=list, blank=True)
+    industries = models.JSONField('所属行业、系统代码', default=list, blank=True)
+    protect_measures = models.JSONField('已完成保护措施代码', default=list, blank=True)
+    listed_catalogs = models.JSONField('所列名录、规划和数据库代码', default=list, blank=True)
+    sipu_auditor = models.CharField('四普审定人', max_length=50, blank=True, default='')
+    sipu_synced_at = models.DateTimeField(
+        verbose_name='四普最近同步时间',
+        null=True,
+        blank=True,
+    )
+    body_boundary = models.JSONField(
+        verbose_name='本体范围多边形',
+        default=list,
+        blank=True,
+        help_text='[[[经度,纬度],...],...]，来自四普文物矢量图',
+    )
+    protection_zone = models.JSONField(
+        verbose_name='保护范围多边形',
+        default=list,
+        blank=True,
+    )
+    control_zone = models.JSONField(
+        verbose_name='建设控制地带多边形',
+        default=list,
+        blank=True,
+    )
+
     created_at = models.DateTimeField(
         verbose_name='创建时间',
         auto_now_add=True,
@@ -1307,7 +1367,8 @@ class HeritagePhoto(models.Model):
     image = models.ImageField(
         verbose_name='照片文件',
         upload_to='heritage_photos/%Y/%m/',
-        help_text='建议上传JPG/PNG格式，分辨率不低于1920×1080，文件大小不超过10MB',
+        blank=True,
+        help_text='建议上传JPG/PNG格式，分辨率不低于1920×1080，文件大小不超过10MB；四普导入但未下载原图时为空',
     )
     photo_type = models.CharField(
         verbose_name='照片类型',
@@ -1371,6 +1432,10 @@ class HeritagePhoto(models.Model):
         default=False,
         help_text='勾选后此照片将作为该文物点的代表图片显示',
     )
+    sipu_id = models.CharField('四普照片ID', max_length=64, null=True, blank=True, db_index=True)
+    photo_no = models.CharField('照片号', max_length=50, blank=True, default='')
+    cameraman = models.CharField('摄影者', max_length=100, blank=True, default='')
+    link_type = models.CharField('照片关联类型（四普）', max_length=100, blank=True, default='')
 
     def __str__(self):
         return f'{self.heritage.name} - {self.get_photo_type_display()} ({self.uploaded_at.strftime("%Y-%m-%d")})'
@@ -1383,3 +1448,115 @@ class HeritagePhoto(models.Model):
             models.Index(fields=['heritage', 'photo_type']),
             models.Index(fields=['heritage', 'is_cover']),
         ]
+
+
+class _SipuChildBase(models.Model):
+    """四普子表公共字段：归属文物点 + 四普记录ID（用于幂等同步）。"""
+
+    heritage = models.ForeignKey(ImmovableHeritage, on_delete=models.CASCADE, verbose_name='所属文物点')
+    sipu_id = models.CharField('四普记录ID', max_length=64, blank=True, default='')
+    sort_order = models.IntegerField('序号', default=0)
+
+    class Meta:
+        abstract = True
+
+
+class HeritageConstituent(_SipuChildBase):
+    """文物构成（四普 constituteType：1=本体构成，2=附属/关联构成）。"""
+
+    heritage = models.ForeignKey(
+        ImmovableHeritage, on_delete=models.CASCADE, related_name='constituents', verbose_name='所属文物点',
+    )
+    constitute_type = models.CharField('构成类型', max_length=10, default='1')
+    name = models.CharField('构成名称', max_length=300, blank=True, default='')
+    category = models.CharField('构成类别代码', max_length=20, blank=True, default='')
+    number = models.CharField('数量', max_length=50, blank=True, default='')
+    area = models.CharField('面积', max_length=50, blank=True, default='')
+    remark = models.TextField('备注', blank=True, default='')
+
+    class Meta:
+        verbose_name = '文物构成'
+        verbose_name_plural = verbose_name
+        ordering = ['heritage_id', 'constitute_type', 'sort_order']
+
+
+class HeritageDrawing(_SipuChildBase):
+    """文物图纸（四普“图纸”页签）。"""
+
+    heritage = models.ForeignKey(
+        ImmovableHeritage, on_delete=models.CASCADE, related_name='drawings', verbose_name='所属文物点',
+    )
+    name = models.CharField('图纸名称', max_length=300, blank=True, default='')
+    counter = models.CharField('图纸编号', max_length=100, blank=True, default='')
+    scale = models.CharField('比例尺', max_length=50, blank=True, default='')
+    drawer = models.CharField('绘制人', max_length=100, blank=True, default='')
+    draw_time = models.CharField('绘制时间', max_length=50, blank=True, default='')
+    link_type = models.CharField('图纸类型代码', max_length=20, blank=True, default='')
+    remark = models.TextField('备注', blank=True, default='')
+    file = models.FileField('文件', upload_to='heritage_sipu/drawings/%Y/%m/', blank=True)
+
+    class Meta:
+        verbose_name = '文物图纸'
+        verbose_name_plural = verbose_name
+        ordering = ['heritage_id', 'sort_order']
+
+
+class HeritageMaterial(_SipuChildBase):
+    """文物其他资料（四普“其他资料”页签，如保护单位公布文件等）。"""
+
+    heritage = models.ForeignKey(
+        ImmovableHeritage, on_delete=models.CASCADE, related_name='materials', verbose_name='所属文物点',
+    )
+    name = models.CharField('资料名称', max_length=500, blank=True, default='')
+    file_category = models.CharField('资料类型代码', max_length=50, blank=True, default='')
+    category = models.CharField('资料形式代码', max_length=20, blank=True, default='')
+    counter = models.CharField('资料编号', max_length=100, blank=True, default='')
+    number = models.CharField('数量', max_length=50, blank=True, default='')
+    save_place = models.CharField('保存地点', max_length=300, blank=True, default='')
+    remark = models.TextField('备注', blank=True, default='')
+    file = models.FileField('文件', upload_to='heritage_sipu/materials/%Y/%m/', blank=True)
+
+    class Meta:
+        verbose_name = '文物其他资料'
+        verbose_name_plural = verbose_name
+        ordering = ['heritage_id', 'sort_order']
+
+
+class HeritageSipuRelation(_SipuChildBase):
+    """四普关联记录：关联专项（革命文物/长城/大运河等）、三普对应记录，仅保留编号、地址、年代、类别、级别。"""
+
+    KIND_SPECIAL = 'special'
+    KIND_THREE_SURVEY = 'threesurvey'
+    KIND_CHOICES = [
+        (KIND_SPECIAL, '关联专项'),
+        (KIND_THREE_SURVEY, '三普对应记录'),
+    ]
+
+    heritage = models.ForeignKey(
+        ImmovableHeritage, on_delete=models.CASCADE, related_name='sipu_relations', verbose_name='所属文物点',
+    )
+    kind = models.CharField('类型', max_length=20, choices=KIND_CHOICES)
+    name = models.CharField('名称', max_length=300, blank=True, default='')
+    data = models.JSONField('原始数据', default=dict, blank=True)
+
+    class Meta:
+        verbose_name = '四普关联记录'
+        verbose_name_plural = verbose_name
+        ordering = ['heritage_id', 'kind', 'sort_order']
+
+
+class SipuDictItem(models.Model):
+    """四普字典项（字段 + 代码 → 含义）。导入时从四普表单自动采集，避免在每条文物里重复保存选项文字。"""
+
+    field = models.CharField('四普字段', max_length=40)
+    code = models.CharField('代码', max_length=40)
+    label = models.CharField('含义', max_length=200)
+
+    class Meta:
+        verbose_name = '四普字典项'
+        verbose_name_plural = verbose_name
+        unique_together = [('field', 'code')]
+        ordering = ['field', 'code']
+
+    def __str__(self):
+        return f'{self.field}:{self.code}={self.label}'

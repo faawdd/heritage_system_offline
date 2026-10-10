@@ -129,3 +129,8 @@ export async function fetchKanerjingList(params = {}) {
   const response = await client.get('/api/v1/heritage/kanerjing/', { params })
   return response.data
 }
+
+export async function fetchImmovableHeritageDetail(siteId) {
+  const response = await client.get(`/api/v1/heritage/immovable/${siteId}/`)
+  return response.data
+}

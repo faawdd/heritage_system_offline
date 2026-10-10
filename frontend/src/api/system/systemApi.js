@@ -128,12 +128,12 @@ export async function updateDeepSeekConfig(payload) {
 }
 
 export async function startSipuBoundaryImport(payload) {
-  const response = await client.post('/api/v1/system/sipu-boundary-import/start/', payload)
+  const response = await client.post('/api/v1/system/sipu-import/start/', payload)
   return response.data
 }
 
 export async function fetchSipuBoundaryImportStatus(jobId) {
-  const response = await client.get(`/api/v1/system/sipu-boundary-import/status/${jobId}/`)
+  const response = await client.get(`/api/v1/system/sipu-import/status/${jobId}/`)
   return response.data
 }
 

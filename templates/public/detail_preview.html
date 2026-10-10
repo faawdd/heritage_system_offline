@@ -739,6 +739,43 @@ body {
     </tr>
     {% endif %}
 
+    {% if sipu_rows or sipu_children.constituents or sipu_children.drawings or sipu_children.materials or sipu_children.relations %}
+    <tr>
+      <td colspan="8" class="sec-head">补充信息（四普系统）</td>
+    </tr>
+    {% for label, text in sipu_rows %}
+    <tr>
+      <td class="lbl">{{ label }}</td>
+      <td class="val" colspan="7">{{ text }}</td>
+    </tr>
+    {% endfor %}
+    {% if sipu_inferred %}
+    <tr>
+      <td class="val" colspan="8" style="color:#888; font-size:12px;">注：{{ sipu_inferred|join:"、" }}由系统根据地址、简介自动推断，仅供参考。</td>
+    </tr>
+    {% endif %}
+    {% if sipu_children.constituents %}
+    <tr><td class="lbl">文物构成</td><td class="val" colspan="7">
+      {% for c in sipu_children.constituents %}{{ forloop.counter }}. {% if c.constitute_type == '1' %}本体{% else %}附属{% endif %}：{{ c.name }}{% if c.number %}，{{ c.number }}{% endif %}{% if c.area %}，面积{{ c.area }}{% endif %}{% if c.remark %}（{{ c.remark }}）{% endif %}<br>{% endfor %}
+    </td></tr>
+    {% endif %}
+    {% if sipu_children.drawings %}
+    <tr><td class="lbl">图&emsp;&emsp;纸</td><td class="val" colspan="7">
+      {% for d in sipu_children.drawings %}{{ forloop.counter }}. {{ d.name }}{% if d.counter %}（{{ d.counter }}）{% endif %}{% if d.scale %}，比例尺{{ d.scale }}{% endif %}{% if d.drawer %}，绘制人{{ d.drawer }}{% endif %}<br>{% endfor %}
+    </td></tr>
+    {% endif %}
+    {% if sipu_children.materials %}
+    <tr><td class="lbl">其他资料</td><td class="val" colspan="7">
+      {% for m in sipu_children.materials %}{{ forloop.counter }}. {{ m.name }}{% if m.counter %}（{{ m.counter }}）{% endif %}{% if m.save_place %}，保存于{{ m.save_place }}{% endif %}<br>{% endfor %}
+    </td></tr>
+    {% endif %}
+    {% if sipu_children.relations %}
+    <tr><td class="lbl">关联记录</td><td class="val" colspan="7">
+      {% for r in sipu_children.relations %}{{ forloop.counter }}. {{ r.get_kind_display }}：{{ r.name }}{% if r.data.no %}（{{ r.data.no }}）{% endif %}{% if r.data.category %}，{{ r.data.category }}{% endif %}{% if r.data.rank %}，{{ r.data.rank }}{% endif %}{% if r.data.year %}，{{ r.data.year }}{% endif %}<br>{% endfor %}
+    </td></tr>
+    {% endif %}
+    {% endif %}
+
     <!-- ┌─────────────────── 七、现场照片 ────────────────────┐ -->
     <tr>
       <td colspan="8" class="sec-head photo-section">七、现场照片</td>
