@@ -1,5 +1,20 @@
 import client from '../client'
 
+export async function fetchAuditLogs(params = {}) {
+  const response = await client.get('/api/v1/system/audit-log/', { params })
+  return response.data
+}
+
+export async function fetchUserPermissions(userId) {
+  const response = await client.get(`/api/v1/system/users/${userId}/permissions/`)
+  return response.data
+}
+
+export async function updateUserPermissions(userId, permissionIds) {
+  const response = await client.put(`/api/v1/system/users/${userId}/permissions/`, { permission_ids: permissionIds })
+  return response.data
+}
+
 export async function loginSystem(payload) {
   const response = await client.post('/api/v1/system/login/', payload)
   return response.data

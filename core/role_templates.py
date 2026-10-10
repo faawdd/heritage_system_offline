@@ -13,6 +13,8 @@ from core.permission_decorators import (
 )
 
 INSPECTOR_PERMISSIONS = [
+    'view_loginlog', 'view_operationlog', 'view_logentry',
+    'view_usermanagementaudit', 'view_landuseprojectoperationlog',
     'view_heritagesite',
     'add_inspectionrecord',
     'change_inspectionrecord',
@@ -22,6 +24,8 @@ INSPECTOR_PERMISSIONS = [
 ]
 
 ADMIN_PERMISSIONS = [
+    'view_loginlog', 'view_operationlog', 'view_logentry',
+    'view_usermanagementaudit', 'view_landuseprojectoperationlog',
     'add_heritagesite',
     'change_heritagesite',
     'view_heritagesite',
@@ -42,6 +46,7 @@ ADMIN_PERMISSIONS = [
     'view_user',
     'add_group',
     'change_group',
+    'delete_group',
     'view_group',
     'add_userprofile',
     'change_userprofile',
@@ -49,6 +54,8 @@ ADMIN_PERMISSIONS = [
 ]
 
 LIMITED_ADMIN_PERMISSIONS = [
+    'view_loginlog', 'view_operationlog', 'view_logentry',
+    'view_landuseprojectoperationlog',
     'view_heritagesite',
     'view_inspectionrecord',
     'add_projectaudit',
@@ -87,6 +94,7 @@ ROLE_TEMPLATES = {
             '/heritage/map',
             '/heritage/inspections',
             '/heritage/inspections/new',
+            '/system/logs',
         ],
     },
     GROUP_LIMITED_ADMIN: {

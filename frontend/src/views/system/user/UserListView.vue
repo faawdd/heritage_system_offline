@@ -8,7 +8,7 @@
     <div class="toolbar card top-space">
       <el-input v-model="filters.keyword" placeholder="用户名/姓名/邮箱" clearable style="max-width: 320px" />
       <el-button type="primary" :loading="loading" @click="loadUsers">查询</el-button>
-      <el-button @click="openCreateDialog">新增用户</el-button>
+      <el-button v-if="capabilities.add_users" @click="openCreateDialog">新增用户</el-button>
     </div>
 
     <div class="card top-space">
@@ -34,18 +34,20 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="220">
+        <el-table-column label="操作" width="280">
           <template #default="scope">
-            <el-button link type="primary" @click="openEditDialog(scope.row)">编辑</el-button>
-            <el-button link type="warning" @click="toggleUserStatus(scope.row)">
+            <el-button link type="primary" @click="permissionDialog.open(scope.row)">权限</el-button>
+            <el-button v-if="capabilities.change_users" link type="primary" @click="openEditDialog(scope.row)">编辑</el-button>
+            <el-button v-if="capabilities.change_users" link type="warning" @click="toggleUserStatus(scope.row)">
               {{ scope.row.is_active ? '禁用' : '启用' }}
             </el-button>
-            <el-button link type="danger" @click="removeUser(scope.row)">删除</el-button>
+            <el-button v-if="capabilities.delete_users" link type="danger" @click="removeUser(scope.row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
     </div>
 
+    <user-permissions-dialog ref="permissionDialog" />
     <el-dialog v-model="dialog.visible" :title="dialog.mode === 'create' ? '新增用户' : '编辑用户'" width="560px">
       <el-form label-width="90px" label-position="left">
         <el-form-item label="用户名">
@@ -74,7 +76,7 @@
         <el-form-item label="邮箱">
           <el-input v-model="dialog.form.email" />
         </el-form-item>
-        <el-form-item label="角色">
+        <el-form-item v-if="capabilities.view_groups" label="用户组">
           <el-select v-model="dialog.form.group_ids" multiple style="width: 100%" placeholder="请选择角色">
             <el-option v-for="item in roleOptions" :key="item.id" :label="item.name" :value="item.id" />
           </el-select>
@@ -92,8 +94,10 @@
 </template>
 
 <script setup>
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import UserPermissionsDialog from '../../../components/UserPermissionsDialog.vue'
+import { useAuthStore } from '../../../stores/system/authStore'
 
 import {
   createSystemUser,
@@ -105,6 +109,9 @@ import {
 } from '../../../api/system/systemApi'
 
 const loading = ref(false)
+const permissionDialog = ref(null)
+const authStore = useAuthStore()
+const capabilities = computed(() => authStore.user?.capabilities || {})
 const rows = ref([])
 const roleOptions = ref([])
 const securityQuestionBank = ref([])
@@ -155,6 +162,10 @@ function resetDialogForm() {
 }
 
 async function loadRoles() {
+  if (!capabilities.value.view_groups) {
+    roleOptions.value = []
+    return
+  }
   const result = await fetchSystemRoles()
   if (result.success) {
     roleOptions.value = result.rows || []
@@ -227,6 +238,7 @@ async function submitDialog() {
       delete payload.password
       delete payload.security_questions
     }
+    if (!capabilities.value.view_groups) delete payload.group_ids
 
     const result =
       dialog.mode === 'create'

@@ -1,8 +1,11 @@
 from django.contrib.auth.models import Group, Permission, User
 from rest_framework import serializers
+from rest_framework.exceptions import PermissionDenied
 
 from core.models import UserProfile
 from core.role_templates import is_builtin_group
+from system.admin_labels import APP_NAMES, model_name, permission_name
+from system.admin_access import has_system_permission, management_capabilities
 from system.models import DictionaryItem, DictionaryType, LoginLog, Menu, OperationLog, SystemConfig
 
 
@@ -30,12 +33,29 @@ class MenuSerializer(serializers.ModelSerializer):
 
 
 class PermissionSerializer(serializers.ModelSerializer):
+    name = serializers.SerializerMethodField()
+    app_name = serializers.SerializerMethodField()
+    model_name = serializers.SerializerMethodField()
+    grantable = serializers.SerializerMethodField()
     app_label = serializers.CharField(source='content_type.app_label', read_only=True)
     model = serializers.CharField(source='content_type.model', read_only=True)
 
     class Meta:
         model = Permission
-        fields = ['id', 'name', 'codename', 'content_type_id', 'app_label', 'model']
+        fields = ['id', 'name', 'codename', 'content_type_id', 'app_label', 'model', 'app_name', 'model_name', 'grantable']
+
+    def get_name(self, obj):
+        return permission_name(obj)
+
+    def get_app_name(self, obj):
+        return APP_NAMES.get(obj.content_type.app_label, obj.content_type.app_label)
+
+    def get_model_name(self, obj):
+        return model_name(obj.content_type.app_label, obj.content_type.model)
+
+    def get_grantable(self, obj):
+        user = self.context.get('user')
+        return bool(user and has_system_permission(user, f'{obj.content_type.app_label}.{obj.codename}'))
 
 
 class RoleSerializer(serializers.ModelSerializer):
@@ -85,8 +105,25 @@ class UserCreateUpdateSerializer(serializers.Serializer):
     is_staff = serializers.BooleanField(required=False)
     group_ids = serializers.ListField(child=serializers.IntegerField(), required=False)
 
+    def validate_group_ids(self, values):
+        groups = Group.objects.filter(pk__in=values).prefetch_related('permissions__content_type')
+        if groups.count() != len(set(values)):
+            raise serializers.ValidationError('包含不存在的用户组')
+        request = self.context.get('request')
+        if request:
+            from system.admin_access import is_system_superuser
+            if not is_system_superuser(request.user):
+                for group in groups:
+                    if group.name == '超级管理员' or any(
+                        not request.user.has_perm(f'{perm.content_type.app_label}.{perm.codename}')
+                        for perm in group.permissions.all()
+                    ):
+                        raise PermissionDenied('不能分配权限高于自己的用户组')
+        return values
+
 
 class ProfileSerializer(serializers.ModelSerializer):
+    capabilities = serializers.SerializerMethodField()
     roles = serializers.SerializerMethodField()
     profile = serializers.SerializerMethodField()
 
@@ -102,7 +139,11 @@ class ProfileSerializer(serializers.ModelSerializer):
             'is_superuser',
             'roles',
             'profile',
+            'capabilities',
         ]
+
+    def get_capabilities(self, obj):
+        return management_capabilities(obj)
 
     def get_roles(self, obj):
         return list(obj.groups.values_list('name', flat=True))

@@ -1,13 +1,13 @@
 <template>
   <section>
     <header class="page-header">
-      <h1>角色管理</h1>
+      <h1>用户组管理</h1>
       <p>新增角色（用户组）、从内置模板创建、维护角色权限。内置角色权限由模板维护。</p>
     </header>
 
     <div class="card top-space" v-loading="loading">
       <div class="toolbar">
-        <el-button type="primary" @click="openCreate">新增角色</el-button>
+        <el-button v-if="capabilities.add_groups" type="primary" @click="openCreate">新增用户组</el-button>
       </div>
       <el-table :data="roles" stripe>
         <el-table-column label="角色名称" min-width="200">
@@ -21,11 +21,11 @@
         <el-table-column label="操作" width="360">
           <template #default="scope">
             <el-button link type="primary" @click="openPermissions(scope.row)">
-              {{ scope.row.is_builtin ? '查看权限' : '编辑权限' }}
+              {{ scope.row.is_builtin || !capabilities.change_groups ? '查看权限' : '编辑权限' }}
             </el-button>
-            <el-button v-if="!scope.row.is_builtin" link type="primary" @click="openRename(scope.row)">重命名</el-button>
-            <el-button v-if="scope.row.is_builtin" link type="primary" @click="restoreTemplate(scope.row)">恢复模板权限</el-button>
-            <el-button v-else link type="danger" @click="removeRole(scope.row)">删除</el-button>
+            <el-button v-if="!scope.row.is_builtin && capabilities.change_groups" link type="primary" @click="openRename(scope.row)">重命名</el-button>
+            <el-button v-if="scope.row.is_builtin && capabilities.change_groups" link type="primary" @click="restoreTemplate(scope.row)">恢复模板权限</el-button>
+            <el-button v-if="!scope.row.is_builtin && capabilities.delete_groups" link type="danger" @click="removeRole(scope.row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -67,12 +67,12 @@
       <permission-picker
         v-model="permissionDialog.permissionIds"
         :permissions="permissions"
-        :disabled="Boolean(permissionDialog.role?.is_builtin)"
+        :disabled="Boolean(permissionDialog.role?.is_builtin) || !capabilities.change_groups"
       />
       <template #footer>
         <el-button @click="permissionDialog.visible = false">关闭</el-button>
         <el-button
-          v-if="!permissionDialog.role?.is_builtin"
+          v-if="!permissionDialog.role?.is_builtin && capabilities.change_groups"
           type="primary"
           :loading="permissionDialog.saving"
           @click="submitPermissions"
@@ -83,8 +83,10 @@
 </template>
 
 <script setup>
-import { computed, defineComponent, h, reactive, ref } from 'vue'
-import { ElCheckbox, ElInput, ElMessage, ElMessageBox } from 'element-plus'
+import { computed, reactive, ref } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import PermissionPicker from '../../../components/PermissionPicker.vue'
+import { useAuthStore } from '../../../stores/system/authStore'
 
 import {
   applyRoleTemplate,
@@ -98,55 +100,8 @@ import {
   updateRolePermissions
 } from '../../../api/system/systemApi'
 
-const PermissionPicker = defineComponent({
-  props: {
-    modelValue: { type: Array, default: () => [] },
-    permissions: { type: Array, default: () => [] },
-    disabled: { type: Boolean, default: false }
-  },
-  emits: ['update:modelValue'],
-  setup(props, { emit }) {
-    const keyword = ref('')
-    const visible = computed(() => {
-      const kw = keyword.value.trim().toLowerCase()
-      if (!kw) return props.permissions
-      return props.permissions.filter(
-        (item) => String(item.name || '').toLowerCase().includes(kw) || String(item.codename || '').toLowerCase().includes(kw)
-      )
-    })
-    function toggle(id, checked) {
-      const set = new Set(props.modelValue)
-      if (checked) set.add(id)
-      else set.delete(id)
-      emit('update:modelValue', Array.from(set))
-    }
-    return () =>
-      h('div', { style: 'width: 100%' }, [
-        h(ElInput, {
-          modelValue: keyword.value,
-          'onUpdate:modelValue': (value) => (keyword.value = value),
-          placeholder: '按权限名称/编码筛选',
-          clearable: true,
-          style: 'max-width: 280px; margin-bottom: 8px'
-        }),
-        h(
-          'div',
-          { style: 'max-height: 360px; overflow: auto; display: grid; grid-template-columns: repeat(2, 1fr); gap: 2px 12px' },
-          visible.value.map((item) =>
-            h(ElCheckbox, {
-              key: item.id,
-              modelValue: props.modelValue.includes(item.id),
-              disabled: props.disabled,
-              'onUpdate:modelValue': (checked) => toggle(item.id, checked),
-              label: `${item.name}（${item.codename}）`
-            })
-          )
-        ),
-        h('div', { class: 'hint-text' }, `已选 ${props.modelValue.length} / ${props.permissions.length}`)
-      ])
-  }
-})
-
+const authStore = useAuthStore()
+const capabilities = computed(() => authStore.user?.capabilities || {})
 const loading = ref(false)
 const roles = ref([])
 const permissions = ref([])

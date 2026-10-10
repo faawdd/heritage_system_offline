@@ -22,6 +22,8 @@ import DataManagementView from '../views/system/data/DataManagementView.vue'
 import OfflineTileManagerView from '../views/system/data/OfflineTileManagerView.vue'
 import UserListView from '../views/system/user/UserListView.vue'
 import RoleListView from '../views/system/role/RoleListView.vue'
+import PermissionCatalogView from '../views/system/role/PermissionCatalogView.vue'
+import LogListView from '../views/system/log/LogListView.vue'
 import AppearanceSettingsView from '../views/settings/AppearanceSettingsView.vue'
 import { useAuthStore } from '../stores/system/authStore'
 
@@ -53,8 +55,10 @@ const routes = [
       { path: 'gis/kml-management', component: KmlManagementView },
       { path: 'gis/ovkml-convert', component: OvkmlConvertView },
       { path: 'settings/appearance', component: AppearanceSettingsView },
-      { path: 'system/users', component: UserListView },
-      { path: 'system/roles', component: RoleListView },
+      { path: 'system/users', component: UserListView, meta: { capability: 'view_users' } },
+      { path: 'system/roles', component: RoleListView, meta: { capability: 'view_groups' } },
+      { path: 'system/permissions', component: PermissionCatalogView, meta: { capability: ['view_groups', 'view_users'] } },
+      { path: 'system/logs', component: LogListView, meta: { capability: 'view_logs' } },
       { path: 'system/ai-config', component: DeepSeekConfigView },
       { path: 'system/data-management', component: DataManagementView },
       { path: 'system/offline-maps', component: OfflineTileManagerView }
@@ -94,6 +98,11 @@ router.beforeEach(async (to) => {
   }
 
   const requiresSuperAdmin = to.matched.some((record) => record.meta.requiresSuperAdmin)
+  const capability = to.meta.capability
+  if (capability) {
+    const required = Array.isArray(capability) ? capability : [capability]
+    if (!required.some(key => authStore.user?.capabilities?.[key])) return '/dashboard'
+  }
   if (requiresSuperAdmin) {
     const user = authStore.user || {}
     const roles = Array.isArray(user.roles) ? user.roles : []

@@ -34,10 +34,11 @@ from core.services.account_security import (
     verify_security_answers,
 )
 from system.models import LoginLog, Menu, OperationLog, SystemConfig
+from system.admin_access import GroupManagementPermission, UserManagementPermission, has_system_permission
+from system.log_api import LoginLogListAPIView, OperationLogListAPIView
+from system.admin_api import PermissionCatalogAPIView as PermissionListAPIView
 from system.serializers import (
-    LoginLogSerializer,
     MenuSerializer,
-    OperationLogSerializer,
     PermissionSerializer,
     ProfileSerializer,
     RoleSerializer,
@@ -98,7 +99,13 @@ def _validate_id_list(raw_value, field_name):
 
 
 def _forbid_if_no_write_permission(request, module, action):
-    if can_modify_core_data(request.user):
+    if module == 'system_role':
+        verb = {'POST': 'add', 'PUT': 'change', 'PATCH': 'change', 'DELETE': 'delete'}.get(request.method)
+        if action == 'apply_template':
+            verb = 'change'
+        if verb and has_system_permission(request.user, f'auth.{verb}_group'):
+            return None
+    if _is_super_admin_user(request.user) or can_modify_core_data(request.user):
         return None
     _record_operation(request, module, action, success=False, detail='管理员用户组仅可查看，禁止修改')
     return Response({'success': False, 'message': '当前角色仅可查看，禁止修改'}, status=status.HTTP_403_FORBIDDEN)
@@ -505,7 +512,7 @@ class DeepSeekConfigAPIView(APIView):
 
 
 class UserListCreateAPIView(APIView):
-    permission_classes = [IsManagementAdmin]
+    permission_classes = [UserManagementPermission]
 
     def get(self, request):
         keyword = (request.GET.get('keyword') or '').strip()
@@ -521,7 +528,7 @@ class UserListCreateAPIView(APIView):
         return Response({'success': True, 'rows': rows, 'total': queryset.count()})
 
     def post(self, request):
-        serializer = UserCreateUpdateSerializer(data=request.data)
+        serializer = UserCreateUpdateSerializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
@@ -553,11 +560,12 @@ class UserListCreateAPIView(APIView):
             if group_ids:
                 user.groups.set(Group.objects.filter(id__in=group_ids))
 
+        _record_operation(request, 'system_user', 'add_user', detail=f'用户：{user.username}')
         return Response({'success': True, 'message': '用户创建成功', 'data': UserListSerializer(user).data}, status=status.HTTP_201_CREATED)
 
 
 class UserDetailAPIView(APIView):
-    permission_classes = [IsManagementAdmin]
+    permission_classes = [UserManagementPermission]
 
     def get_object(self, user_id):
         return User.objects.filter(id=user_id).first()
@@ -573,7 +581,7 @@ class UserDetailAPIView(APIView):
         if not user:
             return Response({'success': False, 'message': '用户不存在'}, status=status.HTTP_404_NOT_FOUND)
 
-        serializer = UserCreateUpdateSerializer(data=request.data, partial=True)
+        serializer = UserCreateUpdateSerializer(data=request.data, partial=True, context={'request': request})
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
@@ -615,6 +623,7 @@ class UserDetailAPIView(APIView):
             if 'group_ids' in data:
                 user.groups.set(Group.objects.filter(id__in=data['group_ids']))
 
+        _record_operation(request, 'system_user', 'change_user', detail=f'用户：{user.username}')
         return Response({'success': True, 'message': '用户更新成功', 'data': UserListSerializer(user).data})
 
     def delete(self, request, user_id):
@@ -625,7 +634,9 @@ class UserDetailAPIView(APIView):
         if user.id == request.user.id:
             return Response({'success': False, 'message': '不能删除当前登录用户'}, status=status.HTTP_400_BAD_REQUEST)
 
+        username = user.username
         user.delete()
+        _record_operation(request, 'system_user', 'delete_user', detail=f'用户：{username}')
         return Response({'success': True, 'message': '用户已删除'})
 
 
@@ -655,7 +666,7 @@ def _ungrantable_permissions(user, permissions):
 
 
 class RoleListAPIView(APIView):
-    permission_classes = [IsManagementAdmin]
+    permission_classes = [GroupManagementPermission]
 
     def get(self, request):
         roles = Group.objects.all().order_by('id')
@@ -685,6 +696,8 @@ class RoleListAPIView(APIView):
             permissions, _missing = resolve_permissions(ROLE_TEMPLATES[template_key]['permissions'])
         else:
             permissions = list(Permission.objects.select_related('content_type').filter(id__in=permission_ids))
+            if len(permissions) != len(set(permission_ids)):
+                return _role_error('包含不存在的权限条目')
 
         denied_perms = _ungrantable_permissions(request.user, permissions)
         if denied_perms:
@@ -704,7 +717,7 @@ class RoleListAPIView(APIView):
 
 
 class RoleDetailAPIView(APIView):
-    permission_classes = [IsManagementAdmin]
+    permission_classes = [GroupManagementPermission]
 
     def patch(self, request, role_id):
         denied = _forbid_if_no_write_permission(request, 'system_role', 'update_role')
@@ -747,7 +760,7 @@ class RoleDetailAPIView(APIView):
 
 
 class RoleTemplateListAPIView(APIView):
-    permission_classes = [IsManagementAdmin]
+    permission_classes = [GroupManagementPermission]
 
     def get(self, request):
         rows = []
@@ -765,7 +778,8 @@ class RoleTemplateListAPIView(APIView):
 
 class RoleApplyTemplateAPIView(APIView):
     """把内置模板权限重新写入指定角色（内置角色用于恢复默认权限）。"""
-    permission_classes = [IsManagementAdmin]
+    permission_classes = [GroupManagementPermission]
+    template_action = True
 
     def post(self, request, role_id):
         denied = _forbid_if_no_write_permission(request, 'system_role', 'apply_template')
@@ -774,6 +788,13 @@ class RoleApplyTemplateAPIView(APIView):
         role = Group.objects.filter(id=role_id).first()
         if not role:
             return _role_error('角色不存在', status.HTTP_404_NOT_FOUND)
+
+        if role.name == '超级管理员':
+            if not _is_super_admin_user(request.user):
+                return _role_error('仅超级管理员可恢复最高权限用户组', status.HTTP_403_FORBIDDEN)
+            role.permissions.set(Permission.objects.all())
+            _record_operation(request, 'system_role', 'apply_template', detail=f'用户组：{role.name}')
+            return Response({'success': True, 'message': '已恢复超级管理员全部权限', 'data': RoleSerializer(role).data})
 
         if is_builtin_group(role):
             template_key = role.name
@@ -789,14 +810,6 @@ class RoleApplyTemplateAPIView(APIView):
         count, _ = apply_role_template(role, template_key)
         _record_operation(request, 'system_role', 'apply_template', success=True, detail=f'role_id={role.id}, template={template_key}, count={count}')
         return Response({'success': True, 'message': '已应用角色模板', 'data': RoleSerializer(role).data})
-
-
-class PermissionListAPIView(APIView):
-    permission_classes = [IsManagementAdmin]
-
-    def get(self, request):
-        queryset = Permission.objects.select_related('content_type').all().order_by('content_type__app_label', 'codename')
-        return Response({'success': True, 'rows': PermissionSerializer(queryset, many=True).data})
 
 
 class MenuListAPIView(APIView):
@@ -936,7 +949,7 @@ class MenuDetailAPIView(APIView):
 
 
 class RolePermissionAPIView(APIView):
-    permission_classes = [IsManagementAdmin]
+    permission_classes = [GroupManagementPermission]
 
     def get_role(self, role_id):
         return Group.objects.filter(id=role_id).first()
@@ -954,7 +967,7 @@ class RolePermissionAPIView(APIView):
                     'role_id': role.id,
                     'role_name': role.name,
                     'permission_ids': list(permissions.values_list('id', flat=True)),
-                    'rows': PermissionSerializer(permissions, many=True).data,
+                    'rows': PermissionSerializer(permissions, many=True, context={'user': request.user}).data,
                 },
             }
         )
@@ -977,6 +990,8 @@ class RolePermissionAPIView(APIView):
             return Response({'success': False, 'message': '内置角色权限由模板维护，不可手动修改，可使用“恢复模板权限”'}, status=status.HTTP_400_BAD_REQUEST)
 
         permissions = list(Permission.objects.select_related('content_type').filter(id__in=permission_ids))
+        if len(permissions) != len(set(permission_ids)):
+            return _role_error('包含不存在的权限条目')
         if _ungrantable_permissions(request.user, permissions):
             return Response({'success': False, 'message': '不能授予自己未拥有的权限'}, status=status.HTTP_403_FORBIDDEN)
 
@@ -986,7 +1001,7 @@ class RolePermissionAPIView(APIView):
 
 
 class RoleMenuAPIView(APIView):
-    permission_classes = [IsManagementAdmin]
+    permission_classes = [GroupManagementPermission]
 
     def get_role(self, role_id):
         return Group.objects.filter(id=role_id).first()
@@ -1028,88 +1043,3 @@ class RoleMenuAPIView(APIView):
         role.system_menus.set(Menu.objects.filter(id__in=menu_ids))
         _record_operation(request, 'system_role', 'assign_menus', success=True, detail=f'role_id={role.id}, count={len(menu_ids)}')
         return Response({'success': True, 'message': '角色菜单已更新'})
-
-
-class LoginLogListAPIView(APIView):
-    permission_classes = [IsManagementAdmin]
-
-    def get(self, request):
-        keyword = (request.GET.get('keyword') or '').strip()
-        success = (request.GET.get('success') or '').strip().lower()
-        page = max(int(request.GET.get('page', 1) or 1), 1)
-        page_size = min(max(int(request.GET.get('page_size', 20) or 20), 1), 100)
-
-        queryset = LoginLog.objects.select_related('user').all().order_by('-created_at')
-        if keyword:
-            queryset = queryset.filter(
-                Q(username__icontains=keyword)
-                | Q(ip__icontains=keyword)
-                | Q(message__icontains=keyword)
-            )
-
-        if success in {'1', 'true', 'yes'}:
-            queryset = queryset.filter(success=True)
-        elif success in {'0', 'false', 'no'}:
-            queryset = queryset.filter(success=False)
-
-        total = queryset.count()
-        offset = (page - 1) * page_size
-        rows = LoginLogSerializer(queryset[offset: offset + page_size], many=True).data
-
-        return Response(
-            {
-                'success': True,
-                'rows': rows,
-                'pagination': {
-                    'page': page,
-                    'page_size': page_size,
-                    'total': total,
-                },
-            }
-        )
-
-
-class OperationLogListAPIView(APIView):
-    permission_classes = [IsManagementAdmin]
-
-    def get(self, request):
-        keyword = (request.GET.get('keyword') or '').strip()
-        success = (request.GET.get('success') or '').strip().lower()
-        module = (request.GET.get('module') or '').strip()
-        action = (request.GET.get('action') or '').strip()
-        page = max(int(request.GET.get('page', 1) or 1), 1)
-        page_size = min(max(int(request.GET.get('page_size', 20) or 20), 1), 100)
-
-        queryset = OperationLog.objects.select_related('operator').all().order_by('-created_at')
-        if keyword:
-            queryset = queryset.filter(
-                Q(module__icontains=keyword)
-                | Q(action__icontains=keyword)
-                | Q(request_path__icontains=keyword)
-                | Q(detail__icontains=keyword)
-                | Q(operator__username__icontains=keyword)
-            )
-        if module:
-            queryset = queryset.filter(module__icontains=module)
-        if action:
-            queryset = queryset.filter(action__icontains=action)
-        if success in {'1', 'true', 'yes'}:
-            queryset = queryset.filter(success=True)
-        elif success in {'0', 'false', 'no'}:
-            queryset = queryset.filter(success=False)
-
-        total = queryset.count()
-        offset = (page - 1) * page_size
-        rows = OperationLogSerializer(queryset[offset: offset + page_size], many=True).data
-
-        return Response(
-            {
-                'success': True,
-                'rows': rows,
-                'pagination': {
-                    'page': page,
-                    'page_size': page_size,
-                    'total': total,
-                },
-            }
-        )

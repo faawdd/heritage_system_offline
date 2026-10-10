@@ -286,7 +286,9 @@ const staticMenuGroups = [
     title: '系统管理',
     items: [
       { label: '用户管理', to: '/system/users' },
-      { label: '角色管理', to: '/system/roles' },
+      { label: '用户组管理', to: '/system/roles' },
+      { label: '权限条目', to: '/system/permissions' },
+      { label: '日志中心', to: '/system/logs' },
       { label: 'DeepSeek配置', to: '/system/ai-config' },
       { label: '数据管理', to: '/system/data-management' },
       { label: '离线地图切片', to: '/system/offline-maps' },
@@ -327,6 +329,10 @@ function ensureHeritageEntries(groups = []) {
     { label: '采集数据管理', to: '/collect/records' }
   ]
   const requiredSystemItems = [
+    { label: '用户管理', to: '/system/users' },
+    { label: '用户组管理', to: '/system/roles' },
+    { label: '权限条目', to: '/system/permissions' },
+    { label: '日志中心', to: '/system/logs' },
     { label: 'DeepSeek配置', to: '/system/ai-config' },
     { label: '数据管理', to: '/system/data-management' },
     { label: '离线地图切片', to: '/system/offline-maps' }
@@ -409,8 +415,20 @@ const menuGroups = computed(() => {
   }
 
   const base = dynamic.length > 0 ? ensureHeritageEntries(dynamic) : ensureHeritageEntries(staticMenuGroups)
+  const capabilities = authStore.user?.capabilities || {}
+  const managedPaths = {
+    '/system/users': capabilities.view_users,
+    '/system/roles': capabilities.view_groups,
+    '/system/permissions': capabilities.view_groups || capabilities.view_users,
+    '/system/logs': capabilities.view_logs
+  }
+  const filtered = restrictForNonSuperAdmin(base).map(group => ({
+    ...group,
+    items: group.items.filter(item => !(item.to in managedPaths) || managedPaths[item.to])
+      .map(item => item.to === '/system/roles' ? { ...item, label: '用户组管理' } : item)
+  })).filter(group => group.items.length)
   return [
-    ...restrictForNonSuperAdmin(base),
+    ...filtered,
     { key: 'personal', title: '个人设置', items: [{ label: '外观设置', to: '/settings/appearance' }] }
   ]
 })
