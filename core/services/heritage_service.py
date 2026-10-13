@@ -1,19 +1,52 @@
 import json
+import re
 
 from core.models import HeritageSite, InspectionRecord
 from core.services.heritage_inference import parse_address
 
 
-def _extract_township_name(address):
-    return parse_address(address)['township']
+TOWNSHIP_NORMALIZATION_RULES = [
+    ('东巴扎回族乡', '东巴扎回族乡'),
+    ('东巴扎乡', '东巴扎回族乡'),
+    ('火车站镇', '火车站镇'),
+    ('吐峪沟乡', '吐峪沟乡'),
+    ('吐峪沟镇', '吐峪沟乡'),
+    ('七克台镇', '七克台镇'),
+    ('七克台乡', '七克台镇'),
+    ('七台镇', '七克台镇'),
+    ('连木沁镇', '连木沁镇'),
+    ('连木沁乡', '连木沁镇'),
+    ('达朗坎乡', '达朗坎乡'),
+    ('达浪坎乡', '达朗坎乡'),
+    ('鲁克沁镇', '鲁克沁镇'),
+    ('辟展镇', '辟展镇'),
+    ('辟展乡', '辟展镇'),
+    ('鄯善镇', '鄯善镇'),
+    ('迪坎镇', '迪坎镇'),
+    ('迪坎乡', '迪坎镇'),
+]
+
+
+def normalize_township_name(name):
+    text = re.sub(r'\s+', '', str(name or ''))
+    aliases = dict(TOWNSHIP_NORMALIZATION_RULES)
+    # 旧地址有“鄯善县东北七克台镇”等方位前缀，不属于乡镇名称。
+    without_direction = re.sub(r'^(?:东北|东南|西北|西南|东|南|西|北)', '', text)
+    if text not in aliases and without_direction in aliases:
+        text = without_direction
+    return aliases.get(text, text)
+
+
+def _extract_township_name(address, region_names=()):
+    return normalize_township_name(parse_address(address, region_names)['township'])
 
 
 def site_township(site):
     registration = site.registration
-    if registration and registration.township:
-        return registration.township
+    if registration and registration.township.strip():
+        return normalize_township_name(registration.township)
     region_names = [registration.province, registration.city, registration.county] if registration else []
-    return parse_address(site.address, region_names)['township']
+    return _extract_township_name(site.address, region_names)
 
 
 def _parse_zone(zone_text):

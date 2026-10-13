@@ -28,8 +28,7 @@ from .land_project_services import (
     ALLOWED_DOCUMENT_EXTENSIONS,
     DOCUMENT_NUM_FIELDS,
 )
-from core.services.heritage_service import site_township
-from core.services.heritage_inference import parse_address
+from core.services.heritage_service import normalize_township_name, site_township
 import base64
 import hashlib
 import hmac
@@ -3756,10 +3755,6 @@ def heritage_dashboard_view(request):
     return redirect('/static/frontend/heritage/stats')
 
 
-def _extract_township_name(address):
-    return parse_address(address)['township']
-
-
 def _to_township_full_name(township_name):
     if not township_name:
         return ''
@@ -3867,14 +3862,14 @@ def heritage_classification_stats_api(request):
     if level:
         queryset = queryset.filter(**{level_field: level})
     if township:
-        if township_field:
-            queryset = queryset.filter(**{f'{township_field}__icontains': township})
-        else:
-            matching_ids = [
-                site.pk for site in queryset.select_related('registration')
-                if site_township(site) == township
-            ]
-            queryset = queryset.filter(pk__in=matching_ids)
+        selected_township = normalize_township_name(township)
+        candidates = queryset if township_field else queryset.select_related('registration')
+        matching_ids = [
+            item.pk for item in candidates
+            if (normalize_township_name(item.township) if township_field else site_township(item))
+            == selected_township
+        ]
+        queryset = queryset.filter(pk__in=matching_ids)
     if address_keyword:
         queryset = queryset.filter(**{f'{address_field}__icontains': address_keyword})
 
@@ -3900,10 +3895,11 @@ def heritage_classification_stats_api(request):
         group_field = category_field
         group_key = 'category'
 
-    if group_key == 'township' and not group_field:
+    if group_key == 'township':
         township_counter = {}
-        for item in queryset.select_related('registration'):
-            township_name = site_township(item)
+        candidates = queryset if township_field else queryset.select_related('registration')
+        for item in candidates:
+            township_name = normalize_township_name(item.township) if township_field else site_township(item)
             key = township_name or '未标注乡镇'
             township_counter[key] = township_counter.get(key, 0) + 1
         sorted_items = sorted(township_counter.items(), key=lambda x: x[1], reverse=True)
