@@ -1956,6 +1956,15 @@ watch(
   color: #0c4a6e;
 }
 
+:global(:root[data-theme='dark']) .toolbar-btn.active {
+  background: color-mix(in srgb, #0284c7 28%, var(--surface));
+  color: var(--text);
+}
+
+:global(:root[data-theme='dark']) .toolbar-btn:hover {
+  color: var(--accent);
+}
+
 .measure-text {
   font-size: calc(12rem / 14);
   color: var(--text);

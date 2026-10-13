@@ -45,6 +45,7 @@ class SipuImportTests(TestCase):
         self.assertEqual(HeritageSite.objects.get().registration_id, heritage.pk)
 
     def test_import_is_visible_to_management_map_and_kml(self):
+        from urllib.parse import parse_qs, urlsplit
         from django.contrib.auth import get_user_model
         from core.services.heritage_service import get_heritage_map_points
         from core.views import _analyze_conflicts
@@ -63,6 +64,13 @@ class SipuImportTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()['pagination']['total'], 1)
         self.assertEqual(resp.json()['rows'][0]['registration_id'], site.registration_id)
+        resp = self.client.get('/api/v1/heritage/map-points/')
+        self.assertEqual(resp.status_code, 200)
+        map_row = resp.json()['rows'][0]
+        self.assertEqual(map_row['id'], site.pk)
+        self.assertEqual(map_row['registration_id'], site.registration_id)
+        preview_target = parse_qs(urlsplit(map_row['preview_url']).query)['next'][0]
+        self.assertIn(f'/mobile/collect/{site.registration_id}/preview/', preview_target)
         resp = self.client.get('/api/v1/heritage/immovable/', {'record_id': site.registration_id})
         self.assertEqual(resp.json()['pagination']['total'], 1)
         self.assertIn('sipu_choices', resp.json()['meta'])

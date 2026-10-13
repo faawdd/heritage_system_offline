@@ -152,9 +152,9 @@ async function handleGenerate() {
 .official-doc-generator {
   margin-top: 12px;
   padding: 12px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--line);
   border-radius: 8px;
-  background: #f8fafc;
+  background: color-mix(in srgb, var(--surface) 82%, var(--bg));
 }
 
 .official-doc-generator h4 {
@@ -169,6 +169,6 @@ async function handleGenerate() {
 .hint-text {
   margin-top: 6px;
   font-size: calc(12rem / 14);
-  color: #64748b;
+  color: var(--muted);
 }
 </style>

@@ -11,61 +11,90 @@
       @overlap-click="onMapOverlapClick"
     />
 
-    <div class="kml-menu-toggle">
-      <el-button type="primary" plain @click="menuVisible = !menuVisible">
-        {{ menuVisible ? '隐藏菜单' : '显示菜单' }}
+    <div v-if="!menuVisible" class="kml-menu-toggle">
+      <el-button type="primary" @click="menuVisible = true">
+        <span class="menu-toggle-mark">K</span>
+        KML 检查
       </el-button>
     </div>
 
     <aside v-show="menuVisible" class="kml-floating-menu">
       <div class="floating-menu-header">
-        <div>
-          <h3>KML叠加检查</h3>
-            <p>多文件叠加渲染 + 文物本体、保护范围与建控地带冲突检查</p>
+        <div class="menu-heading">
+          <span class="menu-eyebrow">地图工作台</span>
+          <h3>KML 叠加检查</h3>
+          <p>图层、记录与空间冲突，一处管理</p>
         </div>
-        <el-button link type="primary" @click="menuVisible = false">收起</el-button>
+        <el-button class="menu-close-button" text circle aria-label="收起菜单" @click="menuVisible = false">×</el-button>
       </div>
 
-      <el-scrollbar class="floating-menu-scroll">
-        <el-collapse v-model="activePanels">
+      <el-tabs v-model="activeMenuTab" class="floating-menu-tabs" stretch>
+        <el-tab-pane name="workspace">
+          <template #label>工作台</template>
+          <el-scrollbar class="floating-menu-scroll">
+            <el-collapse v-model="activeWorkspacePanels">
           <el-collapse-item title="上传与即时分析" name="upload" class="panel-upload">
             <div class="floating-form-block">
-              <input ref="uploadInputRef" type="file" accept=".kml,.kmz,.ovkml,.ovkmz" multiple />
-              <div class="floating-row">
-                <span>阈值(米)</span>
-                <el-input-number v-model="threshold" :min="1" :max="5000" />
+              <label class="upload-picker">
+                <span class="upload-picker-icon">＋</span>
+                <span>
+                  <strong>{{ uploadSelection.length ? `已选择 ${uploadSelection.length} 个文件` : '选择 KML 文件' }}</strong>
+                  <small>{{ uploadSelection[0]?.name || '支持 KML、KMZ、OVKML、OVKMZ，可多选' }}</small>
+                </span>
+                <input ref="uploadInputRef" type="file" accept=".kml,.kmz,.ovkml,.ovkmz" multiple @change="onUploadSelectionChange" />
+                <span class="upload-file-browse">浏览</span>
+              </label>
+              <div class="upload-options-row">
+                <label class="switch-copy">
+                  <strong>上传后立即分析</strong>
+                  <small>检测要素与文物范围的冲突</small>
+                </label>
+                <el-switch v-model="immediateAnalyze" active-text="立即分析" inactive-text="仅上传" />
               </div>
-              <el-switch v-model="immediateAnalyze" active-text="立即分析" inactive-text="仅上传" />
-              <el-button type="primary" :loading="uploading" @click="uploadFiles">开始上传</el-button>
-              <p class="hint-text">支持一个或多个KML叠加渲染，自动与文物本体、保护范围及建控地带进行点、线、面冲突检查。</p>
+              <div class="floating-row">
+                <span>距离阈值</span>
+                <el-input-number v-model="threshold" :min="1" :max="5000" controls-position="right">
+                  <template #suffix>米</template>
+                </el-input-number>
+              </div>
+              <el-button class="upload-submit" type="primary" :loading="uploading" @click="uploadFiles">
+                {{ uploading ? '正在上传…' : '开始上传并加载' }}
+              </el-button>
             </div>
           </el-collapse-item>
 
           <el-collapse-item title="批量查询与导出" name="batch" class="panel-batch">
             <div class="floating-form-block">
-              <div class="floating-row">
-                <span>阈值(米)</span>
-                <el-input-number v-model="threshold" :min="1" :max="5000" />
+              <div class="batch-toolbar">
+                <span>当前选中 <strong>{{ selectedRows.length }}</strong> 条记录</span>
+                <el-switch v-model="forceReanalyze" active-text="强制重算" inactive-text="优先缓存" />
               </div>
-              <el-switch v-model="forceReanalyze" active-text="强制重算" inactive-text="优先缓存" />
-              <div class="floating-btn-grid">
-                <el-button type="success" :loading="processing" @click="analyzeSelected">更新冲突数</el-button>
-                <el-button type="primary" :loading="processing" @click="exportByAction('analyze_export_selected', 'conflict_report.csv')">导出查询报告</el-button>
-                <el-button type="warning" :loading="processing" @click="exportByAction('export_conflict_kml', 'conflict_sites.kml')">导出冲突KML</el-button>
+              <div class="batch-actions">
+                <el-button type="success" :disabled="!selectedRows.length" :loading="processing" @click="analyzeSelected">更新冲突数</el-button>
+                <el-button type="primary" :disabled="!selectedRows.length" :loading="processing" @click="exportByAction('analyze_export_selected', 'conflict_report.csv')">导出查询报告</el-button>
+                <el-button type="warning" :disabled="!selectedRows.length" :loading="processing" @click="exportByAction('export_conflict_kml', 'conflict_sites.kml')">导出冲突 KML</el-button>
+                <el-button plain :disabled="!selectedRows.length" :loading="processing" @click="exportByAction('export_boundary_points', 'boundary_points.csv')">边界点 CSV</el-button>
+                <el-button plain :disabled="!selectedRows.length" :loading="processing" @click="exportByAction('export_boundary_kmz', 'boundary.kmz')">边界范围 KMZ</el-button>
               </div>
-              <div class="floating-btn-grid">
-                <el-button type="primary" plain :loading="processing" @click="exportByAction('export_boundary_points', 'boundary_points.csv')">导出边界CSV</el-button>
-                <el-button type="primary" plain :loading="processing" @click="exportByAction('export_boundary_kmz', 'boundary.kmz')">导出边界KMZ</el-button>
-              </div>
+              <p v-if="!selectedRows.length" class="hint-text">请先在「记录」页选择文件。</p>
             </div>
           </el-collapse-item>
+            </el-collapse>
+          </el-scrollbar>
+        </el-tab-pane>
 
-          <el-collapse-item title="KML叠加检查" name="overlap" class="panel-overlap" v-if="overlapRows.length > 0">
-            <div class="floating-form-block">
+        <el-tab-pane name="overlap">
+          <template #label>
+            <span>叠加 <span v-if="overlapRows.length" class="tab-count">{{ overlapRows.length }}</span></span>
+          </template>
+          <el-scrollbar class="floating-menu-scroll">
+            <el-collapse v-model="activeOverlapPanels">
+          <el-collapse-item title="文件间要素叠加" name="overlap" class="panel-overlap">
+            <div v-if="overlapRows.length" class="floating-form-block">
               <el-input v-model="overlapKeyword" placeholder="按文件名或要素名称筛选" clearable />
 
               <h4 class="floating-subtitle">按文件组合聚合</h4>
-              <div class="gis-info-cards">
+              <div class="gis-info-cards overlap-info-cards">
                 <article class="gis-info-card">
                   <span class="label">组合总数</span>
                   <strong>{{ overlapGroupRows.length }}</strong>
@@ -94,13 +123,26 @@
                 <el-table-column prop="source_b" label="文件B" min-width="120" />
               </el-table>
             </div>
+            <div v-else class="result-empty">选择两条或更多记录后，地图会自动检查不同文件间的要素叠加。</div>
           </el-collapse-item>
+            </el-collapse>
+          </el-scrollbar>
+        </el-tab-pane>
 
+        <el-tab-pane name="records">
+          <template #label>
+            <span>记录 <span class="tab-count">{{ rows.length }}</span></span>
+          </template>
+          <el-scrollbar class="floating-menu-scroll">
+            <el-collapse v-model="activeRecordPanels">
           <el-collapse-item title="记录选择与操作" name="records" class="panel-records">
-            <div class="floating-form-block">
-              <div class="floating-row">
-                <el-button type="primary" @click="loadRows">刷新记录</el-button>
-                <span class="muted-text">已选 {{ selectedRows.length }} 条</span>
+            <div class="floating-form-block records-content">
+              <div class="records-toolbar">
+                <div>
+                  <span class="section-kicker">文件管理</span>
+                  <strong>已上传记录</strong>
+                </div>
+                <el-button text :loading="loading" @click="loadRows">刷新</el-button>
               </div>
               <div class="floating-row">
                 <el-button
@@ -109,7 +151,7 @@
                   :disabled="selectedRows.length !== 1"
                   @click="openProjectLinkDialog"
                 >关联/新建项目选址</el-button>
-                <span class="muted-text">选中单条记录后，可直接作为建设项目的选址范围</span>
+                <span class="muted-text">选择一条记录后关联项目选址</span>
               </div>
               <div class="gis-info-cards">
                 <article class="gis-info-card">
@@ -125,42 +167,61 @@
                   <strong>{{ totalConflictCount }}</strong>
                 </article>
               </div>
-              <el-table ref="recordsTableRef" :data="rows" v-loading="loading" stripe size="small" max-height="280" @selection-change="onSelectionChange">
-                <el-table-column type="selection" width="52" />
-                <el-table-column prop="title" label="文件名" min-width="180" />
-                <el-table-column prop="conflict_count" label="冲突数" width="90">
+              <el-table ref="recordsTableRef" :data="rows" v-loading="loading" stripe size="small" max-height="420" @selection-change="onSelectionChange">
+                <el-table-column type="selection" width="42" />
+                <el-table-column prop="title" label="文件名" min-width="145" show-overflow-tooltip />
+                <el-table-column prop="conflict_count" label="冲突" width="66">
                   <template #default="scope">
-                    <el-tag :type="scope.row.conflict_count > 0 ? 'danger' : 'success'">
+                    <el-tag :type="scope.row.conflict_count > 0 ? 'danger' : 'success'" effect="light">
                       {{ scope.row.conflict_count }}
                     </el-tag>
                   </template>
                 </el-table-column>
-                <el-table-column label="操作" min-width="280">
+                <el-table-column label="操作" width="98" fixed="right">
                   <template #default="scope">
-                    <div class="record-op-cell">
-                      <div class="record-op-actions">
-                        <el-button link type="success" :loading="processing" @click="analyzeSingle(scope.row)">查询</el-button>
-                        <el-button link type="primary" @click="openFile(scope.row)">源文件</el-button>
-                        <el-button link type="danger" :loading="processing" @click="deleteRecord(scope.row)">删除</el-button>
-                      </div>
-                      <div class="record-rename-inline">
-                        <el-input
-                          v-model="renameDraft[scope.row.id]"
-                          :placeholder="scope.row.title"
-                          size="small"
-                          @keyup.enter="renameRecord(scope.row)"
-                        />
-                        <el-button link type="warning" :loading="processing" @click="renameRecord(scope.row)">重命名</el-button>
-                      </div>
+                    <div class="record-op-actions">
+                      <el-button link type="success" :loading="processing" @click="analyzeSingle(scope.row)">查询</el-button>
+                      <el-dropdown trigger="click">
+                        <el-button link type="primary">更多</el-button>
+                        <template #dropdown>
+                          <el-dropdown-menu>
+                            <el-dropdown-item @click="openFile(scope.row)">打开源文件</el-dropdown-item>
+                            <el-dropdown-item @click="beginRename(scope.row)">重命名</el-dropdown-item>
+                            <el-dropdown-item divided @click="deleteRecord(scope.row)">删除记录</el-dropdown-item>
+                          </el-dropdown-menu>
+                        </template>
+                      </el-dropdown>
                     </div>
                   </template>
                 </el-table-column>
               </el-table>
+              <div v-if="renameTarget" class="rename-editor">
+                <strong>重命名：{{ renameTarget.title }}</strong>
+                <div class="rename-editor-row">
+                  <el-input
+                    v-model="renameDraft[renameTarget.id]"
+                    :placeholder="renameTarget.title"
+                    size="small"
+                    @keyup.enter="renameRecord(renameTarget)"
+                  />
+                  <el-button size="small" type="primary" :loading="processing" @click="renameRecord(renameTarget)">保存</el-button>
+                  <el-button size="small" @click="renameTarget = null">取消</el-button>
+                </div>
+              </div>
             </div>
           </el-collapse-item>
+            </el-collapse>
+          </el-scrollbar>
+        </el-tab-pane>
 
-          <el-collapse-item title="冲突详情" name="conflicts" class="panel-conflicts" v-if="latestConflicts.length > 0">
-            <div class="floating-form-block">
+        <el-tab-pane name="conflicts">
+          <template #label>
+            <span title="文物保护范围冲突">冲突 <span v-if="latestConflicts.length" class="tab-count">{{ latestConflicts.length }}</span></span>
+          </template>
+          <el-scrollbar class="floating-menu-scroll">
+            <el-collapse v-model="activeConflictPanels">
+          <el-collapse-item title="冲突详情" name="conflicts" class="panel-conflicts">
+            <div v-if="latestConflicts.length" class="floating-form-block">
               <el-input v-model="conflictKeyword" placeholder="按文物名称或来源文件筛选" clearable />
 
               <h4 class="floating-subtitle">按文物点聚合</h4>
@@ -197,9 +258,12 @@
                 <el-table-column prop="relation" label="关系" width="100" />
               </el-table>
             </div>
+          <div v-else class="result-empty">选择记录并运行冲突分析后，结果会显示在这里。</div>
           </el-collapse-item>
-        </el-collapse>
-      </el-scrollbar>
+            </el-collapse>
+          </el-scrollbar>
+        </el-tab-pane>
+      </el-tabs>
     </aside>
 
     <el-dialog v-model="projectLinkVisible" title="关联/新建项目选址" width="620px">
@@ -263,6 +327,7 @@ const loading = ref(false)
 const uploading = ref(false)
 const processing = ref(false)
 const uploadInputRef = ref(null)
+const uploadSelection = ref([])
 const selectedIds = ref([])
 const selectedRows = ref([])
 const latestConflicts = ref([])
@@ -276,8 +341,13 @@ const overlapKeyword = ref('')
 const activeOverlap = ref(null)
 const forceReanalyze = ref(false)
 const renameDraft = reactive({})
+const renameTarget = ref(null)
 const menuVisible = ref(true)
-const activePanels = ref(['upload', 'batch', 'overlap', 'records', 'conflicts'])
+const activeMenuTab = ref('workspace')
+const activeWorkspacePanels = ref(['upload'])
+const activeOverlapPanels = ref(['overlap'])
+const activeRecordPanels = ref(['records'])
+const activeConflictPanels = ref(['conflicts'])
 
 const filteredConflicts = computed(() => {
   const keyword = conflictKeyword.value.trim()
@@ -358,6 +428,10 @@ function appendSelectedIds(formData) {
   selectedIds.value.forEach((id) => {
     formData.append('selected_ids', String(id))
   })
+}
+
+function onUploadSelectionChange(event) {
+  uploadSelection.value = Array.from(event.target?.files || [])
 }
 
 function onSelectionChange(selection) {
@@ -518,6 +592,11 @@ function openFile(row) {
   window.open(row.file_url, '_blank')
 }
 
+function beginRename(row) {
+  renameTarget.value = row
+  renameDraft[row.id] = row.title
+}
+
 async function renameRecord(row) {
   const newTitle = (renameDraft[row.id] || '').trim()
   if (!newTitle) {
@@ -533,6 +612,7 @@ async function renameRecord(row) {
     formData.set('new_title', newTitle)
     const result = await runAction(formData)
     ElMessage.success(result.message || '重命名成功')
+    renameTarget.value = null
     await loadRows()
   } catch (error) {
     ElMessage.error(error?.message || '重命名失败')
@@ -568,6 +648,7 @@ async function analyzeSingle(row) {
     const result = await runAction(formData)
     latestConflicts.value = result.data?.conflicts || []
     activeConflict.value = null
+    activeMenuTab.value = 'conflicts'
     ElMessage.success(result.message || '查询完成')
     await loadRows()
   } catch (error) {
@@ -593,6 +674,7 @@ async function analyzeSelected() {
     const result = await runAction(formData)
     latestConflicts.value = result.data?.conflicts || []
     activeConflict.value = null
+    activeMenuTab.value = 'conflicts'
     ElMessage.success(result.message || '批量查询完成')
     await loadRows()
   } catch (error) {
@@ -745,54 +827,163 @@ onMounted(() => {
 }
 
 .kml-menu-toggle :deep(.el-button) {
-  border: 1px solid rgba(148, 163, 184, 0.45);
+  min-height: 42px;
+  padding: 0 15px 0 11px;
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  border-radius: 14px;
   background: var(--surface);
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.18);
-  backdrop-filter: blur(6px);
+  color: var(--text);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.2);
+  backdrop-filter: blur(12px);
+  font-weight: 650;
+}
+
+.menu-toggle-mark {
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  margin-right: 8px;
+  place-items: center;
+  border-radius: 8px;
+  background: linear-gradient(145deg, #0ea5e9, #2563eb);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .kml-floating-menu {
   position: absolute;
   left: 16px;
-  top: 62px;
+  top: 16px;
   bottom: 16px;
-  width: min(420px, calc(100vw - 32px));
+  width: min(410px, calc(100vw - 32px));
   z-index: 28;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 18px;
-  box-shadow: 0 20px 46px rgba(15, 23, 42, 0.2);
-  backdrop-filter: blur(10px);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.24), 0 3px 12px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(18px);
   animation: menu-fade-in 220ms ease-out;
 }
 
 .floating-menu-header {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 16px 10px;
-  border-bottom: 1px solid var(--line);
-  background: color-mix(in srgb, var(--surface) 88%, var(--bg));
+  min-height: 91px;
+  padding: 16px 18px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
+  background:
+    radial-gradient(circle at 94% 0%, rgba(14, 165, 233, 0.14), transparent 42%),
+    color-mix(in srgb, var(--surface) 92%, var(--bg));
+}
+
+.menu-heading {
+  min-width: 0;
+}
+
+.menu-eyebrow {
+  display: block;
+  margin-bottom: 5px;
+  color: #0284c7;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.12em;
 }
 
 .floating-menu-header h3 {
   margin: 0;
-  font-size: calc(17rem / 14);
-  letter-spacing: 0.2px;
   color: var(--text);
+  font-size: 17px;
+  font-weight: 750;
+  letter-spacing: 0.01em;
 }
 
 .floating-menu-header p {
   margin: 5px 0 0;
-  font-size: calc(12rem / 14);
   color: var(--muted);
+  font-size: 11px;
+}
+
+.menu-close-button {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  color: var(--muted);
+  font-size: 24px;
+}
+
+.floating-menu-tabs {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.floating-menu-tabs :deep(.el-tabs__header) {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0 12px;
+  background: color-mix(in srgb, var(--surface) 96%, var(--bg));
+}
+
+.floating-menu-tabs :deep(.el-tabs__nav-wrap::after) {
+  height: 1px;
+  background: color-mix(in srgb, var(--line) 70%, transparent);
+}
+
+.floating-menu-tabs :deep(.el-tabs__item) {
+  height: 46px;
+  padding: 0 9px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.floating-menu-tabs :deep(.el-tabs__item.is-active) {
+  color: #0284c7;
+}
+
+.floating-menu-tabs :deep(.el-tabs__active-bar) {
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #0ea5e9, #2563eb);
+}
+
+.floating-menu-tabs :deep(.el-tabs__content) {
+  flex: 1;
+  min-height: 0;
+}
+
+.floating-menu-tabs :deep(.el-tab-pane) {
+  height: 100%;
+}
+
+.tab-count {
+  display: inline-grid;
+  min-width: 18px;
+  height: 18px;
+  margin-left: 3px;
+  padding: 0 4px;
+  place-items: center;
+  border-radius: 9px;
+  background: color-mix(in srgb, #0ea5e9 14%, var(--surface));
+  color: #0284c7;
+  font-size: 10px;
+  line-height: 1;
 }
 
 .floating-menu-scroll {
-  flex: 1;
-  padding: 10px 12px 14px;
+  height: 100%;
+  padding: 12px;
+}
+
+.floating-menu-scroll :deep(.el-scrollbar__wrap) {
+  overflow-x: hidden;
 }
 
 .floating-menu-scroll :deep(.el-collapse) {
@@ -801,55 +992,27 @@ onMounted(() => {
 }
 
 .floating-menu-scroll :deep(.el-collapse-item) {
-  background: color-mix(in srgb, var(--surface) 82%, var(--bg));
-  border: 1px solid var(--line);
-  border-radius: 12px;
   margin-bottom: 10px;
   overflow: hidden;
-  position: relative;
+  border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--surface) 94%, var(--bg));
+  transition: border-color 160ms ease, box-shadow 160ms ease;
 }
 
-.floating-menu-scroll :deep(.el-collapse-item)::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 3px;
-  background: linear-gradient(180deg, #94a3b8 0%, #64748b 100%);
-  opacity: 0.55;
-}
-
-.floating-menu-scroll :deep(.panel-upload.el-collapse-item)::before {
-  background: linear-gradient(180deg, #0284c7 0%, #0ea5e9 100%);
-  opacity: 0.9;
-}
-
-.floating-menu-scroll :deep(.panel-batch.el-collapse-item)::before {
-  background: linear-gradient(180deg, #16a34a 0%, #14b8a6 100%);
-  opacity: 0.9;
-}
-
-.floating-menu-scroll :deep(.panel-overlap.el-collapse-item)::before,
-.floating-menu-scroll :deep(.panel-conflicts.el-collapse-item)::before {
-  background: linear-gradient(180deg, #dc2626 0%, #f97316 100%);
-  opacity: 0.9;
-}
-
-.floating-menu-scroll :deep(.panel-records.el-collapse-item)::before {
-  background: linear-gradient(180deg, #6366f1 0%, #2563eb 100%);
-  opacity: 0.85;
+.floating-menu-scroll :deep(.el-collapse-item.is-active) {
+  border-color: color-mix(in srgb, #0ea5e9 42%, var(--line));
+  box-shadow: 0 5px 16px rgba(15, 23, 42, 0.06);
 }
 
 .floating-menu-scroll :deep(.el-collapse-item__header) {
-  height: 42px;
-  line-height: 42px;
-  padding: 0 12px 0 14px;
+  height: 46px;
+  padding: 0 14px;
   border: 0;
+  background: transparent;
   color: var(--text);
-  font-size: calc(13rem / 14);
-  font-weight: 600;
-  background: color-mix(in srgb, var(--surface) 90%, var(--bg));
+  font-size: 13px;
+  font-weight: 650;
 }
 
 .floating-menu-scroll :deep(.el-collapse-item__wrap) {
@@ -858,7 +1021,221 @@ onMounted(() => {
 }
 
 .floating-menu-scroll :deep(.el-collapse-item__content) {
-  padding: 12px;
+  padding: 2px 13px 14px;
+}
+
+.upload-picker {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-height: 70px;
+  padding: 11px 12px;
+  border: 1px dashed color-mix(in srgb, #0284c7 44%, var(--line));
+  border-radius: 12px;
+  background: color-mix(in srgb, #0ea5e9 6%, var(--surface));
+  cursor: pointer;
+  transition: border-color 150ms ease, background 150ms ease;
+}
+
+.upload-picker:hover {
+  border-color: #0284c7;
+  background: color-mix(in srgb, #0ea5e9 10%, var(--surface));
+}
+
+.upload-picker-icon {
+  display: grid;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 10px;
+  background: linear-gradient(145deg, #0ea5e9, #2563eb);
+  color: white;
+  font-size: 23px;
+  font-weight: 300;
+  line-height: 1;
+}
+
+.upload-picker > span:nth-child(2) {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.upload-picker strong,
+.switch-copy strong {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.upload-picker small,
+.switch-copy small {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.upload-picker input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.upload-picker:focus-within {
+  outline: 2px solid color-mix(in srgb, #0284c7 55%, transparent);
+  outline-offset: 2px;
+}
+
+.upload-file-browse {
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, #0ea5e9 24%, var(--line));
+  border-radius: 7px;
+  background: color-mix(in srgb, #0ea5e9 13%, var(--surface));
+  color: #0369a1;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.upload-options-row,
+.batch-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 43px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--line) 75%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 92%, var(--bg));
+}
+
+.switch-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.batch-toolbar > span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.batch-toolbar > span strong {
+  color: #0284c7;
+  font-size: 15px;
+}
+
+.upload-submit {
+  width: 100%;
+  min-height: 38px;
+  border: 0;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #0284c7, #2563eb);
+  box-shadow: 0 7px 16px rgba(2, 132, 199, 0.2);
+  font-weight: 650;
+}
+
+.batch-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.batch-actions :deep(.el-button) {
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  margin: 0;
+  padding: 0 7px;
+  border-radius: 9px;
+  font-size: 11px;
+}
+
+.batch-actions :deep(.el-button:first-child) {
+  grid-column: 1 / -1;
+}
+
+.records-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.records-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.records-toolbar > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.records-toolbar strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.section-kicker {
+  color: #0284c7;
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+}
+
+.record-op-actions {
+  gap: 4px;
+}
+
+.rename-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, #0ea5e9 30%, var(--line));
+  border-radius: 10px;
+  background: color-mix(in srgb, #0ea5e9 5%, var(--surface));
+}
+
+.rename-editor > strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rename-editor-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 6px;
+}
+
+.result-content {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.result-empty {
+  padding: 24px 12px;
+  color: var(--muted);
+  text-align: center;
+  font-size: 12px;
+}
+
+.overlap-info-cards {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .floating-form-block {

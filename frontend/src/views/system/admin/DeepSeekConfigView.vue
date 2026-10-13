@@ -116,7 +116,7 @@ loadConfig()
 <style scoped>
 .hint {
   margin-top: 6px;
-  color: #64748b;
+  color: var(--muted);
   font-size: calc(12rem / 14);
 }
 </style>

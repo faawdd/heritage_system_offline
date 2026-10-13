@@ -866,7 +866,7 @@ loadRows().then(() => {
 }
 
 .coord-editor-hint {
-  color: #8a8f99;
+  color: var(--muted);
   font-size: calc(12rem / 14);
 }
 </style>

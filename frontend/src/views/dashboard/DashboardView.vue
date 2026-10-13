@@ -597,7 +597,7 @@ watch(
 }
 
 .muted-text {
-  color: #64748b;
+  color: var(--muted);
   font-size: calc(12rem / 14);
 }
 

@@ -1085,7 +1085,7 @@ loadDetail()
 
 .stat span {
   font-size: calc(12rem / 14);
-  color: #64748b;
+  color: var(--muted);
 }
 
 .stat strong {
@@ -1101,7 +1101,7 @@ loadDetail()
   margin-top: 12px;
   border-radius: 10px;
   overflow: hidden;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--line);
 }
 
 .map-box :deep(.kml-overlay-map-wrap),
@@ -1202,7 +1202,7 @@ loadDetail()
   display: flex;
   flex-direction: column;
   gap: 2px;
-  color: #64748b;
+  color: var(--muted);
   font-size: calc(12rem / 14);
 }
 

@@ -326,7 +326,7 @@ onMounted(() => {
 
 .create-dialog-hint {
   margin: -4px 0 18px 100px;
-  color: #64748b;
+  color: var(--muted);
   font-size: calc(13rem / 14);
 }
 
@@ -343,7 +343,7 @@ onMounted(() => {
 }
 
 .stat-item--danger :deep(.el-statistic__content-value) {
-  color: #c81e1e;
+  color: var(--danger-text);
 }
 
 .stat-item {
@@ -361,7 +361,7 @@ onMounted(() => {
 }
 
 .todo-warn {
-  color: #c81e1e;
+  color: var(--danger-text);
   font-weight: 600;
 }
 
@@ -372,7 +372,7 @@ onMounted(() => {
 }
 
 .view-summary {
-  color: #64748b;
+  color: var(--muted);
   font-size: calc(13rem / 14);
 }
 
@@ -408,7 +408,7 @@ onMounted(() => {
 }
 
 .project-card-meta span {
-  color: #64748b;
+  color: var(--muted);
 }
 
 .project-card-progress {

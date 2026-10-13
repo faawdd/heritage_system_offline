@@ -29,7 +29,8 @@ def _parse_zone(zone_text):
 def get_heritage_map_points():
     rows = []
     for site in HeritageSite.objects.all().only(
-        'id', 'name', 'longitude', 'latitude', 'level', 'body_boundary', 'protection_zone', 'control_zone'
+        'id', 'registration_id', 'name', 'longitude', 'latitude', 'level',
+        'body_boundary', 'protection_zone', 'control_zone'
     ):
         try:
             lng = float(site.longitude)
@@ -39,6 +40,7 @@ def get_heritage_map_points():
         rows.append(
             {
                 'id': site.id,
+                'registration_id': site.registration_id,
                 'name': site.name,
                 'lng': lng,
                 'lat': lat,

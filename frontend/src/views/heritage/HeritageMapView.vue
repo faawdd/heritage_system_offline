@@ -6,6 +6,7 @@
       :active-levels="activeLevels"
       :keyword="keyword"
       :show-point-popup="true"
+      :enable-map-tools="true"
       @open-detail="openDetail"
     />
 
@@ -88,7 +89,7 @@ loadData()
   position: relative;
   height: 100dvh;
   min-height: 100dvh;
-  background: #f1f5f9;
+  background: var(--bg);
   overflow: hidden;
 }
 
@@ -111,8 +112,8 @@ loadData()
   bottom: 16px;
   width: min(420px, calc(100vw - 32px));
   z-index: 18;
-  background: rgba(255, 255, 255, 0.96);
-  border: 1px solid #dbe5ef;
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  border: 1px solid var(--line);
   border-radius: 14px;
   box-shadow: 0 14px 36px rgba(15, 23, 42, 0.22);
   backdrop-filter: blur(5px);
@@ -125,7 +126,7 @@ loadData()
   align-items: center;
   justify-content: space-between;
   padding: 14px 14px 8px;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--line);
 }
 
 .heritage-menu-header h3 {
@@ -136,7 +137,7 @@ loadData()
 .heritage-menu-header p {
   margin: 4px 0 0;
   font-size: calc(12rem / 14);
-  color: #64748b;
+  color: var(--muted);
 }
 
 .heritage-menu-scroll {
