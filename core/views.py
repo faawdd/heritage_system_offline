@@ -776,6 +776,43 @@ def _feature_bbox(feature):
     return (min(lons), min(lats), max(lons), max(lats))
 
 
+def _rings_bbox(rings):
+    try:
+        points = [
+            (float(point[0]), float(point[1]))
+            for ring in rings
+            for point in ring
+            if len(point) >= 2
+        ]
+    except (TypeError, ValueError, IndexError):
+        return None
+    if not points or any(not math.isfinite(value) for point in points for value in point):
+        return None
+    longitudes = [point[0] for point in points]
+    latitudes = [point[1] for point in points]
+    return (min(longitudes), min(latitudes), max(longitudes), max(latitudes))
+
+
+def _bboxes_may_be_within_distance(first_bbox, second_bbox, distance_m):
+    if not first_bbox or not second_bbox:
+        return True
+    if not all(math.isfinite(value) for value in (*first_bbox, *second_bbox)):
+        return True
+
+    max_abs_latitude = max(abs(first_bbox[1]), abs(first_bbox[3]), abs(second_bbox[1]), abs(second_bbox[3]))
+    if max_abs_latitude >= 90:
+        return True
+    cos_latitude = max(1e-12, abs(math.cos(math.radians(max_abs_latitude))))
+    latitude_padding = distance_m / 111320.0
+    longitude_padding = distance_m / (111320.0 * cos_latitude)
+    return (
+        first_bbox[0] <= second_bbox[2] + longitude_padding
+        and first_bbox[2] + longitude_padding >= second_bbox[0]
+        and first_bbox[1] <= second_bbox[3] + latitude_padding
+        and first_bbox[3] + latitude_padding >= second_bbox[1]
+    )
+
+
 def _build_site_spatial_index(site_points, cell_deg):
     index = {}
     max_index_cells = 10000
@@ -945,6 +982,17 @@ def _analyze_conflicts(features, threshold_m, site_points=None):
     threshold = float(threshold_m)
     cell_deg = max(0.0002, threshold / 111320.0)
     site_index = _build_site_spatial_index(site_points, cell_deg)
+    ranges_by_site_id = {}
+    for site in site_points:
+        ranges = site.get('ranges') or (
+            [{'label': '文物本体范围', 'rings': site['boundary_rings']}]
+            if site.get('boundary_rings')
+            else []
+        )
+        ranges_by_site_id[site['id']] = [
+            (spatial_range, _rings_bbox(spatial_range.get('rings') or []))
+            for spatial_range in ranges
+        ]
     conflicts = []
 
     for feature in features:
@@ -961,12 +1009,10 @@ def _analyze_conflicts(features, threshold_m, site_points=None):
         for site in candidate_sites:
             site_lon = site['longitude']
             site_lat = site['latitude']
-            ranges = site.get('ranges') or []
-            if not ranges and site.get('boundary_rings'):
-                ranges = [{'label': '文物本体范围', 'rings': site['boundary_rings']}]
-
             matched_ranges = []
-            for spatial_range in ranges:
+            for spatial_range, range_bbox in ranges_by_site_id[site['id']]:
+                if not _bboxes_may_be_within_distance(feature_bbox, range_bbox, threshold):
+                    continue
                 matched, distance_m, relation = _analyze_feature_against_rings(
                     feature_type,
                     coords,

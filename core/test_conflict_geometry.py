@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from django.test import SimpleTestCase
 
 from core.views import _analyze_conflicts, _parse_boundary_rings
@@ -99,3 +101,55 @@ class HeritageRangeConflictTests(SimpleTestCase):
         self.assertEqual(len(conflicts), 1)
         self.assertEqual(conflicts[0]['relation'], '线与文物保护范围相交')
         self.assertEqual(conflicts[0]['zone_type'], '文物保护范围')
+
+    def test_distant_range_is_skipped_inside_a_broad_site_bbox(self):
+        site = {
+            **self.site,
+            'boundary_rings': [],
+            'ranges': [{
+                'label': '文物本体范围',
+                'rings': [[(0.01, 0.01), (0.02, 0.01), (0.02, 0.02), (0.01, 0.02), (0.01, 0.01)]],
+            }],
+            'bbox': (-1.0, -1.0, 1.0, 1.0),
+        }
+
+        with patch('core.views._analyze_feature_against_rings') as analyze_range:
+            conflicts = _analyze_conflicts(
+                [{
+                    'name': '远处点',
+                    'geometry_type': 'Point',
+                    'coordinates': (0.0, 0.0),
+                    'source': 'point.kml',
+                }],
+                threshold_m=50,
+                site_points=[site],
+            )
+
+        self.assertEqual(conflicts, [])
+        analyze_range.assert_not_called()
+
+    def test_nearby_range_is_not_skipped_at_high_latitude(self):
+        site = {
+            **self.site,
+            'longitude': 0.0,
+            'latitude': 42.0,
+            'boundary_rings': [],
+            'ranges': [{
+                'label': '文物本体范围',
+                'rings': [[(0.0, 42.0), (0.0, 42.001), (-0.001, 42.001), (-0.001, 42.0), (0.0, 42.0)]],
+            }],
+            'bbox': (-0.001, 42.0, 0.0, 42.001),
+        }
+        conflicts = _analyze_conflicts(
+            [{
+                'name': '近距离点',
+                'geometry_type': 'Point',
+                'coordinates': (0.0006, 42.0),
+                'source': 'point.kml',
+            }],
+            threshold_m=50,
+            site_points=[site],
+        )
+
+        self.assertEqual(len(conflicts), 1)
+        self.assertEqual(conflicts[0]['zone_type'], '文物本体范围')
