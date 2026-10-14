@@ -4,6 +4,7 @@ from django.test import TestCase
 from rest_framework.test import APIClient
 
 from core.role_templates import ROLE_TEMPLATES
+from system.admin_sync import sync_admin_permissions
 
 
 class RoleManagementAPITests(TestCase):
@@ -33,6 +34,29 @@ class RoleManagementAPITests(TestCase):
         self.assertIn('add_inspectionrecord', codenames)
         self.assertNotIn('delete_heritagesite', codenames)
         self.assertNotIn('add_user', codenames)
+
+    def test_regular_admin_has_read_only_basic_heritage_permissions(self):
+        group = Group.objects.get(name='管理员')
+        codenames = set(group.permissions.values_list('codename', flat=True))
+        self.assertIn('view_heritagesite', codenames)
+        self.assertNotIn('add_heritagesite', codenames)
+        self.assertNotIn('change_heritagesite', codenames)
+
+    def test_migration_sync_removes_legacy_basic_heritage_permissions(self):
+        group = Group.objects.get(name='管理员')
+        legacy_permissions = Permission.objects.filter(
+            content_type__app_label='core',
+            content_type__model__in=['heritagesite', 'immovableheritage'],
+            codename__in=[
+                'add_heritagesite', 'change_heritagesite',
+                'add_immovableheritage', 'change_immovableheritage',
+            ],
+        )
+        group.permissions.add(*legacy_permissions)
+
+        sync_admin_permissions(sender=None, using='default')
+
+        self.assertFalse(group.permissions.filter(pk__in=legacy_permissions).exists())
 
     def test_create_role_from_template_and_manual(self):
         client = self.client_for(self.superuser)
@@ -65,7 +89,21 @@ class RoleManagementAPITests(TestCase):
         self.assertEqual(client.delete(f'/api/v1/system/roles/{inspector.id}/').status_code, 400)
         self.assertEqual(
             client.put(f'/api/v1/system/roles/{inspector.id}/permissions/', {'permission_ids': []}, format='json').status_code,
-            400,
+            403,
+        )
+
+    def test_superuser_can_modify_permissions_of_builtin_groups(self):
+        inspector = Group.objects.get(name='文物看护员')
+        permission = Permission.objects.get(codename='view_heritagesite')
+        response = self.client_for(self.superuser).put(
+            f'/api/v1/system/roles/{inspector.id}/permissions/',
+            {'permission_ids': [permission.id]},
+            format='json',
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(
+            set(inspector.permissions.values_list('id', flat=True)),
+            {permission.id},
         )
 
     def test_apply_template_restores_builtin_permissions(self):

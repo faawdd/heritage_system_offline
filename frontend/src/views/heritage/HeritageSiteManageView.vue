@@ -30,7 +30,7 @@
       <el-button type="warning" plain :loading="coordinateExporting" @click="handleCoordinateExport('all')">
         导出筛选全部 KMZ
       </el-button>
-      <el-upload :show-file-list="false" accept=".csv" :before-upload="beforeImport">
+      <el-upload v-if="canModifyBasicHeritageData" :show-file-list="false" accept=".csv" :before-upload="beforeImport">
         <el-button type="success" :loading="importing">导入 CSV</el-button>
       </el-upload>
     </div>
@@ -70,7 +70,7 @@
         </el-table-column>
         <el-table-column label="操作" width="180" fixed="right">
           <template #default="scope">
-            <el-button link type="primary" @click="openEdit(scope.row)">编辑</el-button>
+            <el-button v-if="canModifyBasicHeritageData" link type="primary" @click="openEdit(scope.row)">编辑</el-button>
             <el-button v-if="scope.row.registration_id" link type="primary" @click="registrationId = scope.row.registration_id">完整档案</el-button>
           </template>
         </el-table-column>
@@ -89,7 +89,7 @@
     </div>
 
     <el-dialog v-model="dialog.visible" title="编辑不可移动文物档案" width="820px">
-      <el-form label-width="110px" label-position="left">
+      <el-form label-width="110px" label-position="left" :disabled="!canModifyBasicHeritageData">
         <el-row :gutter="12">
           <el-col :span="12">
             <el-form-item label="文物名称">
@@ -145,7 +145,7 @@
           <el-input v-model="dialog.form.description" type="textarea" :rows="3" />
         </el-form-item>
 
-        <el-form-item label="两线源文件">
+        <el-form-item v-if="canModifyBasicHeritageData" label="两线源文件">
           <div class="two-line-file-controls">
             <div class="two-line-file-current">
               <strong>{{ dialog.form.two_line_file?.name || '尚未上传两线文件' }}</strong>
@@ -184,7 +184,7 @@
           </div>
         </el-form-item>
 
-        <el-form-item label="本体范围坐标">
+        <el-form-item v-if="canModifyBasicHeritageData" label="本体范围坐标">
           <div class="two-line-file-controls">
             <div class="two-line-file-actions">
               <input
@@ -231,13 +231,14 @@
       </el-form>
       <template #footer>
         <el-button @click="dialog.visible = false">取消</el-button>
-        <el-button type="primary" :loading="dialog.loading" @click="submitEdit">保存</el-button>
+        <el-button v-if="canModifyBasicHeritageData" type="primary" :loading="dialog.loading" @click="submitEdit">保存</el-button>
       </template>
     </el-dialog>
     <ImmovableHeritageManageView
       v-if="registrationId"
       :key="registrationId"
       :record-id="registrationId"
+      read-only
       @closed="registrationId = null"
       @saved="loadRows"
     />
@@ -248,7 +249,10 @@
 import { computed, reactive, ref } from 'vue'
 import ImmovableHeritageManageView from './ImmovableHeritageManageView.vue'
 const registrationId = ref(null)
+const authStore = useAuthStore()
+const canModifyBasicHeritageData = computed(() => Boolean(authStore.user?.capabilities?.modify_basic_heritage_data))
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useAuthStore } from '../../stores/system/authStore'
 
 import {
   exportHeritageSiteManage,

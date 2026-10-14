@@ -20,6 +20,8 @@ def management_capabilities(user):
         'view_groups': has_system_permission(user, 'auth.view_group'),
         'add_groups': has_system_permission(user, 'auth.add_group'),
         'change_groups': has_system_permission(user, 'auth.change_group'),
+        'manage_builtin_group_permissions': is_system_superuser(user),
+        'modify_basic_heritage_data': is_system_superuser(user),
         'delete_groups': has_system_permission(user, 'auth.delete_group'),
         'view_users': has_system_permission(user, 'auth.view_user'),
         'add_users': has_system_permission(user, 'auth.add_user'),

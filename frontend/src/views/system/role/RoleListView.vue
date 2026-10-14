@@ -2,7 +2,7 @@
   <section>
     <header class="page-header">
       <h1>用户组管理</h1>
-      <p>新增角色（用户组）、从内置模板创建、维护角色权限。内置角色权限由模板维护。</p>
+      <p>新增角色（用户组）、从内置模板创建并维护角色权限。仅超级管理员可以直接修改其他内置用户组权限。</p>
     </header>
 
     <div class="card top-space" v-loading="loading">
@@ -21,10 +21,10 @@
         <el-table-column label="操作" width="360">
           <template #default="scope">
             <el-button link type="primary" @click="openPermissions(scope.row)">
-              {{ scope.row.is_builtin || !capabilities.change_groups ? '查看权限' : '编辑权限' }}
+              {{ (scope.row.is_builtin && (!capabilities.manage_builtin_group_permissions || scope.row.name === '超级管理员')) || !capabilities.change_groups ? '查看权限' : '编辑权限' }}
             </el-button>
             <el-button v-if="!scope.row.is_builtin && capabilities.change_groups" link type="primary" @click="openRename(scope.row)">重命名</el-button>
-            <el-button v-if="scope.row.is_builtin && capabilities.change_groups" link type="primary" @click="restoreTemplate(scope.row)">恢复模板权限</el-button>
+            <el-button v-if="scope.row.is_builtin && capabilities.change_groups && (scope.row.name !== '超级管理员' || capabilities.manage_builtin_group_permissions)" link type="primary" @click="restoreTemplate(scope.row)">恢复模板权限</el-button>
             <el-button v-if="!scope.row.is_builtin && capabilities.delete_groups" link type="danger" @click="removeRole(scope.row)">删除</el-button>
           </template>
         </el-table-column>
@@ -67,12 +67,12 @@
       <permission-picker
         v-model="permissionDialog.permissionIds"
         :permissions="permissions"
-        :disabled="Boolean(permissionDialog.role?.is_builtin) || !capabilities.change_groups"
+        :disabled="(Boolean(permissionDialog.role?.is_builtin) && (!capabilities.manage_builtin_group_permissions || permissionDialog.role?.name === '超级管理员')) || !capabilities.change_groups"
       />
       <template #footer>
         <el-button @click="permissionDialog.visible = false">关闭</el-button>
         <el-button
-          v-if="!permissionDialog.role?.is_builtin && capabilities.change_groups"
+          v-if="(!permissionDialog.role?.is_builtin || (capabilities.manage_builtin_group_permissions && permissionDialog.role?.name !== '超级管理员')) && capabilities.change_groups"
           type="primary"
           :loading="permissionDialog.saving"
           @click="submitPermissions"

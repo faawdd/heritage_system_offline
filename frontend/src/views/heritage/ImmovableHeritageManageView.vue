@@ -21,6 +21,7 @@
       <el-button type="primary" :loading="loading" @click="handleSearch">查询</el-button>
       <el-button :loading="exporting" @click="handleExport">导出 CSV</el-button>
       <el-upload
+        v-if="canModifyBasicHeritageData"
         :show-file-list="false"
         accept=".csv"
         :before-upload="beforeImport"
@@ -55,7 +56,8 @@
         </el-table-column>
         <el-table-column label="操作" width="140" fixed="right">
           <template #default="scope">
-            <el-button link type="primary" @click="openEdit(scope.row)">编辑</el-button>
+            <el-button v-if="canModifyBasicHeritageData" link type="primary" @click="openEdit(scope.row)">编辑</el-button>
+            <el-button v-else link type="primary" @click="openEdit(scope.row)">查看</el-button>
             <el-button v-if="isSuperAdmin" link type="danger" @click="removeRecord(scope.row)">删除</el-button>
           </template>
         </el-table-column>
@@ -73,8 +75,8 @@
       </div>
     </div>
 
-    <el-dialog v-model="dialog.visible" :title="recordId ? '编辑完整文物档案' : '编辑采集记录'" width="920px" @closed="emit('closed')">
-      <el-form label-width="110px" label-position="left">
+    <el-dialog v-model="dialog.visible" :title="recordId ? (canModifyBasicHeritageData ? '编辑完整文物档案' : '查看完整文物档案') : '编辑采集记录'" width="920px" @closed="emit('closed')">
+      <el-form label-width="110px" label-position="left" :disabled="readOnly || !canModifyBasicHeritageData">
         <el-row :gutter="12">
           <el-col :span="12">
             <el-form-item label="文物名称">
@@ -373,7 +375,7 @@
 
         <el-form-item label="坐标点列表">
           <div class="coord-editor">
-            <div class="coord-editor-actions">
+            <div v-if="!readOnly && canModifyBasicHeritageData" class="coord-editor-actions">
               <el-button size="small" type="primary" plain @click="addCoordPoint">新增坐标点</el-button>
               <span class="coord-editor-hint">经纬度必填，类型支持边界点/标志点/其他</span>
             </div>
@@ -422,7 +424,7 @@
               </el-table-column>
               <el-table-column label="操作" width="76" align="center" fixed="right">
                 <template #default="scope">
-                  <el-button link type="danger" @click="removeCoordPoint(scope.$index)">删除</el-button>
+                  <el-button v-if="!readOnly && canModifyBasicHeritageData" link type="danger" @click="removeCoordPoint(scope.$index)">删除</el-button>
                 </template>
               </el-table-column>
             </el-table>
@@ -431,7 +433,7 @@
       </el-form>
       <template #footer>
         <el-button @click="dialog.visible = false">取消</el-button>
-        <el-button type="primary" :loading="dialog.loading" @click="submitEdit">保存</el-button>
+        <el-button v-if="!readOnly && canModifyBasicHeritageData" type="primary" :loading="dialog.loading" @click="submitEdit">保存</el-button>
       </template>
     </el-dialog>
   </section>
@@ -452,9 +454,13 @@ import {
 } from '../../api/heritageApi'
 
 const authStore = useAuthStore()
-const props = defineProps({ recordId: { type: Number, default: null } })
+const props = defineProps({
+  recordId: { type: Number, default: null },
+  readOnly: { type: Boolean, default: false }
+})
 const emit = defineEmits(['closed', 'saved'])
-const isSuperAdmin = computed(() => Boolean(authStore.user?.is_superuser))
+const canModifyBasicHeritageData = computed(() => Boolean(authStore.user?.capabilities?.modify_basic_heritage_data))
+const isSuperAdmin = computed(() => Boolean(authStore.user?.is_superuser || authStore.user?.roles?.includes('超级管理员')))
 
 const loading = ref(false)
 const importing = ref(false)

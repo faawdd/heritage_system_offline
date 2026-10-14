@@ -26,8 +26,6 @@ INSPECTOR_PERMISSIONS = [
 ADMIN_PERMISSIONS = [
     'view_loginlog', 'view_operationlog', 'view_logentry',
     'view_usermanagementaudit', 'view_landuseprojectoperationlog',
-    'add_heritagesite',
-    'change_heritagesite',
     'view_heritagesite',
     'add_inspectionrecord',
     'change_inspectionrecord',
@@ -81,7 +79,7 @@ LIMITED_ADMIN_PERMISSIONS = [
 ROLE_TEMPLATES = {
     GROUP_ADMIN: {
         'label': '内置管理员',
-        'description': '文保科工作人员和领导，拥有大部分管理权限（可修改核心业务数据）',
+        'description': '文保科工作人员和领导，拥有大部分管理权限；基础文物档案仅可查看',
         'permissions': ADMIN_PERMISSIONS,
         'menu_paths': None,
     },

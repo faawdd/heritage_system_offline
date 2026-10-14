@@ -28,7 +28,7 @@ from rest_framework.views import APIView
 
 from core import views as legacy_views
 from core.models import HeritagePhoto, HeritageSite, HeritageTwoLineFile, ImmovableHeritage, InspectionRecord, KmlUploadRecord, LandUseProjectApproval, ProjectAudit, ReportRecord
-from core.permission_decorators import can_modify_core_data, is_management_admin
+from core.permission_decorators import can_modify_basic_heritage_data, can_modify_core_data, is_management_admin
 from core.permissions.api_permissions import IsManagementAdmin
 from core.services import data_sync
 from core.services import offline_tiles
@@ -503,7 +503,7 @@ class HeritageSiteManageDetailAPIView(APIView):
     permission_classes = [IsManagementAdmin]
 
     def patch(self, request, site_id):
-        if not can_modify_core_data(request.user):
+        if not can_modify_basic_heritage_data(request.user):
             return Response({'success': False, 'message': '当前角色仅可查看，禁止修改'}, status=403)
 
         site = HeritageSite.objects.filter(id=site_id).first()
@@ -600,7 +600,7 @@ class HeritageTwoLineFileAPIView(APIView):
         })
 
     def post(self, request, site_id):
-        if not can_modify_core_data(request.user):
+        if not can_modify_basic_heritage_data(request.user):
             return Response({'success': False, 'message': '当前角色仅可查看，禁止修改'}, status=403)
         site = self._get_site(site_id)
         if not site:
@@ -657,7 +657,7 @@ class HeritageTwoLineFileAPIView(APIView):
         return self.post(request, site_id)
 
     def delete(self, request, site_id):
-        if not can_modify_core_data(request.user):
+        if not can_modify_basic_heritage_data(request.user):
             return Response({'success': False, 'message': '当前角色仅可查看，禁止修改'}, status=403)
         site = self._get_site(site_id)
         if not site:
@@ -701,7 +701,7 @@ class HeritageBodyBoundaryAPIView(APIView):
         return Response({'success': True, 'data': {'body_boundary': self._rings(site)}})
 
     def post(self, request, site_id):
-        if not can_modify_core_data(request.user):
+        if not can_modify_basic_heritage_data(request.user):
             return Response({'success': False, 'message': '当前角色仅可查看，禁止修改'}, status=403)
         site = HeritageSite.objects.filter(id=site_id).first()
         if not site:
@@ -731,7 +731,7 @@ class HeritageBodyBoundaryAPIView(APIView):
         return self.post(request, site_id)
 
     def delete(self, request, site_id):
-        if not can_modify_core_data(request.user):
+        if not can_modify_basic_heritage_data(request.user):
             return Response({'success': False, 'message': '当前角色仅可查看，禁止修改'}, status=403)
         site = HeritageSite.objects.filter(id=site_id).first()
         if not site:
@@ -770,7 +770,7 @@ class HeritageSiteManageImportAPIView(APIView):
             return None
 
     def post(self, request):
-        if not can_modify_core_data(request.user):
+        if not can_modify_basic_heritage_data(request.user):
             return Response({'success': False, 'message': '当前角色仅可查看，禁止导入'}, status=403)
 
         upload_file = request.FILES.get('file')
@@ -1128,7 +1128,7 @@ class ImmovableHeritageDetailAPIView(APIView):
         })
 
     def patch(self, request, site_id):
-        if not can_modify_core_data(request.user):
+        if not can_modify_basic_heritage_data(request.user):
             return Response({'success': False, 'message': '当前角色仅可查看，禁止修改'}, status=403)
 
         heritage = ImmovableHeritage.objects.filter(id=site_id).first()
@@ -1522,7 +1522,7 @@ class ImmovableHeritageImportAPIView(APIView):
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request):
-        if not can_modify_core_data(request.user):
+        if not can_modify_basic_heritage_data(request.user):
             return Response({'success': False, 'message': '当前角色仅可查看，禁止修改'}, status=403)
 
         upload = request.FILES.get('file')

@@ -170,7 +170,11 @@ def is_super_admin(user):
     
     返回：True/False
     """
-    return user.is_superuser
+    return bool(
+        user
+        and user.is_authenticated
+        and (user.is_superuser or user.groups.filter(name=GROUP_SUPER_ADMIN).exists())
+    )
 
 
 def is_admin(user):
@@ -183,7 +187,7 @@ def is_admin(user):
         - 超级管理员 (Django is_superuser)
         - 管理员 (Group name='管理员')
     """
-    return user.is_superuser or user.groups.filter(name=GROUP_ADMIN).exists()
+    return is_super_admin(user) or user.groups.filter(name=GROUP_ADMIN).exists()
 
 
 def is_limited_admin(user):
@@ -220,6 +224,11 @@ def can_modify_core_data(user):
         - 文物看护员
     """
     return is_admin(user)
+
+
+def can_modify_basic_heritage_data(user):
+    """只有超级管理员可以修改基础文物档案及其关联数据。"""
+    return is_super_admin(user)
 
 
 def is_inspector(user):
@@ -331,4 +340,3 @@ def can_submit_inspection(user):
         {% if can_submit %}...{% endif %}
     """
     return is_inspector(user) or is_admin(user)
-

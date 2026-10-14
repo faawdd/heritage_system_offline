@@ -2,6 +2,7 @@ from django.contrib.auth.models import Group, Permission
 from django.db.models.signals import post_migrate
 from django.dispatch import receiver
 
+from core.permission_decorators import GROUP_ADMIN
 from core.role_templates import ROLE_TEMPLATES
 from system.admin_labels import VERBS, permission_name
 
@@ -29,6 +30,15 @@ def sync_admin_permissions(sender, using, **kwargs):
             if f'{permission.content_type.app_label}.{permission.codename}' in LOG_PERMISSION_CODES]
     for group in Group.objects.using(using).filter(name__in=[*ROLE_TEMPLATES, '超级管理员']):
         group.permissions.add(*logs)
-        if group.name == '管理员':
+        if group.name == GROUP_ADMIN:
             group.permissions.add(*[permission for permission in permissions
                                    if permission.content_type.app_label == 'auth' and permission.codename == 'delete_group'])
+            group.permissions.remove(*[
+                permission for permission in permissions
+                if permission.content_type.app_label == 'core'
+                and permission.content_type.model in {'heritagesite', 'immovableheritage'}
+                and permission.codename in {
+                    'add_heritagesite', 'change_heritagesite',
+                    'add_immovableheritage', 'change_immovableheritage',
+                }
+            ])

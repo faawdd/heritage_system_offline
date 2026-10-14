@@ -48,6 +48,8 @@ class BodyBoundaryAPITests(TestCase):
         call_group = Group.objects.get_or_create(name='管理员')[0]
         self.admin = User.objects.create_user('bb_admin', password='x')
         self.admin.groups.add(call_group)
+        self.superadmin = User.objects.create_user('bb_superadmin', password='x')
+        self.superadmin.groups.add(Group.objects.get_or_create(name='超级管理员')[0])
         self.viewer = User.objects.create_user('bb_viewer', password='x')
         self.viewer.groups.add(Group.objects.get_or_create(name='管理员用户组')[0])
         self.site = HeritageSite.objects.create(
@@ -62,7 +64,7 @@ class BodyBoundaryAPITests(TestCase):
         return client
 
     def test_upload_and_clear(self):
-        client = self.client_for(self.admin)
+        client = self.client_for(self.superadmin)
         upload = SimpleUploadedFile('b.kml', KML.encode('utf-8'))
         response = client.post(self.url, {'file': upload}, format='multipart')
         self.assertEqual(response.status_code, 200, response.content)
@@ -71,10 +73,10 @@ class BodyBoundaryAPITests(TestCase):
         self.assertEqual(len(client.get(self.url).json()['data']['body_boundary']), 1)
         self.assertEqual(client.delete(self.url).status_code, 200)
         self.site.refresh_from_db()
-        self.assertEqual(self.site.body_boundary, '')
+        self.assertIn(self.site.body_boundary, (None, ''))
 
     def test_json_submit_and_invalid(self):
-        client = self.client_for(self.admin)
+        client = self.client_for(self.superadmin)
         ok = client.post(self.url, {'body_boundary': [[[90, 42], [90.1, 42], [90.1, 42.1]]]}, format='json')
         self.assertEqual(ok.status_code, 200)
         bad = client.post(self.url, {'body_boundary': [[[90, 42]]]}, format='json')
@@ -86,7 +88,7 @@ class BodyBoundaryAPITests(TestCase):
         self.assertEqual(response.status_code, 403)
 
     def test_patch_body_boundary(self):
-        client = self.client_for(self.admin)
+        client = self.client_for(self.superadmin)
         response = client.patch(
             f'/api/v1/heritage/sites/{self.site.id}/',
             {'body_boundary': '[[[90,42],[90.1,42],[90.1,42.1]]]'}, format='json',
@@ -94,6 +96,42 @@ class BodyBoundaryAPITests(TestCase):
         self.assertEqual(response.status_code, 200, response.content)
         self.site.refresh_from_db()
         self.assertTrue(self.site.body_boundary)
+
+    def test_regular_admin_cannot_modify_basic_heritage_data(self):
+        client = self.client_for(self.admin)
+        response = client.patch(
+            f'/api/v1/heritage/sites/{self.site.id}/',
+            {'name': '不应更新'},
+            format='json',
+        )
+        self.assertEqual(response.status_code, 403)
+        response = client.post(
+            self.url,
+            {'body_boundary': [[[90, 42], [90.1, 42], [90.1, 42.1]]]},
+            format='json',
+        )
+        self.assertEqual(response.status_code, 403)
+        response = client.post(f'/api/v1/heritage/sites/{self.site.id}/two-line-file/', {}, format='multipart')
+        self.assertEqual(response.status_code, 403)
+        heritage = ImmovableHeritage.objects.create(
+            survey_code='S-BB-2',
+            name='只读档案',
+            longitude=90.0,
+            latitude=42.0,
+        )
+        response = client.patch(
+            f'/api/v1/heritage/immovable/{heritage.id}/',
+            {'name': '不应更新'},
+            format='json',
+        )
+        self.assertEqual(response.status_code, 403)
+        response = client.post('/api/v1/heritage/immovable/import/', {}, format='multipart')
+        self.assertEqual(response.status_code, 403)
+        self.site.refresh_from_db()
+        heritage.refresh_from_db()
+        self.assertEqual(self.site.name, '测试点')
+        self.assertIn(self.site.body_boundary, (None, ''))
+        self.assertEqual(heritage.name, '只读档案')
 
 
 class RegistrationPreviewBoundaryTests(TestCase):

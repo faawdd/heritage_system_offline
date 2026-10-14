@@ -34,7 +34,12 @@ from core.services.account_security import (
     verify_security_answers,
 )
 from system.models import LoginLog, Menu, OperationLog, SystemConfig
-from system.admin_access import GroupManagementPermission, UserManagementPermission, has_system_permission
+from system.admin_access import (
+    GroupManagementPermission,
+    UserManagementPermission,
+    has_system_permission,
+    is_system_superuser,
+)
 from system.log_api import LoginLogListAPIView, OperationLogListAPIView
 from system.admin_api import PermissionCatalogAPIView as PermissionListAPIView
 from system.serializers import (
@@ -987,7 +992,10 @@ class RolePermissionAPIView(APIView):
             return Response({'success': False, 'message': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
         if is_builtin_group(role):
-            return Response({'success': False, 'message': '内置角色权限由模板维护，不可手动修改，可使用“恢复模板权限”'}, status=status.HTTP_400_BAD_REQUEST)
+            if role.name == '超级管理员':
+                return _role_error('超级管理员权限不可手动修改', status.HTTP_400_BAD_REQUEST)
+            if not is_system_superuser(request.user):
+                return _role_error('仅超级管理员可修改其他内置用户组权限', status.HTTP_403_FORBIDDEN)
 
         permissions = list(Permission.objects.select_related('content_type').filter(id__in=permission_ids))
         if len(permissions) != len(set(permission_ids)):
