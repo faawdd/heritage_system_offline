@@ -90,6 +90,7 @@ urlpatterns = [
     path('projects/<uuid:project_id>/download-all-files/', legacy_views.land_project_all_files_archive_api, name='land_project_all_files_archive'),
     path('projects/<uuid:project_id>/download-misc-zip/', legacy_views.land_project_download_misc_zip_api, name='land_project_download_misc_zip'),
     path('projects/<uuid:project_id>/verify-spatial-safety/', legacy_views.verify_project_spatial_safety_api, name='verify_project_spatial_safety'),
+    path('projects/<uuid:project_id>/verify-spatial-safety/jobs/<uuid:job_id>/', legacy_views.verify_project_spatial_job_api, name='verify_project_spatial_job'),
     path('projects/<uuid:project_id>/link-kml-record/', legacy_views.land_project_link_kml_record_api, name='land_project_link_kml_record'),
     path('projects/<uuid:project_id>/documents/archive/', legacy_views.land_project_documents_archive_api, name='land_project_documents_archive'),
     path('projects/<uuid:project_id>/documents/<int:document_id>/download/', legacy_views.land_project_document_download_api, name='land_project_document_download'),

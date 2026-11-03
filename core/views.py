@@ -13,6 +13,7 @@ from .models import (
     LandUseProjectFieldPhoto,
     LandUseProjectOperationLog,
 )
+from . import spatial_jobs
 from .ovkml_converter import parse_ovkml, build_csv_outputs
 from .land_project_services import (
     verify_project_spatial_safety,
@@ -48,7 +49,7 @@ from django.http import JsonResponse, HttpResponse, HttpResponseForbidden, FileR
 from django.utils import timezone
 from django.conf import settings
 from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_GET, require_POST
 from django.core.files.storage import default_storage
 from docxtpl import DocxTemplate
 from docx import Document
@@ -975,7 +976,7 @@ def _analyze_feature_against_rings(feature_type, coords, rings, threshold, range
     return matched, distance_m, relation
 
 
-def _analyze_conflicts(features, threshold_m, site_points=None):
+def _analyze_conflicts(features, threshold_m, site_points=None, progress_callback=None):
     if site_points is None:
         site_points = _load_conflict_site_points()
 
@@ -995,7 +996,10 @@ def _analyze_conflicts(features, threshold_m, site_points=None):
         ]
     conflicts = []
 
-    for feature in features:
+    total_features = len(features)
+    for index, feature in enumerate(features):
+        if progress_callback and index % 200 == 0:
+            progress_callback(index, total_features)
         feature_type = feature.get('geometry_type')
         feature_name = feature.get('name') or 'KML要素'
         feature_source = feature.get('source') or ''
@@ -1086,6 +1090,8 @@ def _analyze_conflicts(features, threshold_m, site_points=None):
                     'distance_m': None if distance_m is None or not math.isfinite(distance_m) else round(distance_m, 2),
                 })
 
+    if progress_callback:
+        progress_callback(total_features, total_features)
     return conflicts
 
 
@@ -2985,6 +2991,11 @@ def verify_project_spatial_safety_api(request, project_id):
     except (TypeError, ValueError):
         threshold_m = None
 
+    if request.GET.get('async') == '1':
+        preliminary = request.GET.get('preliminary') == '1'
+        job = spatial_jobs.start_job(project_id, preliminary, threshold_m, request.user)
+        return JsonResponse({'success': True, 'data': spatial_jobs.public_job(job)}, status=202)
+
     try:
         if request.GET.get('preliminary') == '1':
             result = verify_preliminary_spatial_safety(project_id, threshold_m=threshold_m, user=request.user)
@@ -3012,6 +3023,19 @@ def verify_project_spatial_safety_api(request, project_id):
         return JsonResponse({'success': False, 'message': '空间核验失败，请检查KML与空间数据'}, status=500)
 
     return JsonResponse({'success': True, 'data': result})
+
+
+@require_GET
+@staff_member_required
+def verify_project_spatial_job_api(request, project_id, job_id):
+    """查询后台空间核验任务进度/结果。"""
+    if not is_management_admin(request.user):
+        return JsonResponse({'success': False, 'message': '无权限'}, status=403)
+
+    job = spatial_jobs.get_job(job_id)
+    if not job or job.get('project_id') != str(project_id):
+        return JsonResponse({'success': False, 'message': '核验任务不存在或已过期，请重新执行'}, status=404)
+    return JsonResponse({'success': True, 'data': spatial_jobs.public_job(job)})
 
 
 @csrf_exempt

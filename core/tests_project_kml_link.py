@@ -172,3 +172,39 @@ class ProjectKmlLinkTests(TestCase):
         )
         self.assertEqual(response.status_code, 200, response.content)
         self.assertTrue(response.json()['success'])
+
+    def test_async_verification_job_reports_progress_and_result(self):
+        from unittest import mock
+        from . import spatial_jobs
+
+        user = get_user_model().objects.create_superuser('job-admin', password='test-password')
+        self.client.force_login(user)
+        link_project_kml_record(self.project, self.record)
+        base = f'/api/v1/projects/{self.project.id}/verify-spatial-safety/'
+
+        class InlineThread:
+            def __init__(self, target, args, **kwargs):
+                self.target, self.args = target, args
+
+            def start(self):
+                self.target(*self.args)
+
+        with mock.patch.object(spatial_jobs.threading, 'Thread', InlineThread), \
+                mock.patch('django.db.close_old_connections'):
+            response = self.client.post(
+                base + '?preliminary=1&async=1', '{}', content_type='application/json', secure=True,
+            )
+        self.assertEqual(response.status_code, 202, response.content)
+        job_id = response.json()['data']['job_id']
+
+        response = self.client.get(f'{base}jobs/{job_id}/', secure=True)
+        data = response.json()['data']
+        self.assertEqual(data['status'], 'succeeded', data)
+        self.assertEqual(data['result']['feature_count'], 1)
+        self.assertEqual(data['processed'], data['total'])
+
+        other = LandUseProjectApproval.objects.create(
+            project_name='Other', company_name='Other', incoming_doc_date=date.today(),
+        )
+        response = self.client.get(f'/api/v1/projects/{other.id}/verify-spatial-safety/jobs/{job_id}/', secure=True)
+        self.assertEqual(response.status_code, 404)

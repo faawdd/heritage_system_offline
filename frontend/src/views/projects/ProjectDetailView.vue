@@ -106,7 +106,7 @@
                 :disabled="!todo.enabled"
                 :loading="processing"
                 @click="runTodo(todo)"
-              >执行</el-button>
+              >{{ todo.kind === 'spatial' && spatialProgress ? spatialProgress : '执行' }}</el-button>
             </div>
             <p class="todo-desc">{{ todo.description }}</p>
 
@@ -440,6 +440,7 @@ const projectId = route.params.projectId
 const loading = ref(false)
 const uploading = ref(false)
 const processing = ref(false)
+const spatialProgress = ref('')
 const selectedFile = ref(null)
 const fileInputRef = ref(null)
 
@@ -573,10 +574,18 @@ function validateTodo(todo) {
 
 async function runSpatialVerify(thresholdM, preliminary = false) {
   processing.value = true
+  spatialProgress.value = '提交核验...'
+  const onProgress = (job) => {
+    if (job.stage === 'analyzing' && job.total) {
+      spatialProgress.value = `分析中 ${Math.min(100, Math.floor((job.processed / job.total) * 100))}%`
+    } else {
+      spatialProgress.value = job.stage === 'parsing' ? '解析KML...' : '核验排队中...'
+    }
+  }
   try {
     const result = preliminary
-      ? await verifyPreliminarySpatialSafety(projectId, thresholdM)
-      : await verifyProjectSpatialSafety(projectId, thresholdM)
+      ? await verifyPreliminarySpatialSafety(projectId, thresholdM, { onProgress })
+      : await verifyProjectSpatialSafety(projectId, thresholdM, { onProgress })
     if (!result.success) {
       throw new Error(result.message || '空间核验失败')
     }
@@ -590,6 +599,7 @@ async function runSpatialVerify(thresholdM, preliminary = false) {
   } catch (error) {
     ElMessage.error(error?.message || '空间核验失败')
   } finally {
+    spatialProgress.value = ''
     processing.value = false
   }
 }

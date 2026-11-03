@@ -91,3 +91,7 @@ Build output target: `../static/frontend`
 - 部署需重新构建前端；如网关或应用服务器设置了更短的请求处理超时，
   还需按实际上传大小、带宽和分析耗时协调其超时、上传体积限制。
 - 回归测试：前端目录执行 `node --test src/utils/*.test.js src/api/gisApi.test.js`。
+
+## 项目空间核验（大文件）
+
+项目管理中的“初步/正式选址核验”改为服务端后台任务：`POST /api/v1/projects/<id>/verify-spatial-safety/?async=1` 立即返回任务ID，前端轮询 `.../verify-spatial-safety/jobs/<job_id>/` 获取进度（解析/分析百分比）与结果。同一项目同类任务进行中时会复用，轮询偶发失败会自动继续，不再受单次请求超时影响。任务状态保存在系统临时目录（`heritage_spatial_jobs`），无需数据库迁移；不带 `async=1` 时仍为原同步行为。

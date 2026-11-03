@@ -361,7 +361,7 @@ def _write_back_kml_record(record: KmlUploadRecord, threshold_m: int, features, 
     record.save(update_fields=['threshold_m', 'feature_count', 'conflict_count', 'report_json', 'updated_at'])
 
 
-def verify_project_spatial_safety(project_id, threshold_m: int = None, user=None):
+def verify_project_spatial_safety(project_id, threshold_m: int = None, user=None, progress_callback=None):
     """
     核心空间核验函数：
     - 读取项目已上传KML文件（并同步为 KML 叠加检查记录）
@@ -393,11 +393,18 @@ def verify_project_spatial_safety(project_id, threshold_m: int = None, user=None
     with default_storage.open(project.kml_file_path, 'rb') as fp:
         content = fp.read()
 
+    if progress_callback:
+        progress_callback('parsing', 0, 0)
     features = legacy_views._extract_features_from_upload(project.kml_file_path, content)
     if not features:
         raise ValueError('KML未识别到有效要素，请检查文件格式与坐标内容')
 
-    conflicts = legacy_views._analyze_conflicts(features, threshold)
+    if progress_callback:
+        progress_callback('analyzing', 0, len(features))
+    conflicts = legacy_views._analyze_conflicts(
+        features, threshold,
+        progress_callback=(lambda done, total: progress_callback('analyzing', done, total)) if progress_callback else None,
+    )
 
     level_label_map = {code: label for code, label in HeritageSite.LEVEL_CHOICES}
     overlaps = []
@@ -458,7 +465,7 @@ def verify_project_spatial_safety(project_id, threshold_m: int = None, user=None
     }
 
 
-def verify_preliminary_spatial_safety(project_id, threshold_m: int = None, user=None):
+def verify_preliminary_spatial_safety(project_id, threshold_m: int = None, user=None, progress_callback=None):
     """核查初步选址KML，仅写入初审专用字段，不改变正式选址核验结论。"""
     project = LandUseProjectApproval.objects.filter(id=project_id).first()
     if not project:
@@ -478,10 +485,17 @@ def verify_preliminary_spatial_safety(project_id, threshold_m: int = None, user=
     threshold = max(1, min(5000, threshold))
     with default_storage.open(source_path, 'rb') as fp:
         content = fp.read()
+    if progress_callback:
+        progress_callback('parsing', 0, 0)
     features = legacy_views._extract_features_from_upload(source_path, content)
     if not features:
         raise ValueError('初步选址KML未识别到有效要素，请检查文件格式与坐标内容')
-    conflicts = legacy_views._analyze_conflicts(features, threshold)
+    if progress_callback:
+        progress_callback('analyzing', 0, len(features))
+    conflicts = legacy_views._analyze_conflicts(
+        features, threshold,
+        progress_callback=(lambda done, total: progress_callback('analyzing', done, total)) if progress_callback else None,
+    )
     level_label_map = {code: label for code, label in HeritageSite.LEVEL_CHOICES}
     unique = []
     seen = set()
