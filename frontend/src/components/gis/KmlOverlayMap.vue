@@ -103,16 +103,60 @@
         <span class="legend-dot dot-bubble"></span>
         <span>KML要素定位气泡</span>
       </div>
+      <div class="legend-item">
+        <span class="legend-dot dot-location"></span>
+        <span>我的位置（外圈为定位精度范围）</span>
+      </div>
     </div>
     </div>
     <div class="kml-overlay-tip" v-if="tips.length > 0">
       <div v-for="(item, idx) in tips" :key="idx">{{ item }}</div>
     </div>
+    <div class="kml-locate-stack" @pointerdown.stop @click.stop @dblclick.stop>
+      <button
+        v-if="deviceLocation"
+        type="button"
+        class="kml-locate-card"
+        :class="{ 'is-collapsed': locateCardCollapsed }"
+        :aria-expanded="!locateCardCollapsed"
+        aria-label="我的位置信息，点击展开或收起"
+        @click="locateCardCollapsed = !locateCardCollapsed"
+      >
+        <span class="kml-locate-card-head">
+          <span class="kml-locate-dot" :class="{ 'is-live': deviceLocation.source === 'live' }"></span>
+          <strong>我的位置</strong>
+          <span class="kml-locate-source">{{ deviceLocation.source === 'live' ? '实时' : 'App定位' }} · {{ locationTimeText }}</span>
+        </span>
+        <template v-if="!locateCardCollapsed">
+          <span class="kml-locate-coords">{{ locationCoordsText }}</span>
+          <span class="kml-locate-meta">{{ locationAccuracyText }}</span>
+          <span v-for="item in locationZoneHits" :key="item.key" class="kml-locate-zone" :class="`is-${item.type}`">{{ item.label }}</span>
+          <span v-if="locationZoneHits.length === 0" class="kml-locate-zone is-none">不在已加载的 KML 要素及文物范围内</span>
+        </template>
+      </button>
+      <button
+        type="button"
+        class="kml-locate-btn"
+        :class="{ 'is-active': Boolean(deviceLocation), 'is-busy': locateBusy }"
+        :disabled="locateBusy && !deviceLocation"
+        :title="deviceLocation ? '回到我的位置' : '显示我的位置'"
+        :aria-label="deviceLocation ? '回到我的位置' : '显示我的位置'"
+        @click="onLocateClick"
+      >
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+          <circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="2" />
+          <circle cx="12" cy="12" r="2.6" fill="currentColor" />
+          <path d="M12 1.5v3.5M12 19v3.5M1.5 12H5M19 12h3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+        </svg>
+      </button>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
+import { useRoute } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { getCenter, intersects as intersectsExtent } from 'ol/extent'
 import Feature from 'ol/Feature'
 import OlMap from 'ol/Map'
@@ -121,7 +165,7 @@ import View from 'ol/View'
 import LineString from 'ol/geom/LineString'
 import MultiLineString from 'ol/geom/MultiLineString'
 import Point from 'ol/geom/Point'
-import Polygon from 'ol/geom/Polygon'
+import Polygon, { circular as circularPolygon } from 'ol/geom/Polygon'
 import VectorLayer from 'ol/layer/Vector'
 import { fromLonLat, toLonLat } from 'ol/proj'
 import VectorSource from 'ol/source/Vector'
@@ -148,6 +192,15 @@ import { fetchHeritageMapPoints } from '../../api/heritageApi'
 import { fitMapExtent, nationalViewOptions, validLonLat } from '../../utils/mapViewport'
 import { kmlRecordKey, loadKmlRecords } from '../../utils/kmlLoader.js'
 import { isCanceledRequest, networkErrorMessage } from '../../utils/networkRequest.js'
+import {
+  formatLocationAccuracy,
+  formatLocationCoords,
+  formatLocationTime,
+  fromGeolocationPosition,
+  geolocationErrorMessage,
+  isGeolocationSupported,
+  parseAppLocation
+} from '../../utils/deviceLocation.js'
 
 const props = defineProps({
   selectedRecords: {
@@ -256,6 +309,180 @@ const kmlStyleCache = new Map()
 const elementBubbleStyleCache = new Map()
 const kmlTextCache = new Map()
 const hatchPatternCache = new Map()
+
+// ---- 设备当前位置（移动端 App 传入 + 浏览器实时定位）----
+const route = useRoute()
+const LOCATE_FOCUS_ZOOM = 17
+const deviceLocation = ref(null)
+const locateBusy = ref(false)
+const locateCardCollapsed = ref(false)
+const locationZoneHits = ref([])
+const locationSource = new VectorSource()
+const locationLayerRef = ref(null)
+let locationWatchId = null
+let pendingLocateFocus = false
+let zoneCheckFrame = 0
+const zoneSourceUnlisteners = []
+
+const locationCoordsText = computed(() => formatLocationCoords(deviceLocation.value))
+const locationAccuracyText = computed(() => formatLocationAccuracy(deviceLocation.value))
+const locationTimeText = computed(() => (deviceLocation.value ? formatLocationTime(deviceLocation.value.timestamp) : ''))
+
+const locationAccuracyStyle = new Style({
+  fill: new Fill({ color: 'rgba(37, 99, 235, 0.12)' }),
+  stroke: new Stroke({ color: 'rgba(37, 99, 235, 0.55)', width: 1.5 })
+})
+const locationPointStyles = [
+  new Style({ image: new CircleStyle({ radius: 13, fill: new Fill({ color: 'rgba(37, 99, 235, 0.22)' }) }) }),
+  new Style({
+    image: new CircleStyle({
+      radius: 7,
+      fill: new Fill({ color: '#2563eb' }),
+      stroke: new Stroke({ color: '#ffffff', width: 2.5 })
+    })
+  })
+]
+
+function renderDeviceLocation() {
+  locationSource.clear()
+  const loc = deviceLocation.value
+  if (!loc) {
+    return
+  }
+  if (loc.accuracy && loc.accuracy > 0) {
+    const ring = circularPolygon([loc.longitude, loc.latitude], loc.accuracy, 64).transform('EPSG:4326', 'EPSG:3857')
+    const accuracyFeature = new Feature({ geometry: ring })
+    accuracyFeature.set('isDeviceLocation', true)
+    accuracyFeature.setStyle(locationAccuracyStyle)
+    locationSource.addFeature(accuracyFeature)
+  }
+  const pointFeature = new Feature({ geometry: new Point(fromLonLat([loc.longitude, loc.latitude])) })
+  pointFeature.set('isDeviceLocation', true)
+  pointFeature.setStyle(locationPointStyles)
+  locationSource.addFeature(pointFeature)
+}
+
+function isAreaGeometry(geometry) {
+  const type = geometry?.getType?.()
+  return type === 'Polygon' || type === 'MultiPolygon' || type === 'GeometryCollection' || type === 'Circle'
+}
+
+function collectZoneHits(source, coordinate, type, labelOf, filter = () => true) {
+  const hits = []
+  const seen = new Set()
+  source.forEachFeatureAtCoordinateDirect(coordinate, (feature) => {
+    const geometry = feature.getGeometry()
+    if (!filter(feature) || !isAreaGeometry(geometry)) {
+      return
+    }
+    const label = labelOf(feature)
+    if (!seen.has(label)) {
+      seen.add(label)
+      hits.push({ key: `${type}:${label}`, type, label })
+    }
+  })
+  return hits
+}
+
+function updateLocationZoneHits() {
+  const loc = deviceLocation.value
+  if (!loc) {
+    locationZoneHits.value = []
+    return
+  }
+  const coordinate = fromLonLat([loc.longitude, loc.latitude])
+  const siteName = (feature) => String(feature.get('site_name') || '文物')
+  locationZoneHits.value = [
+    ...collectZoneHits(protectionZoneSource, coordinate, 'protection', (f) => `位于「${siteName(f)}」保护范围内`),
+    ...collectZoneHits(controlZoneSource, coordinate, 'control', (f) => `位于「${siteName(f)}」建设控制地带内`),
+    ...collectZoneHits(
+      kmlSource,
+      coordinate,
+      'kml',
+      (f) => `位于 KML 要素「${String(f.get('featureName') || f.get('name') || '未命名')}」内（${String(f.get('sourceName') || '-')}）`,
+      (f) => Boolean(f.get('isKmlFeature'))
+    )
+  ].slice(0, 6)
+}
+
+function scheduleZoneCheck() {
+  cancelAnimationFrame(zoneCheckFrame)
+  zoneCheckFrame = requestAnimationFrame(updateLocationZoneHits)
+}
+
+function focusDeviceLocation() {
+  const map = mapRef.value
+  const loc = deviceLocation.value
+  if (!map || !loc) {
+    return
+  }
+  const view = map.getView()
+  view.animate({
+    center: fromLonLat([loc.longitude, loc.latitude]),
+    zoom: Math.max(view.getZoom() || 0, LOCATE_FOCUS_ZOOM),
+    duration: 450
+  })
+}
+
+function setDeviceLocation(location) {
+  if (!location) {
+    return
+  }
+  deviceLocation.value = location
+  renderDeviceLocation()
+  scheduleZoneCheck()
+  if (pendingLocateFocus) {
+    pendingLocateFocus = false
+    focusDeviceLocation()
+  }
+}
+
+function startLocationWatch({ silent = true } = {}) {
+  if (locationWatchId !== null) {
+    return
+  }
+  if (!isGeolocationSupported()) {
+    locateBusy.value = false
+    pendingLocateFocus = false
+    if (!silent && !deviceLocation.value) {
+      ElMessage.warning(geolocationErrorMessage(null))
+    }
+    return
+  }
+  locateBusy.value = true
+  locationWatchId = navigator.geolocation.watchPosition(
+    (position) => {
+      locateBusy.value = false
+      setDeviceLocation(fromGeolocationPosition(position))
+    },
+    (error) => {
+      locateBusy.value = false
+      pendingLocateFocus = false
+      stopLocationWatch()
+      // App 已传入位置时实时定位失败不打扰用户，继续显示 App 定位结果。
+      if (!silent && !deviceLocation.value) {
+        ElMessage.warning(geolocationErrorMessage(error))
+      }
+    },
+    { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 }
+  )
+}
+
+function stopLocationWatch() {
+  if (locationWatchId !== null && isGeolocationSupported()) {
+    navigator.geolocation.clearWatch(locationWatchId)
+  }
+  locationWatchId = null
+}
+
+function onLocateClick() {
+  if (deviceLocation.value) {
+    focusDeviceLocation()
+  } else {
+    pendingLocateFocus = true
+  }
+  startLocationWatch({ silent: Boolean(deviceLocation.value) })
+}
 
 function kmlBaseColorByIndex(index) {
   // 使用黄金角生成高区分度色相，避免批量加载时颜色过于相近。
@@ -1594,7 +1821,7 @@ onMounted(() => {
   const overlapLayer = new VectorLayer({ source: overlapSource })
   const elementBubbleLayer = new VectorLayer({ source: elementBubbleSource })
   const measureLayer = new VectorLayer({ source: measureSource })
-
+  const locationLayer = new VectorLayer({ source: locationSource, zIndex: 50 })
   const popupOverlay = new Overlay({
     element: featurePopupEl.value,
     autoPan: {
@@ -1624,7 +1851,8 @@ onMounted(() => {
       conflictBoundaryLayer,
       overlapLayer,
       elementBubbleLayer,
-      measureLayer
+      measureLayer,
+      locationLayer
     ],
     view: new View(nationalViewOptions())
   })
@@ -1636,7 +1864,9 @@ onMounted(() => {
       return
     }
 
-    const feature = map.forEachFeatureAtPixel(evt.pixel, (item) => item)
+    const feature = map.forEachFeatureAtPixel(evt.pixel, (item) => item, {
+      layerFilter: (layer) => layer !== locationLayer
+    })
     if (feature && feature.get('isElementBubble')) {
       const target = feature.get('targetFeature')
       if (target && target.getGeometry) {
@@ -1696,6 +1926,7 @@ onMounted(() => {
   overlapLayerRef.value = overlapLayer
   elementBubbleLayerRef.value = elementBubbleLayer
   measureLayerRef.value = measureLayer
+  locationLayerRef.value = locationLayer
   baseLayersRef.value = {
     img: imgLayers,
     vec: vecLayers,
@@ -1721,6 +1952,22 @@ onMounted(() => {
   loadHeritageLayer()
   reloadKmlLayers()
 
+  ;[kmlSource, protectionZoneSource, controlZoneSource].forEach((source) => {
+    const handler = () => {
+      if (deviceLocation.value) {
+        scheduleZoneCheck()
+      }
+    }
+    source.on('change', handler)
+    zoneSourceUnlisteners.push(() => source.un('change', handler))
+  })
+
+  // 由移动端 App 打开时，入口地址会携带 app_loc_*：先显示 App 定位结果，再尝试实时跟踪。
+  const appLocation = parseAppLocation(route?.query || {})
+  if (appLocation) {
+    setDeviceLocation(appLocation)
+    startLocationWatch({ silent: true })
+  }
   if (typeof ResizeObserver !== 'undefined' && mapEl.value) {
     mapResizeObserver = new ResizeObserver(() => {
       cancelAnimationFrame(mapResizeFrame)
@@ -1742,6 +1989,9 @@ onBeforeUnmount(() => {
   heritageController?.abort()
   mapResizeObserver?.disconnect()
   cancelAnimationFrame(mapResizeFrame)
+  cancelAnimationFrame(zoneCheckFrame)
+  stopLocationWatch()
+  zoneSourceUnlisteners.splice(0).forEach((off) => off())
   mapRef.value?.setTarget(undefined)
 })
 
@@ -1862,7 +2112,7 @@ watch(
   position: absolute;
   left: 12px;
   bottom: 12px;
-  max-width: min(520px, calc(100% - 24px));
+  max-width: min(520px, calc(100% - 92px));
   background: linear-gradient(135deg, rgba(15, 23, 42, 0.84) 0%, rgba(30, 41, 59, 0.8) 100%);
   color: #f8fafc;
   border: 1px solid rgba(148, 163, 184, 0.3);
@@ -2091,6 +2341,166 @@ watch(
 
 .dot-bubble {
   background: #0ea5e9;
+}
+
+.dot-location {
+  background: #2563eb;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.22);
+}
+
+.kml-locate-stack {
+  position: absolute;
+  right: 12px;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  max-width: min(320px, calc(100% - 24px));
+  pointer-events: none;
+}
+
+.kml-locate-stack > * {
+  pointer-events: auto;
+}
+
+.kml-locate-card {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  max-width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  color: var(--text);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.18);
+  backdrop-filter: blur(8px);
+  font: inherit;
+  font-size: calc(12rem / 14);
+  line-height: 1.45;
+  text-align: left;
+  cursor: pointer;
+}
+
+.kml-locate-card:focus-visible,
+.kml-locate-btn:focus-visible {
+  outline: 2px solid #0284c7;
+  outline-offset: 2px;
+}
+
+.kml-locate-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.kml-locate-card-head strong {
+  font-size: calc(13rem / 14);
+}
+
+.kml-locate-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #94a3b8;
+  box-shadow: 0 0 0 2px #ffffff;
+  flex: none;
+}
+
+.kml-locate-dot.is-live {
+  background: #2563eb;
+  animation: kml-locate-pulse 1.6s ease-out infinite;
+}
+
+@keyframes kml-locate-pulse {
+  0% {
+    box-shadow: 0 0 0 2px #ffffff, 0 0 0 2px rgba(37, 99, 235, 0.45);
+  }
+  100% {
+    box-shadow: 0 0 0 2px #ffffff, 0 0 0 9px rgba(37, 99, 235, 0);
+  }
+}
+
+.kml-locate-source,
+.kml-locate-meta {
+  color: var(--muted);
+}
+
+.kml-locate-coords {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.kml-locate-zone {
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-weight: 600;
+}
+
+.kml-locate-zone.is-kml {
+  color: #1d4ed8;
+  background: rgba(37, 99, 235, 0.12);
+}
+
+.kml-locate-zone.is-protection {
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.16);
+}
+
+.kml-locate-zone.is-control {
+  color: #0f766e;
+  background: rgba(15, 118, 110, 0.14);
+}
+
+.kml-locate-zone.is-none {
+  color: var(--muted);
+  background: color-mix(in srgb, var(--line) 45%, transparent);
+  font-weight: 500;
+}
+
+.kml-locate-btn {
+  width: 46px;
+  height: 46px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--muted);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.22);
+  cursor: pointer;
+  transition: color 180ms ease, transform 180ms ease;
+}
+
+.kml-locate-btn:active {
+  transform: scale(0.94);
+}
+
+.kml-locate-btn.is-active {
+  color: #2563eb;
+}
+
+.kml-locate-btn.is-busy svg {
+  animation: kml-spin 1.2s linear infinite;
+}
+
+.kml-locate-btn:disabled {
+  cursor: progress;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kml-locate-dot.is-live,
+  .kml-locate-btn.is-busy svg {
+    animation: none;
+  }
 }
 
 @media (max-width: 768px) {
