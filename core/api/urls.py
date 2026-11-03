@@ -2,6 +2,7 @@ from django.urls import path
 
 from core.api.views import (
     GisKmlBatchKmlContentAPIView,
+    GisKmlAnalyzeJobAPIView,
     GisKmlManagementActionAPIView,
     GisKmlRecordKmlContentAPIView,
     GisKmlRecordsAPIView,
@@ -108,6 +109,7 @@ urlpatterns = [
     path('gis/kml-records/batch-kml-content/', GisKmlBatchKmlContentAPIView.as_view(), name='gis_kml_batch_kml_content'),
     path('gis/kml-records/<int:record_id>/kml-content/', GisKmlRecordKmlContentAPIView.as_view(), name='gis_kml_record_kml_content'),
     path('gis/kml-management/action/', GisKmlManagementActionAPIView.as_view(), name='gis_kml_management_action'),
+    path('gis/kml-management/jobs/<uuid:job_id>/', GisKmlAnalyzeJobAPIView.as_view(), name='gis_kml_analyze_job'),
     path('gis/ovkml-convert/', GisOvkmlConvertAPIView.as_view(), name='gis_ovkml_convert'),
     path('gis/offline-tiles/', OfflineTileCatalogAPIView.as_view(), name='offline_tile_catalog'),
     path('gis/offline-tiles/<str:tile_id>/', OfflineTileCatalogDetailAPIView.as_view(), name='offline_tile_detail'),

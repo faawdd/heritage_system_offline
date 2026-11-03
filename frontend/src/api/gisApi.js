@@ -71,6 +71,47 @@ export async function submitGisKmlManagementAction(formData, options = {}) {
   return postBlobAware('/api/v1/gis/kml-management/action/', formData, options)
 }
 
+const KML_JOB_POLL_MS = 1500
+const KML_JOB_MAX_WAIT_MS = 60 * 60 * 1000
+const KML_JOB_MAX_POLL_FAILURES = 20
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+// 大文件叠加检查在服务端后台运行，前端轮询进度，避免网关 504 超时。
+export async function runGisKmlAnalyzeJob(formData, { onProgress } = {}) {
+  formData.set('action', 'analyze_selected')
+  formData.set('async', '1')
+  const started = await submitGisKmlManagementAction(formData)
+  let job = started?.data
+  if (!started?.success || !job?.job_id) {
+    throw new Error(started?.message || '叠加检查任务启动失败')
+  }
+
+  const deadline = Date.now() + KML_JOB_MAX_WAIT_MS
+  let failures = 0
+  while (true) {
+    onProgress?.(job)
+    if (job.status === 'succeeded') return { success: true, ...job.result }
+    if (job.status === 'failed') throw new Error(job.error || '叠加检查失败')
+    if (Date.now() > deadline) throw new Error('叠加检查耗时过长，请稍后刷新页面查看结果')
+    await sleep(KML_JOB_POLL_MS)
+    try {
+      const response = await client.get(`/api/v1/gis/kml-management/jobs/${job.job_id}/`, { timeout: MAP_REQUEST_TIMEOUT })
+      failures = 0
+      if (!response.data?.success) throw new Error(response.data?.message || '查询检查进度失败')
+      job = response.data.data
+    } catch (error) {
+      if (error?.response?.status === 404) throw new Error('检查任务已过期，请重新执行')
+      failures += 1
+      if (failures >= KML_JOB_MAX_POLL_FAILURES) {
+        throw new Error('网络不稳定，无法获取检查进度。检查仍在后台执行，请稍后重试')
+      }
+    }
+  }
+}
+
 export async function submitOvkmlConvert(formData) {
   const response = await client.post('/api/v1/gis/ovkml-convert/', formData, {
     headers: {

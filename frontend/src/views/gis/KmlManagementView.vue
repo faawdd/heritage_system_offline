@@ -310,7 +310,7 @@ import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
 
-import { fetchGisKmlRecords, submitGisKmlManagementAction } from '../../api/gisApi'
+import { fetchGisKmlRecords, runGisKmlAnalyzeJob, submitGisKmlManagementAction } from '../../api/gisApi'
 import { createProject, fetchProjectList, linkProjectKmlRecord } from '../../api/projectApi'
 import KmlOverlayMap from '../../components/gis/KmlOverlayMap.vue'
 import { networkErrorMessage } from '../../utils/networkRequest.js'
@@ -538,6 +538,13 @@ async function runAction(formData, fallbackFileName = '', options = {}) {
   return result
 }
 
+async function runAnalyzeJob(formData) {
+  const result = await runGisKmlAnalyzeJob(formData)
+  const warnings = result.data?.failed_items || []
+  warnings.slice(0, 3).forEach((item) => ElMessage.warning(`${item.title}：${item.error}`))
+  return result
+}
+
 async function loadRows() {
   loading.value = true
   try {
@@ -663,7 +670,7 @@ async function analyzeSingle(row) {
     formData.set('threshold_m', String(threshold.value))
     formData.set('force_reanalyze', forceReanalyze.value ? '1' : '0')
     formData.set('single_record_id', String(row.id))
-    const result = await runAction(formData)
+    const result = await runAnalyzeJob(formData)
     latestConflicts.value = result.data?.conflicts || []
     activeConflict.value = null
     activeMenuTab.value = 'conflicts'
@@ -689,7 +696,7 @@ async function analyzeSelected() {
     formData.set('threshold_m', String(threshold.value))
     formData.set('force_reanalyze', forceReanalyze.value ? '1' : '0')
     appendSelectedIds(formData)
-    const result = await runAction(formData)
+    const result = await runAnalyzeJob(formData)
     latestConflicts.value = result.data?.conflicts || []
     activeConflict.value = null
     activeMenuTab.value = 'conflicts'
@@ -715,6 +722,13 @@ async function exportByAction(action, fallbackFileName) {
     formData.set('threshold_m', String(threshold.value))
     formData.set('force_reanalyze', forceReanalyze.value ? '1' : '0')
     appendSelectedIds(formData)
+    // 先在后台完成（或命中缓存）分析，导出请求再复用缓存，避免长请求触发 504。
+    const analyzeForm = new FormData()
+    analyzeForm.set('threshold_m', String(threshold.value))
+    analyzeForm.set('force_reanalyze', forceReanalyze.value ? '1' : '0')
+    selectedIds.value.forEach((id) => analyzeForm.append('selected_ids', String(id)))
+    await runAnalyzeJob(analyzeForm)
+    formData.set('force_reanalyze', '0')
     await runAction(formData, fallbackFileName)
     ElMessage.success('导出成功')
     await loadRows()

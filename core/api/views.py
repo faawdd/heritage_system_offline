@@ -27,6 +27,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core import views as legacy_views
+from core import spatial_jobs
 from core.models import HeritagePhoto, HeritageSite, HeritageTwoLineFile, ImmovableHeritage, InspectionRecord, KmlUploadRecord, LandUseProjectApproval, ProjectAudit, ReportRecord
 from core.permission_decorators import can_modify_basic_heritage_data, can_modify_core_data, is_management_admin
 from core.permissions.api_permissions import IsManagementAdmin
@@ -2443,6 +2444,10 @@ class GisKmlManagementActionAPIView(APIView):
             return error_response
 
         force_reanalyze = str(request.data.get('force_reanalyze') or '').lower() in {'1', 'true', 'on', 'yes'}
+        if str(request.data.get('async') or '').lower() in {'1', 'true'}:
+            job = spatial_jobs.start_kml_job([record.id for record in records], threshold, force_reanalyze)
+            return Response({'success': True, 'data': spatial_jobs.public_job(job)}, status=202)
+
         combined_conflicts, updated_count, failed_count, failed_items = legacy_views._reanalyze_kml_records(
             records,
             threshold,
@@ -2502,6 +2507,16 @@ class GisKmlManagementActionAPIView(APIView):
             },
             status=400,
         )
+
+
+class GisKmlAnalyzeJobAPIView(APIView):
+    permission_classes = [IsManagementAdmin]
+
+    def get(self, request, job_id):
+        job = spatial_jobs.get_job(job_id)
+        if not job or not str(job.get('project_id', '')).startswith('kml:'):
+            return Response({'success': False, 'message': '检查任务不存在或已过期，请重新执行。'}, status=404)
+        return Response({'success': True, 'data': spatial_jobs.public_job(job)})
 
 
 class GisOvkmlConvertAPIView(APIView):

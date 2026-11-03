@@ -162,6 +162,87 @@ def _run_job(job, threshold_m, user):
         close_old_connections()
 
 
+def _run_kml_job(job, record_ids, threshold_m, force_reanalyze):
+    from django.db import close_old_connections
+
+    from . import views as legacy_views
+    from .models import KmlUploadRecord
+
+    last_write = 0.0
+
+    def progress(processed, total):
+        nonlocal last_write
+        now = time.monotonic()
+        job.update(stage='analyzing', processed=processed, total=total)
+        if now - last_write >= 0.5:
+            last_write = now
+            _write_job(job)
+
+    try:
+        job['status'] = 'running'
+        _write_job(job)
+        records = list(KmlUploadRecord.objects.filter(id__in=record_ids))
+        if not records:
+            raise ValueError('未找到选中的文件记录。')
+        conflicts, updated, failed, failed_items = legacy_views._reanalyze_kml_records(
+            records, threshold_m, use_cache=not force_reanalyze, progress_callback=progress,
+        )
+        job.update(
+            status='succeeded',
+            stage='done',
+            result={
+                'message': f'已按阈值 {threshold_m} 米完成查询，更新 {updated} 条记录，识别 {len(conflicts)} 处冲突。',
+                'data': {
+                    'updated_count': updated,
+                    'conflict_count': len(conflicts),
+                    'conflicts': conflicts,
+                    'failed_count': failed,
+                    'failed_items': failed_items,
+                },
+            },
+        )
+    except ValueError as exc:
+        job.update(status='failed', error=str(exc), error_status=400)
+    except Exception:
+        logger.exception('KML叠加检查后台任务失败: records=%s', record_ids)
+        job.update(status='failed', error='叠加检查失败，请检查KML文件', error_status=500)
+    finally:
+        _write_job(job)
+        close_old_connections()
+
+
+def start_kml_job(record_ids, threshold_m, force_reanalyze):
+    """后台执行KML叠加检查；相同记录与参数已有进行中的任务时直接复用。"""
+    record_ids = sorted({int(item) for item in record_ids})
+    key = f'kml:{",".join(map(str, record_ids))}:{threshold_m}:{int(bool(force_reanalyze))}'
+    existing = find_active_job(key, False)
+    if existing:
+        return existing
+
+    _cleanup_old_jobs()
+    job = {
+        'job_id': str(uuid.uuid4()),
+        'project_id': key,
+        'preliminary': False,
+        'status': 'queued',
+        'stage': 'queued',
+        'processed': 0,
+        'total': 0,
+        'result': None,
+        'error': '',
+        'error_status': None,
+        'created_at': time.time(),
+    }
+    _write_job(job)
+    threading.Thread(
+        target=_run_kml_job,
+        args=(job, record_ids, threshold_m, force_reanalyze),
+        name=f'kml-analyze-{job["job_id"][:8]}',
+        daemon=True,
+    ).start()
+    return job
+
+
 def start_job(project_id, preliminary, threshold_m, user):
     """启动后台核验；同一项目同一类型已有进行中的任务时直接复用，避免重复提交。"""
     existing = find_active_job(project_id, preliminary)

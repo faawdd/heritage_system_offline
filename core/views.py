@@ -1,4 +1,5 @@
 # core/views.py
+import numpy as np
 from django.shortcuts import render, redirect
 from django.template.loader import render_to_string
 from .models import (
@@ -814,6 +815,9 @@ def _bboxes_may_be_within_distance(first_bbox, second_bbox, distance_m):
     )
 
 
+_ALL_SITES_KEY = '__all__'
+
+
 def _build_site_spatial_index(site_points, cell_deg):
     index = {}
     max_index_cells = 10000
@@ -822,6 +826,7 @@ def _build_site_spatial_index(site_points, cell_deg):
         lat = site.get('latitude')
         if lon is None or lat is None:
             continue
+        index.setdefault(_ALL_SITES_KEY, []).append(site)
         # 按文物边界（若有）的完整 bbox 入索引，避免大面积文物因只用点坐标索引而被逐排遗漏。
         min_lon, min_lat, max_lon, max_lat = site.get('bbox') or (lon, lat, lon, lat)
         min_x = int(math.floor(min_lon / cell_deg))
@@ -857,6 +862,19 @@ def _query_candidate_sites(site_index, bbox, threshold_m, cell_deg):
     for site in site_index.get(None, []):
         seen_ids.add(site['id'])
         rows.append(site)
+
+    # 长线路/大面要素的 bbox 会覆盖海量网格，逐格遍历比直接按 bbox 过滤全部文物慢得多。
+    if (max_x - min_x + 1) * (max_y - min_y + 1) > len(site_index.get(_ALL_SITES_KEY, [])) * 4 + 256:
+        for site in site_index.get(_ALL_SITES_KEY, []):
+            if site['id'] in seen_ids:
+                continue
+            site_bbox = site.get('bbox')
+            if site_bbox and not _bboxes_may_be_within_distance(bbox, site_bbox, threshold_m):
+                continue
+            seen_ids.add(site['id'])
+            rows.append(site)
+        return rows
+
     for x in range(min_x, max_x + 1):
         for y in range(min_y, max_y + 1):
             for site in site_index.get((x, y), []):
@@ -895,36 +913,67 @@ def _linestring_intersects_rings(line_coords, rings):
     return any(_line_segments_intersect(line_coords, ring) for ring in rings)
 
 
+def _as_closed_array(ring):
+    points = list(ring)
+    if len(points) >= 2 and points[0] != points[-1]:
+        points.append(points[0])
+    return np.asarray(points, dtype=float).reshape(-1, 2)
+
+
+def _min_distance_points_to_polyline_m(points, line, closed=False):
+    """向量化计算一组点到折线（或闭合环）的最短距离（米），与逐段算法结果一致。"""
+    line_arr = _as_closed_array(line) if closed else np.asarray(line, dtype=float).reshape(-1, 2)
+    point_arr = np.asarray(points, dtype=float).reshape(-1, 2)
+    if len(point_arr) == 0 or len(line_arr) == 0:
+        return float('inf')
+    if len(line_arr) == 1:
+        return min(_haversine_m(lat, lon, line_arr[0][1], line_arr[0][0]) for lon, lat in point_arr)
+
+    lon1, lat1 = line_arr[:-1, 0], line_arr[:-1, 1]
+    lon2, lat2 = line_arr[1:, 0], line_arr[1:, 1]
+    m_lon = 111320 * np.cos(np.radians((lat1 + lat2) / 2))
+    x1, y1 = lon1 * m_lon, lat1 * 111320
+    dx, dy = lon2 * m_lon - x1, lat2 * 111320 - y1
+    px = point_arr[:, 0:1] * m_lon
+    py = point_arr[:, 1:2] * 111320
+    length_sq = dx * dx + dy * dy
+    safe_len = np.where(length_sq == 0, 1.0, length_sq)
+    t = np.clip(((px - x1) * dx + (py - y1) * dy) / safe_len, 0.0, 1.0)
+    t = np.where(length_sq == 0, 0.0, t)
+    dist = np.hypot(px - (x1 + t * dx), py - (y1 + t * dy))
+    return float(dist.min())
+
+
 def _distance_point_to_rings_m(lon, lat, rings):
-    best = float('inf')
-    for ring in rings:
-        best = min(best, _distance_to_polygon_boundary_m(lon, lat, [ring]))
-    return best
+    return min(
+        (_min_distance_points_to_polyline_m([(lon, lat)], ring, closed=True) for ring in rings),
+        default=float('inf'),
+    )
 
 
 def _distance_linestring_to_rings_m(line_coords, rings):
-    """近似计算折线与文物边界环之间的最短距离（基于顶点采样，兼容现有算法精度水平）。"""
+    """折线与文物边界环之间的最短距离（基于顶点采样，兼容现有算法精度水平）。"""
     if not line_coords or not rings:
         return float('inf')
 
     best = float('inf')
-    for lon, lat in line_coords:
-        best = min(best, _distance_point_to_rings_m(lon, lat, rings))
     for ring in rings:
-        for lon, lat in ring:
-            best = min(best, _distance_to_linestring_m(lon, lat, line_coords))
+        best = min(best, _min_distance_points_to_polyline_m(line_coords, ring, closed=True))
+        if ring:
+            best = min(best, _min_distance_points_to_polyline_m(ring, line_coords))
     return best
 
 
 def _distance_polygon_to_rings_m(polygon_coords, rings):
-    """近似计算 KML 面要素与文物边界环之间的最短距离（顶点采样）。"""
+    """KML 面要素与文物边界环之间的最短距离（顶点采样）。"""
     best = float('inf')
-    for ring in polygon_coords or []:
-        for lon, lat in ring:
-            best = min(best, _distance_point_to_rings_m(lon, lat, rings))
-    for ring in rings:
-        for lon, lat in ring:
-            best = min(best, _distance_to_polygon_boundary_m(lon, lat, polygon_coords or []))
+    for polygon_ring in polygon_coords or []:
+        if not polygon_ring:
+            continue
+        for ring in rings:
+            best = min(best, _min_distance_points_to_polyline_m(polygon_ring, ring, closed=True))
+            if ring:
+                best = min(best, _min_distance_points_to_polyline_m(ring, polygon_ring, closed=True))
     return best
 
 
@@ -1199,15 +1248,19 @@ def _build_conflict_sites_kml(conflicts, threshold_m, records=None):
     return response
 
 
-def _reanalyze_kml_records(records, threshold, use_cache=True):
+def _reanalyze_kml_records(records, threshold, use_cache=True, progress_callback=None):
     combined_conflicts = []
     updated_count = 0
     failed_count = 0
     failed_items = []
     records_to_update = []
     site_points = _load_conflict_site_points()
+    scale = 1000
+    total_steps = max(len(records), 1) * scale
 
-    for record in records:
+    for record_index, record in enumerate(records):
+        if progress_callback:
+            progress_callback(record_index * scale, total_steps)
         try:
             if use_cache and int(record.threshold_m or 0) == int(threshold) and record.report_json:
                 cached_payload = json.loads(record.report_json)
@@ -1230,7 +1283,13 @@ def _reanalyze_kml_records(records, threshold, use_cache=True):
                 content = source.read()
             file_name_for_parse = record.source_file.name or record.title or ''
             features = _extract_features_from_upload(file_name_for_parse, content)
-            conflicts = _analyze_conflicts(features, threshold, site_points=site_points)
+            feature_progress = None
+            if progress_callback:
+                def feature_progress(done, count, _base=record_index * scale):
+                    progress_callback(_base + int(scale * done / max(count, 1)), total_steps)
+            conflicts = _analyze_conflicts(
+                features, threshold, site_points=site_points, progress_callback=feature_progress,
+            )
         except Exception as exc:
             logger.exception('KML重分析失败: record_id=%s title=%s source=%s', record.id, record.title, getattr(record.source_file, 'name', ''))
             failed_count += 1
