@@ -23,6 +23,7 @@ from .land_project_services import (
     get_status_controls,
     apply_workflow_action,
     link_project_kml_record,
+    preliminary_kml_path,
     resolve_workflow_path,
     sync_project_kml_record,
     ALLOWED_DOCUMENT_EXTENSIONS,
@@ -2254,7 +2255,7 @@ def land_project_detail_api(request, project_id):
             'incoming_doc_date': project.incoming_doc_date.isoformat() if project.incoming_doc_date else '',
             'receive_date': project.receive_date.isoformat() if project.receive_date else '',
             'preliminary_project_name': project.preliminary_project_name,
-            'preliminary_kml_file_path': project.preliminary_kml_file_path,
+            'preliminary_kml_file_path': preliminary_kml_path(project),
             'preliminary_is_overlap_artifact': project.preliminary_is_overlap_artifact,
             'preliminary_overlapped_relics_info': project.preliminary_overlapped_relics_info,
             'preliminary_spatial_check_at': project.preliminary_spatial_check_at.strftime('%Y-%m-%d %H:%M') if project.preliminary_spatial_check_at else '',
@@ -3049,7 +3050,11 @@ def land_project_link_kml_record_api(request, project_id):
         status_before=status_before,
         status_after=project.status,
     )
-    return JsonResponse({'success': True, 'data': {'kml_record_id': record.id, 'kml_file_path': project.kml_file_path}})
+    return JsonResponse({'success': True, 'data': {
+        'kml_record_id': record.id,
+        'kml_file_path': project.kml_file_path,
+        'preliminary_kml_file_path': project.preliminary_kml_file_path,
+    }})
 
 
 @staff_member_required

@@ -283,18 +283,38 @@ def sync_project_kml_record(project: LandUseProjectApproval, user=None) -> KmlUp
 
 
 def link_project_kml_record(project: LandUseProjectApproval, record: KmlUploadRecord) -> None:
-    """把已有的 KML 叠加检查记录关联到项目，并同步项目侧 KML 路径。"""
-    if not record.source_file:
+    """按当前审查阶段关联已有 KML，初审材料与正式核验结论分别维护。"""
+    if not record.source_file or not record.source_file.storage.exists(record.source_file.name):
         raise ValueError('该叠加检查记录没有可用的KML文件')
 
-    changed_source = project.kml_record_id != record.id
+    preliminary = project.status == LandUseProjectApproval.STATUS_RECEIVED or (
+        project.status == LandUseProjectApproval.STATUS_PRELIM_REVIEWED
+        and not project.preliminary_review_date
+    )
+    changed_source = project.kml_record_id != record.id or project.kml_file_path != record.source_file.name
     project.kml_record = record
     project.kml_file_path = record.source_file.name
     update_fields = ['kml_record', 'kml_file_path', 'updated_at']
 
-    # 换了选址范围且流程尚未越过初步核查时，清空旧结论并退回待核验状态。
-    if changed_source and project.status in {
-        LandUseProjectApproval.STATUS_RECEIVED,
+    if preliminary:
+        if project.preliminary_kml_file_path != record.source_file.name:
+            project.preliminary_kml_file_path = record.source_file.name
+            project.preliminary_spatial_check_at = None
+            project.preliminary_spatial_feature_count = 0
+            project.preliminary_is_overlap_artifact = None
+            project.preliminary_overlapped_relics_info = []
+            project.preliminary_review_date = None
+            project.preliminary_review_opinion = ''
+            project.reuse_preliminary_materials = False
+            project.status = LandUseProjectApproval.STATUS_RECEIVED
+            update_fields += [
+                'preliminary_kml_file_path', 'preliminary_spatial_check_at',
+                'preliminary_spatial_feature_count', 'preliminary_is_overlap_artifact',
+                'preliminary_overlapped_relics_info', 'preliminary_review_date',
+                'preliminary_review_opinion', 'reuse_preliminary_materials', 'status',
+            ]
+    elif changed_source and project.status in {
+        LandUseProjectApproval.STATUS_PRELIM_REVIEWED,
         LandUseProjectApproval.STATUS_PRELIM_SAFE,
         LandUseProjectApproval.STATUS_CHECK_OVERLAP,
     }:
@@ -302,13 +322,25 @@ def link_project_kml_record(project: LandUseProjectApproval, record: KmlUploadRe
         project.overlapped_relics_info = []
         project.spatial_check_at = None
         project.spatial_feature_count = 0
-        project.status = LandUseProjectApproval.STATUS_RECEIVED
+        project.reuse_preliminary_materials = False
+        project.status = LandUseProjectApproval.STATUS_PRELIM_REVIEWED
         update_fields += [
             'is_overlap_artifact', 'overlapped_relics_info',
-            'spatial_check_at', 'spatial_feature_count', 'status',
+            'spatial_check_at', 'spatial_feature_count', 'reuse_preliminary_materials', 'status',
         ]
 
     project.save(update_fields=update_fields)
+
+
+def preliminary_kml_path(project: LandUseProjectApproval) -> str:
+    if project.preliminary_kml_file_path:
+        return project.preliminary_kml_file_path
+    # Compatibility for projects linked before stage-specific linking was fixed.
+    if project.status == LandUseProjectApproval.STATUS_RECEIVED and project.kml_record_id:
+        record = project.kml_record
+        if record.source_file and record.source_file.name == project.kml_file_path:
+            return project.kml_file_path
+    return ''
 
 
 def _write_back_kml_record(record: KmlUploadRecord, threshold_m: int, features, conflicts) -> None:
@@ -431,9 +463,10 @@ def verify_preliminary_spatial_safety(project_id, threshold_m: int = None, user=
     project = LandUseProjectApproval.objects.filter(id=project_id).first()
     if not project:
         raise ValueError('项目不存在')
-    if not project.preliminary_kml_file_path:
+    source_path = preliminary_kml_path(project)
+    if not source_path:
         raise ValueError('项目尚未上传初步选址KML文件')
-    if not default_storage.exists(project.preliminary_kml_file_path):
+    if not default_storage.exists(source_path):
         raise ValueError('初步选址KML文件不存在或已被移除')
 
     from . import views as legacy_views
@@ -443,9 +476,9 @@ def verify_preliminary_spatial_safety(project_id, threshold_m: int = None, user=
     except (TypeError, ValueError):
         threshold = DEFAULT_SPATIAL_THRESHOLD_M
     threshold = max(1, min(5000, threshold))
-    with default_storage.open(project.preliminary_kml_file_path, 'rb') as fp:
+    with default_storage.open(source_path, 'rb') as fp:
         content = fp.read()
-    features = legacy_views._extract_features_from_upload(project.preliminary_kml_file_path, content)
+    features = legacy_views._extract_features_from_upload(source_path, content)
     if not features:
         raise ValueError('初步选址KML未识别到有效要素，请检查文件格式与坐标内容')
     conflicts = legacy_views._analyze_conflicts(features, threshold)
@@ -470,6 +503,7 @@ def verify_preliminary_spatial_safety(project_id, threshold_m: int = None, user=
             seen.add(key)
             unique.append(item)
 
+    project.preliminary_kml_file_path = source_path
     project.preliminary_is_overlap_artifact = bool(unique)
     project.preliminary_overlapped_relics_info = unique
     project.preliminary_spatial_check_at = timezone.now()
@@ -477,7 +511,7 @@ def verify_preliminary_spatial_safety(project_id, threshold_m: int = None, user=
     project.preliminary_spatial_feature_count = len(features)
     project.status = LandUseProjectApproval.STATUS_PRELIM_REVIEWED
     project.save(update_fields=[
-        'preliminary_is_overlap_artifact', 'preliminary_overlapped_relics_info',
+        'preliminary_kml_file_path', 'preliminary_is_overlap_artifact', 'preliminary_overlapped_relics_info',
         'preliminary_spatial_check_at', 'preliminary_spatial_check_threshold_m',
         'preliminary_spatial_feature_count', 'status', 'updated_at',
     ])
@@ -840,7 +874,7 @@ def build_workflow_todos(project: LandUseProjectApproval, path: str) -> List[Dic
 
     if status == LandUseProjectApproval.STATUS_RECEIVED:
         preliminary_blockers = []
-        if not project.preliminary_kml_file_path:
+        if not preliminary_kml_path(project):
             preliminary_blockers.append('请先上传「初步选址KML/KMZ」文件')
         todos.append({
             'action': 'verify_preliminary_spatial',

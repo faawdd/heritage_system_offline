@@ -844,7 +844,7 @@ async function submitLinkRecord() {
 
   try {
     await ElMessageBox.confirm(
-      '关联后本项目的选址范围将改用该叠加检查记录的KML文件，是否继续？',
+      '关联文件将用于当前阶段的选址审查（初审回复前为初步选址，回复后为正式选址）；更换范围后需重新核验，是否继续？',
       '关联确认',
       { confirmButtonText: '确认关联', cancelButtonText: '取消', type: 'warning' }
     )
