@@ -1,4 +1,5 @@
 import client from './client'
+import { KML_ACTION_TIMEOUT, MAP_REQUEST_TIMEOUT, requestMapData } from '../utils/networkRequest.js'
 
 function extractFilenameFromDisposition(disposition) {
   if (!disposition) return ''
@@ -15,29 +16,41 @@ function extractFilenameFromDisposition(disposition) {
 }
 
 export async function fetchGisKmlRecords() {
-  const response = await client.get('/api/v1/gis/kml-records/')
+  const response = await requestMapData(() => client.get('/api/v1/gis/kml-records/', { timeout: MAP_REQUEST_TIMEOUT }))
   return response.data
 }
 
-export async function fetchGisKmlRecordKmlContent(recordId) {
-  const response = await client.get(`/api/v1/gis/kml-records/${recordId}/kml-content/`)
+export async function fetchGisKmlRecordKmlContent(recordId, { signal } = {}) {
+  const response = await requestMapData(
+    () => client.get(`/api/v1/gis/kml-records/${recordId}/kml-content/`, { signal, timeout: MAP_REQUEST_TIMEOUT }),
+    { signal }
+  )
   return response.data
 }
 
-export async function fetchGisKmlBatchKmlContent(recordIds = []) {
-  const response = await client.post('/api/v1/gis/kml-records/batch-kml-content/', {
+export async function fetchGisKmlBatchKmlContent(recordIds = [], { signal } = {}) {
+  const response = await requestMapData(() => client.post('/api/v1/gis/kml-records/batch-kml-content/', {
     record_ids: Array.isArray(recordIds) ? recordIds : []
-  })
+  }, { signal, timeout: MAP_REQUEST_TIMEOUT }), { signal })
   return response.data
 }
 
-async function postBlobAware(url, formData) {
-  const response = await client.post(url, formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data'
-    },
-    responseType: 'blob'
-  })
+async function postBlobAware(url, formData, options = {}) {
+  let response
+  try {
+    response = await client.post(url, formData, {
+      ...options,
+      timeout: KML_ACTION_TIMEOUT,
+      responseType: 'blob'
+    })
+  } catch (error) {
+    const failedResponse = error?.response
+    if (failedResponse?.headers?.['content-type']?.includes('application/json') && failedResponse.data instanceof Blob) {
+      const payload = JSON.parse(await failedResponse.data.text())
+      if (payload.message) error.message = payload.message
+    }
+    throw error
+  }
 
   const contentType = response.headers['content-type'] || ''
   if (contentType.includes('application/json')) {
@@ -54,8 +67,8 @@ async function postBlobAware(url, formData) {
   }
 }
 
-export async function submitGisKmlManagementAction(formData) {
-  return postBlobAware('/api/v1/gis/kml-management/action/', formData)
+export async function submitGisKmlManagementAction(formData, options = {}) {
+  return postBlobAware('/api/v1/gis/kml-management/action/', formData, options)
 }
 
 export async function submitOvkmlConvert(formData) {

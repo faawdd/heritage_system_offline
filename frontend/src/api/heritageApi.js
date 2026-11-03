@@ -1,7 +1,11 @@
 import client from './client'
+import { MAP_REQUEST_TIMEOUT, requestMapData } from '../utils/networkRequest.js'
 
-export async function fetchHeritageMapPoints() {
-  const response = await client.get('/api/v1/heritage/map-points/')
+export async function fetchHeritageMapPoints({ signal } = {}) {
+  const response = await requestMapData(
+    () => client.get('/api/v1/heritage/map-points/', { signal, timeout: MAP_REQUEST_TIMEOUT }),
+    { signal }
+  )
   return response.data
 }
 

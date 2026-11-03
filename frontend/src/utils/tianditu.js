@@ -1,5 +1,6 @@
 import TileLayer from 'ol/layer/Tile'
 import XYZ from 'ol/source/XYZ'
+import { createRetryingTileLoader } from './tileLoader.js'
 
 const DEFAULT_TDT_TK = '424ac2af85564078477428c1a2b72018'
 const ACTIVE_TILE_SET_KEY = 'heritage_offline_tile_set'
@@ -20,23 +21,35 @@ function resolveToken() {
   return import.meta.env.VITE_TDT_TK || DEFAULT_TDT_TK
 }
 
+function createLayer(layerType, tk) {
+  const source = new XYZ({
+    urls: buildUrls(layerType, tk),
+    crossOrigin: 'anonymous',
+    tileLoadFunction: createRetryingTileLoader()
+  })
+  source.once('tileloaderror', () => {
+    console.warn('天地图瓦片加载失败：已达到重试上限，请检查网络或底图服务；业务叠加层不受影响。')
+  })
+  return new TileLayer({ source })
+}
+
 export function createTiandituLayerGroup(mode = 'img') {
   const tk = resolveToken()
   if (mode === 'vec') {
     return [
-      new TileLayer({ source: new XYZ({ urls: buildUrls('vec', tk), crossOrigin: 'anonymous' }) }),
-      new TileLayer({ source: new XYZ({ urls: buildUrls('cva', tk), crossOrigin: 'anonymous' }) })
+      createLayer('vec', tk),
+      createLayer('cva', tk)
     ]
   }
   if (mode === 'ter') {
     return [
-      new TileLayer({ source: new XYZ({ urls: buildUrls('ter', tk), crossOrigin: 'anonymous' }) }),
-      new TileLayer({ source: new XYZ({ urls: buildUrls('cta', tk), crossOrigin: 'anonymous' }) })
+      createLayer('ter', tk),
+      createLayer('cta', tk)
     ]
   }
   return [
-    new TileLayer({ source: new XYZ({ urls: buildUrls('img', tk), crossOrigin: 'anonymous' }) }),
-    new TileLayer({ source: new XYZ({ urls: buildUrls('cia', tk), crossOrigin: 'anonymous' }) })
+    createLayer('img', tk),
+    createLayer('cia', tk)
   ]
 }
 

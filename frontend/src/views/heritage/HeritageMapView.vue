@@ -146,10 +146,11 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 
 import { fetchHeritageMapPoints } from '../../api/heritageApi'
+import { isCanceledRequest, networkErrorMessage } from '../../utils/networkRequest.js'
 import HeritageMapCanvas from '../../components/heritage/HeritageMapCanvas.vue'
 
 const mapCanvasRef = ref(null)
@@ -235,20 +236,25 @@ function openDetail(payload) {
 }
 
 async function loadData() {
+  if (loading.value) return
   loading.value = true
   try {
-    const result = await fetchHeritageMapPoints()
+    const result = await fetchHeritageMapPoints({ signal: mapDataController.signal })
+    if (mapDataController.signal.aborted) return
     if (!result.success) {
       throw new Error(result.message || '加载点位失败')
     }
     points.value = result.rows || []
   } catch (error) {
-    ElMessage.error(error?.message || '加载失败')
+    if (isCanceledRequest(error)) return
+    ElMessage.error(networkErrorMessage(error, '加载失败'))
   } finally {
     loading.value = false
   }
 }
 
+const mapDataController = new AbortController()
+onBeforeUnmount(() => mapDataController.abort())
 loadData()
 </script>
 

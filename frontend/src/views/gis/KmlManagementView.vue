@@ -41,7 +41,7 @@
                   <strong>{{ uploadSelection.length ? `已选择 ${uploadSelection.length} 个文件` : '选择 KML 文件' }}</strong>
                   <small>{{ uploadSelection[0]?.name || '支持 KML、KMZ、OVKML、OVKMZ，可多选' }}</small>
                 </span>
-                <input ref="uploadInputRef" type="file" accept=".kml,.kmz,.ovkml,.ovkmz" multiple @change="onUploadSelectionChange" />
+                <input ref="uploadInputRef" type="file" accept=".kml,.kmz,.ovkml,.ovkmz" multiple :disabled="uploading" @change="onUploadSelectionChange" />
                 <span class="upload-file-browse">浏览</span>
               </label>
               <div class="upload-options-row">
@@ -60,6 +60,7 @@
               <el-button class="upload-submit" type="primary" :loading="uploading" @click="uploadFiles">
                 {{ uploading ? '正在上传…' : '开始上传并加载' }}
               </el-button>
+              <p v-if="uploading" class="hint-text" role="status">{{ uploadStatus }}</p>
             </div>
           </el-collapse-item>
 
@@ -312,6 +313,7 @@ import { useRouter } from 'vue-router'
 import { fetchGisKmlRecords, submitGisKmlManagementAction } from '../../api/gisApi'
 import { createProject, fetchProjectList, linkProjectKmlRecord } from '../../api/projectApi'
 import KmlOverlayMap from '../../components/gis/KmlOverlayMap.vue'
+import { networkErrorMessage } from '../../utils/networkRequest.js'
 
 const router = useRouter()
 const projectLinkVisible = ref(false)
@@ -325,6 +327,7 @@ const rows = ref([])
 const recordsTableRef = ref(null)
 const loading = ref(false)
 const uploading = ref(false)
+const uploadStatus = ref('')
 const processing = ref(false)
 const uploadInputRef = ref(null)
 const uploadSelection = ref([])
@@ -342,7 +345,7 @@ const activeOverlap = ref(null)
 const forceReanalyze = ref(false)
 const renameDraft = reactive({})
 const renameTarget = ref(null)
-const menuVisible = ref(true)
+const menuVisible = ref(typeof window === 'undefined' || !window.matchMedia('(max-width: 1024px)').matches)
 const activeMenuTab = ref('workspace')
 const activeWorkspacePanels = ref(['upload'])
 const activeOverlapPanels = ref(['overlap'])
@@ -518,8 +521,8 @@ function overlapRowClassName({ row }) {
   return row?.overlap_key === activeOverlap.value?.overlap_key ? 'conflict-row-active' : ''
 }
 
-async function runAction(formData, fallbackFileName = '') {
-  const result = await submitGisKmlManagementAction(formData)
+async function runAction(formData, fallbackFileName = '', options = {}) {
+  const result = await submitGisKmlManagementAction(formData, options)
   if (!result.success) {
     throw new Error(result.message || '操作失败')
   }
@@ -560,6 +563,7 @@ async function loadRows() {
 }
 
 async function uploadFiles() {
+  if (uploading.value) return
   const files = Array.from(uploadInputRef.value?.files || [])
   if (files.length === 0) {
     ElMessage.warning('请先选择上传文件')
@@ -567,6 +571,7 @@ async function uploadFiles() {
   }
 
   uploading.value = true
+  uploadStatus.value = '正在传输文件，请勿重复提交或关闭页面'
   try {
     const formData = new FormData()
     formData.set('action', 'upload')
@@ -574,11 +579,24 @@ async function uploadFiles() {
     formData.set('immediate_analyze', immediateAnalyze.value ? '1' : '0')
     files.forEach((file) => formData.append('kml_files', file))
 
-    const result = await runAction(formData)
+    const result = await runAction(formData, '', {
+      onUploadProgress(event) {
+        if (event.total && event.loaded >= event.total) {
+          uploadStatus.value = '文件已传输，服务器正在保存或分析，请耐心等待'
+        } else if (event.total) {
+          uploadStatus.value = `正在传输文件：${Math.floor(event.loaded / event.total * 100)}%`
+        }
+      }
+    })
     ElMessage.success(result.message || '上传完成')
+    uploadInputRef.value.value = ''
+    uploadSelection.value = []
     await loadRows()
   } catch (error) {
-    ElMessage.error(error?.message || '上传失败')
+    const uncertain = !error?.response || [408, 502, 503, 504].includes(error.response.status)
+    ElMessage.error(uncertain
+      ? `${networkErrorMessage(error, '上传响应未收到')}。服务端可能已保存文件，请先刷新记录核对，勿直接重复上传。`
+      : networkErrorMessage(error, '上传失败'))
   } finally {
     uploading.value = false
   }
@@ -1426,7 +1444,7 @@ onMounted(() => {
 }
 
 /* 给地图右上工具栏预留用户面板空间，避免模块重叠 */
-.kml-fullscreen-page :deep(.kml-overlay-toolbar) {
+.kml-fullscreen-page :deep(.kml-map-controls) {
   top: 76px;
   right: 14px;
   z-index: 14;
@@ -1490,11 +1508,10 @@ onMounted(() => {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .kml-fullscreen-page :deep(.kml-overlay-toolbar) {
-    top: auto;
+  .kml-fullscreen-page :deep(.kml-map-controls) {
+    top: 58px;
     right: 10px;
-    bottom: 210px;
-    max-width: min(320px, calc(100vw - 20px));
+    width: min(320px, calc(100% - 20px));
   }
 
   .floating-menu-scroll :deep(.el-collapse-item__content) {

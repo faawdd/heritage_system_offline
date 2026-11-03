@@ -12,6 +12,7 @@ import View from 'ol/View'
 import { ElMessage } from 'element-plus'
 import { fetchHeritageMapPoints } from '../api/heritageApi'
 import { fitHeritagePoints, nationalViewOptions } from '../utils/mapViewport'
+import { isCanceledRequest, networkErrorMessage } from '../utils/networkRequest.js'
 import BaseMapSwitcher from './maps/BaseMapSwitcher.vue'
 import {
   createOfflineTileLayer,
@@ -22,6 +23,7 @@ import {
 
 const mapEl = ref(null)
 let mapRef = null
+const mapDataController = new AbortController()
 let onlineLayers = []
 let offlineLayer = null
 let stopWatchingBasemap = null
@@ -43,16 +45,18 @@ onMounted(async () => {
   stopWatchingBasemap = watchBasemapChanges(refreshBasemap)
   fitHeritagePoints(mapRef, [])
   try {
-    const result = await fetchHeritageMapPoints()
+    const result = await fetchHeritageMapPoints({ signal: mapDataController.signal })
+    if (mapDataController.signal.aborted) return
     if (!result.success) throw new Error(result.message || '加载文物分布失败')
     fitHeritagePoints(mapRef, result.rows || [])
   } catch (error) {
-    ElMessage.error(error?.message || '加载文物分布失败')
+    if (!isCanceledRequest(error)) ElMessage.error(networkErrorMessage(error, '加载文物分布失败'))
   }
 })
 
 onBeforeUnmount(() => {
   stopWatchingBasemap?.()
+  mapDataController.abort()
   mapRef?.setTarget(undefined)
 })
 </script>

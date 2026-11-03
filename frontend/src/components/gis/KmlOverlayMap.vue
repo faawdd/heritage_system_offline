@@ -1,17 +1,26 @@
 <template>
   <div class="kml-overlay-map-wrap">
     <div ref="mapEl" class="kml-overlay-map"></div>
-    <div class="kml-loading-mask" v-if="isKmlLoading">
+    <div class="kml-loading-mask" v-if="isKmlLoading || isHeritageLoading">
       <div class="kml-loading-card">
         <div class="kml-loading-spinner"></div>
-        <div>{{ loadingText }}</div>
+        <div>{{ isKmlLoading ? loadingText : '正在加载文物点与范围...' }}</div>
       </div>
     </div>
     <div ref="featurePopupEl" class="kml-feature-popup" :class="{ 'is-visible': popupVisible }">
       <h4>{{ popupTitle }}</h4>
       <div class="kml-feature-popup-content">{{ popupContent }}</div>
     </div>
-    <div class="kml-overlay-toolbar">
+    <div class="kml-map-controls" @pointerdown.stop @click.stop @dblclick.stop @keydown.esc.stop.prevent="closeMapPanel">
+      <div class="map-panel-actions">
+        <button ref="toolsToggleEl" type="button" class="toolbar-btn map-panel-toggle" :aria-expanded="activeMapPanel === 'tools'" :aria-controls="toolsPanelId" @click="toggleMapPanel('tools')">地图工具</button>
+        <button ref="legendToggleEl" type="button" class="toolbar-btn map-panel-toggle" :aria-expanded="activeMapPanel === 'legend'" :aria-controls="legendPanelId" @click="toggleMapPanel('legend')">图例</button>
+      </div>
+    <div v-show="activeMapPanel === 'tools'" :id="toolsPanelId" class="kml-overlay-toolbar" role="region" aria-label="地图图层与工具">
+      <div class="map-panel-header">
+        <strong>地图图层与工具</strong>
+        <button type="button" class="toolbar-btn" aria-label="收起地图工具" @click="closeMapPanel">收起</button>
+      </div>
       <div class="toolbar-row">
         <span class="toolbar-label">地图源</span>
         <button type="button" class="toolbar-btn" :class="{ active: mapProviderMode === 'online' }" @click="switchProvider('online')">天地图</button>
@@ -25,6 +34,7 @@
       </div>
       <div class="toolbar-row">
         <span class="toolbar-label">图层</span>
+        <button type="button" class="toolbar-btn" :disabled="isKmlLoading || isHeritageLoading" @click="retryLayers">重试加载</button>
         <button type="button" class="toolbar-btn" :class="{ active: showKmlLayer }" @click="toggleKmlLayer">KML</button>
         <button type="button" class="toolbar-btn" :class="{ active: showHeritageLayer }" @click="toggleHeritageLayer">文物点</button>
         <button type="button" class="toolbar-btn" :class="{ active: showProtectionLayer }" @click="toggleProtectionLayer">保护范围</button>
@@ -48,8 +58,11 @@
       <div class="measure-text" v-if="measureText">{{ measureText }}</div>
       <div class="measure-text" v-if="overlapEntries.length > 0">检测到叠加 {{ overlapEntries.length }} 处</div>
     </div>
-    <div class="kml-legend-panel">
-      <div class="legend-title">图例</div>
+    <div v-show="activeMapPanel === 'legend'" :id="legendPanelId" class="kml-legend-panel" role="region" aria-label="地图图例">
+      <div class="map-panel-header">
+        <strong class="legend-title">图例</strong>
+        <button type="button" class="toolbar-btn" aria-label="收起图例" @click="closeMapPanel">收起</button>
+      </div>
       <div class="legend-item">
         <span class="legend-swatch swatch-kml"></span>
         <span>普通 KML 要素</span>
@@ -91,6 +104,7 @@
         <span>KML要素定位气泡</span>
       </div>
     </div>
+    </div>
     <div class="kml-overlay-tip" v-if="tips.length > 0">
       <div v-for="(item, idx) in tips" :key="idx">{{ item }}</div>
     </div>
@@ -98,7 +112,7 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
 import { getCenter, intersects as intersectsExtent } from 'ol/extent'
 import Feature from 'ol/Feature'
 import OlMap from 'ol/Map'
@@ -132,6 +146,8 @@ import { fetchGisKmlBatchKmlContent } from '../../api/gisApi'
 import { fetchGisKmlRecordKmlContent } from '../../api/gisApi'
 import { fetchHeritageMapPoints } from '../../api/heritageApi'
 import { fitMapExtent, nationalViewOptions, validLonLat } from '../../utils/mapViewport'
+import { kmlRecordKey, loadKmlRecords } from '../../utils/kmlLoader.js'
+import { isCanceledRequest, networkErrorMessage } from '../../utils/networkRequest.js'
 
 const props = defineProps({
   selectedRecords: {
@@ -154,12 +170,27 @@ const props = defineProps({
 
 const emit = defineEmits(['conflict-click', 'overlap-click', 'overlap-update'])
 
-const MAX_FETCH_CONCURRENCY = 4
 const OVERLAP_DETECT_LIMIT = 2500
 const POINT_RENDER_LIMIT = 1200
 const kmlFormat = new KML({ extractStyles: false })
 
 const mapEl = ref(null)
+const activeMapPanel = ref('')
+const toolsToggleEl = ref(null)
+const legendToggleEl = ref(null)
+const toolsPanelId = useId()
+const legendPanelId = useId()
+
+function toggleMapPanel(panel) {
+  activeMapPanel.value = activeMapPanel.value === panel ? '' : panel
+}
+
+function closeMapPanel() {
+  const toggle = activeMapPanel.value === 'tools' ? toolsToggleEl.value : legendToggleEl.value
+  activeMapPanel.value = ''
+  toggle?.focus()
+}
+
 const tips = ref([])
 const baseMode = ref('img')
 const mapProviderMode = ref(getBasemapProvider())
@@ -173,6 +204,8 @@ const showOverlapLayer = ref(true)
 const measureMode = ref(false)
 const measureText = ref('')
 const isKmlLoading = ref(false)
+const isHeritageLoading = ref(false)
+const heritageError = ref('')
 const loadingText = ref('正在加载KML...')
 const popupVisible = ref(false)
 const popupTitle = ref('')
@@ -211,6 +244,9 @@ let stopWatchingBasemap = null
 let measurePoints = []
 let loadToken = 0
 let overlapToken = 0
+let kmlController = null
+let heritageController = null
+const renderedRecords = new Map()
 const overlapEntries = ref([])
 // 放大到该级别及以上时，文物点/冲突点改为渲染实际本体边界范围多边形。
 const BOUNDARY_ZOOM_THRESHOLD = 16
@@ -685,17 +721,30 @@ function convertClosedLinesToPolygonFeatures(features = []) {
 async function reloadKmlLayers() {
   loadToken += 1
   const currentToken = loadToken
-  kmlSource.clear()
+  overlapToken += 1
+  kmlController?.abort()
+  const controller = new AbortController()
+  kmlController = controller
   elementBubbleSource.clear()
-  tips.value = []
+  tips.value = heritageError.value ? [heritageError.value] : []
   closeFeaturePopup()
 
-  const selectedRecords = props.selectedRecords || []
+  const selectedRecords = [...(props.selectedRecords || [])]
+  const selectedKeys = new Set(selectedRecords.map(kmlRecordKey))
+  for (const [key, features] of renderedRecords) {
+    if (selectedKeys.has(key)) continue
+    features.forEach((feature) => kmlSource.removeFeature(feature))
+    renderedRecords.delete(key)
+  }
+  for (const key of kmlTextCache.keys()) {
+    if (!selectedKeys.has(key)) kmlTextCache.delete(key)
+  }
+  overlapSource.clear()
+  overlapEntries.value = []
+  applyKmlHighlightStates([])
+  emit('overlap-update', [])
+  isKmlLoading.value = selectedRecords.length > 0
   if (selectedRecords.length === 0) {
-    overlapSource.clear()
-    overlapEntries.value = []
-    applyKmlHighlightStates([])
-    emit('overlap-update', [])
     rebuildElementBubbleLayer()
     fitAll()
     return
@@ -704,169 +753,80 @@ async function reloadKmlLayers() {
   isKmlLoading.value = true
   loadingText.value = `正在加载 ${selectedRecords.length} 个KML文件...`
 
-  const results = new Array(selectedRecords.length)
   let doneCount = 0
-
-  const resolvedByRecordId = new Map()
-  const pendingRows = []
-
-  selectedRecords.forEach((row, idx) => {
-    const recordId = Number(row?.id)
-    if (Number.isFinite(recordId) && recordId > 0) {
-      pendingRows.push({ row, idx, recordId })
-    }
-  })
-
-  if (pendingRows.length > 0) {
-    try {
-      loadingText.value = `正在批量请求 ${pendingRows.length} 个KML文件...`
-      const batchResult = await fetchGisKmlBatchKmlContent(pendingRows.map((item) => item.recordId))
-      if (batchResult?.success) {
-        ;(batchResult.data?.items || []).forEach((item) => {
-          const key = Number(item?.record_id)
-          if (Number.isFinite(key)) {
-            resolvedByRecordId.set(key, {
-              success: true,
-              text: String(item?.kml_text || '')
+  try {
+    await loadKmlRecords(selectedRecords, {
+      cache: kmlTextCache,
+      fetchBatch: fetchGisKmlBatchKmlContent,
+      fetchSingle: fetchGisKmlRecordKmlContent,
+      signal: controller.signal,
+      async onResult({ row, idx, text, error }) {
+        if (currentToken !== loadToken) return
+        const title = row?.title || `记录${idx + 1}`
+        try {
+          if (error) throw error
+          const key = kmlRecordKey(row)
+          let optimized
+          if (renderedRecords.has(key)) {
+            optimized = { features: renderedRecords.get(key) }
+          } else {
+            const features = kmlFormat.readFeatures(text, {
+              dataProjection: 'EPSG:4326',
+              featureProjection: 'EPSG:3857'
             })
+            const renderFeatures = convertClosedLinesToPolygonFeatures(features)
+            optimized = optimizeFeaturesForRender(renderFeatures, selectedRecords.length)
+            renderedRecords.set(key, optimized.features)
+            kmlSource.addFeatures(optimized.features)
           }
-        })
-        ;(batchResult.data?.failed_items || []).forEach((item) => {
-          const key = Number(item?.record_id)
-          if (Number.isFinite(key)) {
-            resolvedByRecordId.set(key, {
-              success: false,
-              message: String(item?.message || '批量接口返回失败')
-            })
+          optimized.features.forEach((feature, featureIndex) => {
+            feature.set('isKmlFeature', true)
+            feature.set('kmlColorIndex', idx)
+            feature.set('sourceName', title)
+            feature.set('featureName', String(feature.get('name') || `要素#${featureIndex + 1}`))
+          })
+          if (optimized.hiddenPointCount > 0) {
+            appendTipOnce(
+              `性能模式已开启：自动抽稀点注记 ${optimized.hiddenPointCount} 个，以提升批量渲染速度。`
+            )
           }
-        })
-      }
-    } catch (_error) {
-      // 批量接口失败时自动降级到单条接口，不中断加载流程。
-    }
-  }
-
-  await runWithConcurrency(selectedRecords, MAX_FETCH_CONCURRENCY, async (row, idx) => {
-    const recordId = row?.id
-    const title = row?.title || `记录${idx + 1}`
-
-    if (!recordId) {
-      results[idx] = { idx, title, success: false, message: '无记录ID，已跳过' }
-      doneCount += 1
-      loadingText.value = `正在加载 ${selectedRecords.length} 个KML文件... (${doneCount}/${selectedRecords.length})`
-      return
-    }
-
-    try {
-      const cacheKey = [String(recordId), String(row?.title || ''), String(row?.created_at || '')].join('|')
-      let text = kmlTextCache.get(cacheKey)
-
-      if (!text) {
-        const batchResolved = resolvedByRecordId.get(Number(recordId))
-        if (batchResolved?.success) {
-          text = batchResolved.text
-        } else {
-          const result = await fetchGisKmlRecordKmlContent(recordId)
-          if (!result.success) {
-            throw new Error(result.message || batchResolved?.message || '解析失败')
+          if (optimized.simplifiedTolerance > 0) {
+            appendTipOnce(
+              `性能模式已开启：线/面要素已做几何简化（容差 ${optimized.simplifiedTolerance}m）。`
+            )
           }
-          text = result.data?.kml_text || ''
+          rebuildElementBubbleLayer()
+          fitAll()
+        } catch (error) {
+          kmlTextCache.delete(kmlRecordKey(row))
+          appendTipOnce(`${title}: ${networkErrorMessage(error, '解析失败')}，可点击“重试加载”`)
+        } finally {
+          doneCount += 1
+          loadingText.value = `正在加载KML... (${doneCount}/${selectedRecords.length})，已加载图层可继续使用`
         }
-        if (!text) {
-          throw new Error('KML 内容为空')
-        }
-        kmlTextCache.set(cacheKey, text)
-      }
-
-      results[idx] = { idx, title, success: true, text }
-    } catch (error) {
-      results[idx] = {
-        idx,
-        title,
-        success: false,
-        message: error?.message || '未知错误'
-      }
-    } finally {
-      doneCount += 1
-      loadingText.value = `正在加载 ${selectedRecords.length} 个KML文件... (${doneCount}/${selectedRecords.length})`
-    }
-  })
-
-  if (currentToken !== loadToken) {
-    isKmlLoading.value = false
-    return
-  }
-
-  for (let i = 0; i < results.length; i += 1) {
-    const item = results[i]
-    if (!item.success) {
-      tips.value.push(`${item.title}: 解析失败（${item.message}）`)
-      continue
-    }
-
-    try {
-      const features = kmlFormat.readFeatures(item.text, {
-        dataProjection: 'EPSG:4326',
-        featureProjection: 'EPSG:3857'
-      })
-      const renderFeatures = convertClosedLinesToPolygonFeatures(features)
-      renderFeatures.forEach((feature, featureIndex) => {
-        feature.set('isKmlFeature', true)
-        feature.set('kmlColorIndex', item.idx)
-        feature.set('sourceName', item.title)
-        feature.set('featureName', String(feature.get('name') || `要素#${featureIndex + 1}`))
-      })
-      const optimized = optimizeFeaturesForRender(renderFeatures, selectedRecords.length)
-      kmlSource.addFeatures(optimized.features)
-      if (optimized.hiddenPointCount > 0) {
-        appendTipOnce(
-          `性能模式已开启：自动抽稀点注记 ${optimized.hiddenPointCount} 个，以提升批量渲染速度。`
-        )
-      }
-      if (optimized.simplifiedTolerance > 0) {
-        appendTipOnce(
-          `性能模式已开启：线/面要素已做几何简化（容差 ${optimized.simplifiedTolerance}m）。`
-        )
-      }
-      if (i % 1 === 0) {
         await new Promise((resolve) => setTimeout(resolve, 0))
       }
-    } catch (error) {
-      tips.value.push(`${item.title}: 解析失败（${error?.message || '未知错误'}）`)
+    })
+    if (currentToken !== loadToken) return
+
+    if (showOverlapLayer.value) {
+      await reloadOverlapLayer()
+    } else {
+      overlapSource.clear()
+      overlapEntries.value = []
+      applyKmlHighlightStates([])
+      emit('overlap-update', [])
     }
-  }
-
-  if (showOverlapLayer.value) {
-    await reloadOverlapLayer()
-  } else {
-    overlapSource.clear()
-    overlapEntries.value = []
-    applyKmlHighlightStates([])
-    emit('overlap-update', [])
-  }
-  rebuildElementBubbleLayer()
-  fitAll()
-  isKmlLoading.value = false
-}
-
-async function runWithConcurrency(items, limit, worker) {
-  const max = Math.max(1, Number(limit) || 1)
-  let index = 0
-
-  async function runOne() {
-    while (index < items.length) {
-      const current = index
-      index += 1
-      await worker(items[current], current)
+    if (currentToken !== loadToken) return
+    rebuildElementBubbleLayer()
+    fitAll()
+  } catch (error) {
+    if (!isCanceledRequest(error) && currentToken === loadToken) {
+      appendTipOnce(networkErrorMessage(error, 'KML 图层加载失败'))
     }
+  } finally {
+    if (currentToken === loadToken) isKmlLoading.value = false
   }
-
-  const runners = []
-  const runnerCount = Math.min(max, items.length)
-  for (let i = 0; i < runnerCount; i += 1) {
-    runners.push(runOne())
-  }
-  await Promise.all(runners)
 }
 
 function reloadConflictLayer() {
@@ -1251,9 +1211,16 @@ function updateBoundaryZoomVisibility() {
 }
 
 async function loadHeritageLayer() {
+  heritageController?.abort()
+  const controller = new AbortController()
+  heritageController = controller
+  isHeritageLoading.value = true
   try {
-    const result = await fetchHeritageMapPoints()
+    const result = await fetchHeritageMapPoints({ signal: controller.signal })
+    if (controller.signal.aborted) return
     if (!result.success) throw new Error(result.message || '文物点图层加载失败')
+    tips.value = tips.value.filter((tip) => tip !== heritageError.value)
+    heritageError.value = ''
     const rows = result?.rows || []
     heritageSource.clear()
     heritageBoundarySource.clear()
@@ -1332,10 +1299,21 @@ async function loadHeritageLayer() {
     })
 
     updateBoundaryZoomVisibility()
+    reloadConflictLayer()
     fitAll()
   } catch (error) {
-    tips.value.push('文物点图层加载失败，已跳过显示')
+    if (isCanceledRequest(error) || controller.signal.aborted) return
+    tips.value = tips.value.filter((tip) => tip !== heritageError.value)
+    heritageError.value = `文物点图层：${networkErrorMessage(error, '加载失败')}，可点击“重试加载”`
+    appendTipOnce(heritageError.value)
+  } finally {
+    if (heritageController === controller) isHeritageLoading.value = false
   }
+}
+
+function retryLayers() {
+  reloadKmlLayers()
+  loadHeritageLayer()
 }
 
 function toggleMeasureMode() {
@@ -1758,17 +1736,20 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   stopWatchingBasemap?.()
+  loadToken += 1
+  overlapToken += 1
+  kmlController?.abort()
+  heritageController?.abort()
   mapResizeObserver?.disconnect()
   cancelAnimationFrame(mapResizeFrame)
   mapRef.value?.setTarget(undefined)
 })
 
 watch(
-  () => props.selectedRecords,
+  () => (props.selectedRecords || []).map((row) => `${kmlRecordKey(row)}|${row.title || ''}`).join('\n'),
   () => {
     reloadKmlLayers()
   },
-  { deep: true }
 )
 
 watch(
@@ -1811,13 +1792,14 @@ watch(
 
 .kml-loading-mask {
   position: absolute;
-  inset: 0;
+  left: 50%;
+  top: 12px;
+  transform: translateX(-50%);
   z-index: 7;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: color-mix(in srgb, var(--bg) 58%, transparent);
-  backdrop-filter: blur(1px);
+  pointer-events: none;
 }
 
 .kml-loading-card {
@@ -1891,11 +1873,55 @@ watch(
   backdrop-filter: blur(4px);
 }
 
-.kml-overlay-toolbar {
+.kml-map-controls {
   position: absolute;
   top: 12px;
   right: 12px;
   z-index: 6;
+  width: min(360px, calc(100% - 24px));
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.kml-map-controls > * {
+  pointer-events: auto;
+}
+
+.map-panel-actions,
+.map-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.map-panel-header {
+  flex: none;
+  font-size: calc(13rem / 14);
+  color: var(--text);
+}
+
+.map-panel-toggle {
+  min-height: 40px;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.16);
+}
+
+.toolbar-btn:focus-visible,
+.toolbar-select:focus-visible {
+  outline: 2px solid #0284c7;
+  outline-offset: 2px;
+}
+
+.kml-overlay-toolbar,
+.kml-legend-panel {
+  box-sizing: border-box;
+  width: 100%;
+  max-height: min(420px, 45dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: color-mix(in srgb, var(--surface) 92%, var(--bg));
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -1948,6 +1974,7 @@ watch(
   line-height: 1;
   padding: 5px 6px;
   max-width: 170px;
+  min-width: 0;
 }
 
 .toolbar-btn.active {
@@ -1972,21 +1999,10 @@ watch(
 }
 
 .kml-legend-panel {
-  position: absolute;
-  right: 12px;
-  bottom: 12px;
-  z-index: 6;
-  min-width: 196px;
-  max-width: 250px;
-  background: color-mix(in srgb, var(--surface) 92%, var(--bg));
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.18);
   padding: 10px 10px 8px;
   display: flex;
   flex-direction: column;
   gap: 7px;
-  backdrop-filter: blur(8px);
 }
 
 .legend-title {
@@ -2078,13 +2094,21 @@ watch(
 }
 
 @media (max-width: 768px) {
-  .kml-legend-panel {
+  .kml-map-controls {
     right: 10px;
-    bottom: 10px;
-    min-width: 168px;
-    max-width: 188px;
+    width: min(320px, calc(100% - 20px));
+  }
+
+  .kml-overlay-toolbar,
+  .kml-legend-panel {
+    max-height: 40dvh;
     padding: 8px;
     gap: 6px;
+  }
+
+  .toolbar-btn,
+  .toolbar-select {
+    min-height: 40px;
   }
 
   .legend-item {

@@ -114,6 +114,7 @@ import { useRouter } from 'vue-router'
 
 import { fetchDashboardOverview, fetchSystemVersion } from '../../api/dashboardApi'
 import { fetchHeritageClassificationStats, fetchHeritageMapPoints } from '../../api/heritageApi'
+import { isCanceledRequest, networkErrorMessage } from '../../utils/networkRequest.js'
 import { fetchInspectionStats } from '../../api/inspectionApi'
 import HeritageMapCanvas from '../../components/heritage/HeritageMapCanvas.vue'
 import StatCard from '../../components/StatCard.vue'
@@ -381,15 +382,27 @@ function resizeCharts() {
   }
 }
 
+const mapDataController = new AbortController()
+
+async function loadMapPoints() {
+  try {
+    const result = await fetchHeritageMapPoints({ signal: mapDataController.signal })
+    if (mapDataController.signal.aborted) return
+    if (!result?.success) throw new Error(result?.message || '文物点加载失败')
+    mapPoints.value = result.rows || []
+  } catch (error) {
+    if (!isCanceledRequest(error)) ElMessage.error(networkErrorMessage(error, '文物点加载失败'))
+  }
+}
+
 async function loadDashboardData() {
   try {
-    const [dashboardRes, versionRes, inspectionRes, levelStatsRes, categoryStatsRes, mapPointsRes] = await Promise.all([
+    const [dashboardRes, versionRes, inspectionRes, levelStatsRes, categoryStatsRes] = await Promise.all([
       fetchDashboardOverview(),
       fetchSystemVersion(),
       fetchInspectionStats(),
       fetchHeritageClassificationStats({ group_by: 'level', source: 'legacy', kanerjing_scope: 'all' }),
-      fetchHeritageClassificationStats({ group_by: 'category', source: 'legacy', kanerjing_scope: 'all' }),
-      fetchHeritageMapPoints()
+      fetchHeritageClassificationStats({ group_by: 'category', source: 'legacy', kanerjing_scope: 'all' })
     ])
 
     if (dashboardRes?.success && dashboardRes?.data) {
@@ -441,15 +454,13 @@ async function loadDashboardData() {
       }
     }
 
-    if (mapPointsRes?.success) {
-      mapPoints.value = mapPointsRes.rows || []
-    }
   } catch (error) {
     ElMessage.error(error?.message || '综合看板数据加载失败')
   }
 }
 
 onMounted(async () => {
+  loadMapPoints()
   await loadDashboardData()
   await nextTick()
 
@@ -470,6 +481,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  mapDataController.abort()
   window.removeEventListener('resize', resizeCharts)
   dashboardResizeObserver?.disconnect()
   dashboardResizeObserver = null
