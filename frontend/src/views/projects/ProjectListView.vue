@@ -93,86 +93,95 @@
 
     <div class="view-switch card">
       <el-segmented v-model="viewMode" :options="viewOptions" />
-      <span class="view-summary">共 {{ store.rows.length }} 个项目</span>
+      <span class="view-summary">办理中 {{ activeRows.length }} 个，已完成 {{ archivedRows.length }} 个</span>
     </div>
 
-    <div v-if="viewMode === 'card'" class="project-card-grid">
-      <el-card v-for="row in store.rows" :key="row.id" class="project-card" shadow="hover">
-        <div class="project-card-header">
-          <h3>{{ row.project_name || '-' }}</h3>
-          <el-tag size="small" :type="tagTypeByStatus(row)">{{ currentFlowLabel(row) }}</el-tag>
+    <section v-for="section in sections" :key="section.key" class="project-section">
+      <div class="section-title card" :class="{ 'section-title--toggle': section.key === 'archived' }" @click="section.key === 'archived' && (archivedExpanded = !archivedExpanded)">
+        <h2>{{ section.title }}（{{ section.rows.length }}）</h2>
+        <span v-if="section.key === 'archived'" class="section-toggle">{{ archivedExpanded ? '收起' : '展开' }}</span>
+      </div>
+      <template v-if="section.key !== 'archived' || archivedExpanded">
+        <el-empty v-if="!section.rows.length" description="暂无项目" />
+        <div v-if="viewMode === 'card'" class="project-card-grid">
+          <el-card v-for="row in section.rows" :key="row.id" class="project-card" shadow="hover">
+            <div class="project-card-header">
+              <h3>{{ row.project_name || '-' }}</h3>
+              <el-tag size="small" :type="tagTypeByStatus(row)">{{ currentFlowLabel(row) }}</el-tag>
+            </div>
+
+            <div class="project-card-meta">
+              <div><span>建设单位</span><strong>{{ row.company_name || '-' }}</strong></div>
+              <div><span>当前待办</span><strong>{{ todoHint(row) }}</strong></div>
+              <div><span>核验时间</span><strong>{{ row.spatial_check_at || '尚未核验' }}</strong></div>
+              <div><span>更新时间</span><strong>{{ row.updated_at || row.receive_date || '-' }}</strong></div>
+            </div>
+
+            <div class="project-card-progress">
+              <div class="progress-row">
+                <span>办理进度</span>
+                <strong>{{ progressByStatus(row) }}%</strong>
+              </div>
+              <el-progress :percentage="progressByStatus(row)" :stroke-width="10" :show-text="false" />
+            </div>
+
+            <div class="project-card-footer">
+              <el-tag :type="row.is_overlap_artifact ? 'danger' : 'success'" effect="plain">
+                {{ row.is_overlap_artifact ? `涉及文物 ${row.overlap_count}处` : '不涉及文物' }}
+              </el-tag>
+              <el-tag :type="row.workflow_path === 'ARCHAEOLOGY_FLOW' ? 'warning' : 'info'" effect="plain">
+                {{ row.workflow_path === 'ARCHAEOLOGY_FLOW' ? '考古流程' : '直接复函流程' }}
+              </el-tag>
+              <el-button link type="primary" @click="goDetail(row.id)">进入详情</el-button>
+            </div>
+          </el-card>
         </div>
 
-        <div class="project-card-meta">
-          <div><span>建设单位</span><strong>{{ row.company_name || '-' }}</strong></div>
-          <div><span>当前待办</span><strong>{{ todoHint(row) }}</strong></div>
-          <div><span>核验时间</span><strong>{{ row.spatial_check_at || '尚未核验' }}</strong></div>
-          <div><span>更新时间</span><strong>{{ row.updated_at || row.receive_date || '-' }}</strong></div>
+        <div class="card project-table-wrap" v-else>
+          <el-table :data="section.rows" v-loading="store.loading" stripe>
+            <el-table-column prop="project_name" label="项目名称" min-width="220" />
+            <el-table-column prop="company_name" label="企业单位" min-width="180" />
+            <el-table-column label="当前流程" min-width="180">
+              <template #default="scope">
+                <el-tag size="small" :type="tagTypeByStatus(scope.row)">{{ currentFlowLabel(scope.row) }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="进度" width="180">
+              <template #default="scope">
+                <el-progress :percentage="progressByStatus(scope.row)" :stroke-width="8" :show-text="false" />
+              </template>
+            </el-table-column>
+            <el-table-column prop="receive_date" label="收文日期" width="130" />
+            <el-table-column label="当前待办" min-width="170">
+              <template #default="scope">
+                <span :class="{ 'todo-warn': !scope.row.spatial_check_at && !scope.row.is_archived }">
+                  {{ todoHint(scope.row) }}
+                </span>
+              </template>
+            </el-table-column>
+            <el-table-column label="涉及文物" width="120">
+              <template #default="scope">
+                <el-tag :type="scope.row.is_overlap_artifact ? 'danger' : 'success'">
+                  {{ scope.row.is_overlap_artifact ? `是 (${scope.row.overlap_count})` : '否' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="流程分支" min-width="150">
+              <template #default="scope">
+                <el-tag :type="scope.row.workflow_path === 'ARCHAEOLOGY_FLOW' ? 'warning' : 'info'" effect="plain">
+                  {{ scope.row.workflow_path === 'ARCHAEOLOGY_FLOW' ? '考古流程' : '直接复函流程' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="120">
+              <template #default="scope">
+                <el-button link type="primary" @click="goDetail(scope.row.id)">详情</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
         </div>
-
-        <div class="project-card-progress">
-          <div class="progress-row">
-            <span>办理进度</span>
-            <strong>{{ progressByStatus(row) }}%</strong>
-          </div>
-          <el-progress :percentage="progressByStatus(row)" :stroke-width="10" :show-text="false" />
-        </div>
-
-        <div class="project-card-footer">
-          <el-tag :type="row.is_overlap_artifact ? 'danger' : 'success'" effect="plain">
-            {{ row.is_overlap_artifact ? `涉及文物 ${row.overlap_count}处` : '不涉及文物' }}
-          </el-tag>
-          <el-tag :type="row.workflow_path === 'ARCHAEOLOGY_FLOW' ? 'warning' : 'info'" effect="plain">
-            {{ row.workflow_path === 'ARCHAEOLOGY_FLOW' ? '考古流程' : '直接复函流程' }}
-          </el-tag>
-          <el-button link type="primary" @click="goDetail(row.id)">进入详情</el-button>
-        </div>
-      </el-card>
-    </div>
-
-    <div class="card project-table-wrap" v-else>
-      <el-table :data="store.rows" v-loading="store.loading" stripe>
-        <el-table-column prop="project_name" label="项目名称" min-width="220" />
-        <el-table-column prop="company_name" label="企业单位" min-width="180" />
-        <el-table-column label="当前流程" min-width="180">
-          <template #default="scope">
-            <el-tag size="small" :type="tagTypeByStatus(scope.row)">{{ currentFlowLabel(scope.row) }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="进度" width="180">
-          <template #default="scope">
-            <el-progress :percentage="progressByStatus(scope.row)" :stroke-width="8" :show-text="false" />
-          </template>
-        </el-table-column>
-        <el-table-column prop="receive_date" label="收文日期" width="130" />
-        <el-table-column label="当前待办" min-width="170">
-          <template #default="scope">
-            <span :class="{ 'todo-warn': !scope.row.spatial_check_at && !scope.row.is_archived }">
-              {{ todoHint(scope.row) }}
-            </span>
-          </template>
-        </el-table-column>
-        <el-table-column label="涉及文物" width="120">
-          <template #default="scope">
-            <el-tag :type="scope.row.is_overlap_artifact ? 'danger' : 'success'">
-              {{ scope.row.is_overlap_artifact ? `是 (${scope.row.overlap_count})` : '否' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="流程分支" min-width="150">
-          <template #default="scope">
-            <el-tag :type="scope.row.workflow_path === 'ARCHAEOLOGY_FLOW' ? 'warning' : 'info'" effect="plain">
-              {{ scope.row.workflow_path === 'ARCHAEOLOGY_FLOW' ? '考古流程' : '直接复函流程' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="120">
-          <template #default="scope">
-            <el-button link type="primary" @click="goDetail(scope.row.id)">详情</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-    </div>
+      </template>
+    </section>
   </section>
 </template>
 
@@ -187,6 +196,11 @@ import { useProjectStore } from '../../stores/projectStore'
 const store = useProjectStore()
 const router = useRouter()
 const viewMode = ref('card')
+const archivedToggle = ref(false)
+const archivedExpanded = computed({
+  get: () => archivedToggle.value || store.filters.status === '60_已结案归档',
+  set: (value) => { archivedToggle.value = value }
+})
 const createDialogVisible = ref(false)
 const creating = ref(false)
 const createForm = reactive({
@@ -256,9 +270,22 @@ function isOverdue(row) {
   return diffDays > 30
 }
 
+const activeRows = computed(() => (store.rows || []).filter((row) => !row.is_archived))
+const archivedRows = computed(() => (store.rows || []).filter((row) => row.is_archived))
+const sections = computed(() => {
+  const result = []
+  if (activeRows.value.length || !archivedRows.value.length) {
+    result.push({ key: 'active', title: '办理中项目', rows: activeRows.value })
+  }
+  if (archivedRows.value.length) {
+    result.push({ key: 'archived', title: '已完成流程项目', rows: archivedRows.value })
+  }
+  return result
+})
+
 const summary = computed(() => store.summary || {})
 
-const overdueCount = computed(() => (store.rows || []).filter((row) => isOverdue(row)).length)
+const overdueCount = computed(() => activeRows.value.filter((row) => isOverdue(row)).length)
 
 function applyStatusFilter(status) {
   store.filters.status = store.filters.status === status ? '' : status
@@ -306,6 +333,31 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.project-section {
+  display: grid;
+  gap: 12px;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.section-title h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.section-title--toggle {
+  cursor: pointer;
+}
+
+.section-toggle {
+  color: var(--el-color-primary);
+  font-size: 13px;
+}
+
 .project-dashboard {
   display: grid;
   gap: 14px;
