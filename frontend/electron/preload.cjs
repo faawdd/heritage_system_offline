@@ -12,3 +12,8 @@ contextBridge.exposeInMainWorld('desktopAuth', {
   loginSucceeded: () => ipcRenderer.invoke('desktop-auth:login-succeeded'),
   requireLogin: () => ipcRenderer.invoke('desktop-auth:require-login')
 })
+
+contextBridge.exposeInMainWorld('desktopUpdates', {
+  check: (currentVersion) => ipcRenderer.invoke('desktop-updates:check', currentVersion),
+  openDownload: () => ipcRenderer.invoke('desktop-updates:open-download')
+})

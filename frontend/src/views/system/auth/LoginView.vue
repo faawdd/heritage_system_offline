@@ -97,12 +97,15 @@
       title="重置密码"
       width="500px"
       :close-on-click-modal="false"
-      modal-class="desktop-auth-overlay"
+      modal-class="desktop-auth-overlay forgot-password-overlay"
       align-center
     >
-      <form class="password-change-form" @submit.prevent="submitForgotPassword">
-        <input v-model.trim="forgotPasswordForm.username" type="text" autocomplete="username" placeholder="请输入用户名" required>
-        <el-button v-if="recoveryQuestions.length === 0" type="primary" :loading="recoveryLoading" @click="loadRecoveryQuestions">验证账户</el-button>
+      <form class="password-change-form forgot-password-form" @submit.prevent="submitForgotPassword">
+        <p class="password-notice">通过已设置的密码保护问题验证身份并重置密码。</p>
+        <input v-model.trim="forgotPasswordForm.username" type="text" autocomplete="username" aria-label="用户名" placeholder="请输入用户名" :readonly="recoveryQuestions.length > 0" required>
+        <button v-if="recoveryQuestions.length === 0" type="button" class="password-change-button" :disabled="recoveryLoading" @click="loadRecoveryQuestions">
+          {{ recoveryLoading ? '正在验证...' : '验证账户' }}
+        </button>
         <template v-else>
           <p class="password-notice">请回答账户设置的安全问题，并设置新密码。</p>
           <label v-for="question in recoveryQuestions" :key="question.question_id" class="recovery-answer-row">
@@ -111,6 +114,7 @@
           </label>
           <input v-model="forgotPasswordForm.newPassword" type="password" autocomplete="new-password" minlength="8" required placeholder="新密码，至少 8 位">
           <input v-model="forgotPasswordForm.confirmPassword" type="password" autocomplete="new-password" minlength="8" required placeholder="再次输入新密码">
+          <p class="password-notice">请设置 3 个不同的新密码保护问题。</p>
           <div class="security-question-fields">
             <label v-for="(item, index) in recoverySecurityQuestions" :key="`recovery-${index}`" class="security-question-row">
               <select v-model="item.question_id" required :aria-label="`新密码保护问题 ${index + 1}`">
@@ -882,6 +886,76 @@ p.account a:hover {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+
+:global(.forgot-password-overlay .el-dialog) {
+  width: min(390px, calc(100vw - 24px)) !important;
+  align-self: center;
+  padding: 20px;
+  border: 1px solid #d8e1da;
+  border-radius: 8px;
+  background: #f4f6f5;
+}
+
+:global(.forgot-password-overlay .el-dialog__header) {
+  padding-bottom: 14px;
+}
+
+:global(.forgot-password-overlay .el-dialog__title) {
+  color: #29362f;
+  font-size: 19px;
+  font-weight: 600;
+}
+
+.forgot-password-form {
+  margin: 0;
+  gap: 12px;
+}
+
+.forgot-password-form .password-notice {
+  margin: 0;
+  font-size: 13px;
+}
+
+.forgot-password-form input,
+.forgot-password-form select {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid #d8e0da;
+  border-radius: 4px;
+  background: #fbfcfb;
+  color: #27342c;
+  font-size: 14px;
+}
+
+.forgot-password-form input:focus,
+.forgot-password-form select:focus {
+  outline: none;
+  border-color: #199566;
+  box-shadow: 0 0 0 3px rgba(25, 149, 102, .1);
+}
+
+.forgot-password-form input[readonly] {
+  background: #edf1ee;
+}
+
+.forgot-password-form .security-question-row {
+  grid-template-columns: 1fr;
+}
+
+.forgot-password-form select {
+  appearance: auto;
+}
+
+.forgot-password-form .password-change-button {
+  width: 100%;
+  min-height: 46px;
+  background: #16a06a;
+}
+
+.forgot-password-form .password-change-button:hover:not(:disabled) {
+  background: #118355;
 }
 
 .password-change-button {

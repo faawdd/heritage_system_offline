@@ -63,6 +63,8 @@
 
 前往 **[GitHub Releases](https://github.com/faawdd/heritage_system_offline/releases/latest)** 下载对应平台的安装包：
 
+桌面客户端登录后会联网检查更新；也可在「个人设置 → 关于系统」点击版本号手动检查。发现新版本后，请前往[离线版下载页面](https://beichenhome.top:9081/offline2/)自行下载安装，系统不会自动下载或安装更新。无网络时不影响其他离线功能，可稍后重试。
+
 | 平台 | 架构 | 安装包 |
 | --- | --- | --- |
 | <img src="https://img.shields.io/badge/-Windows-0078D6?logo=windows11&logoColor=white" alt="Windows"> | x64 | `.exe`（NSIS 安装程序） |

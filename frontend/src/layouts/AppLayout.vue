@@ -187,8 +187,9 @@
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElNotification } from 'element-plus'
 import { useAuthStore } from '../stores/system/authStore'
+import { checkDesktopUpdates } from '../utils/desktopUpdates'
 import {
   changeSystemPassword,
   fetchSecurityQuestionBank,
@@ -725,6 +726,19 @@ watch(
 )
 
 onMounted(() => {
+  if (isDesktop) {
+    checkDesktopUpdates().then((result) => {
+      if (result?.updateAvailable) {
+        ElNotification({
+          title: '发现新版本',
+          message: `发现 ${result.latestVersion}，请前往关于系统页面手动下载更新。`,
+          type: 'info',
+          duration: 0,
+          onClick: () => router.push('/settings/about')
+        })
+      }
+    })
+  }
   fetchSecurityQuestionBank()
     .then((result) => { securityQuestionBank.value = result.questions || [] })
     .catch(() => ElMessage.error('密码保护问题加载失败'))

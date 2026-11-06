@@ -9,7 +9,23 @@
     </div>
 
     <el-descriptions :column="1" border class="about-info">
-      <el-descriptions-item label="当前版本">{{ appVersion }}</el-descriptions-item>
+      <el-descriptions-item label="当前版本">
+        <div class="version-row">
+          <button type="button" class="version-button" :disabled="updateState.status === 'checking'" @click="checkDesktopUpdates">
+            {{ appVersion }}
+          </button>
+          <span v-if="updateState.status === 'checking'" role="status">正在检查更新…</span>
+          <span v-else-if="updateState.status === 'available'" role="status">
+            发现新版本 {{ updateState.latestVersion }}
+            <button type="button" class="version-button" @click="downloadUpdate">前往下载</button>
+          </span>
+          <span v-else-if="updateState.status === 'current'" role="status">暂无新版本</span>
+          <span v-else-if="updateState.status === 'error' || updateState.status === 'unavailable'" class="update-error" role="status">
+            检查更新失败：{{ updateState.error }}
+          </span>
+          <span v-else>点击版本号检查更新</span>
+        </div>
+      </el-descriptions-item>
       <el-descriptions-item label="开源协议">
         <a :href="licenseUrl" target="_blank" rel="noopener noreferrer">{{ licenseName }}</a>
       </el-descriptions-item>
@@ -44,14 +60,24 @@
 
 <script setup>
 import { onMounted, ref } from 'vue'
+import { ElMessage } from 'element-plus'
 
 import { fetchSystemAbout } from '../../api/dashboardApi'
 import appLogo from '../../assets/logo.png'
+import { checkDesktopUpdates, openUpdateDownload, updateState } from '../../utils/desktopUpdates'
 
 const appVersion = __APP_VERSION__
 const systemName = ref('文物综合管理平台')
 const licenseName = ref('Apache License 2.0')
 const licenseUrl = ref('https://www.apache.org/licenses/LICENSE-2.0')
+
+async function downloadUpdate() {
+  try {
+    await openUpdateDownload()
+  } catch (error) {
+    ElMessage.error(error?.message || '无法打开下载页面')
+  }
+}
 
 const features = [
   { title: '数据看板', desc: '文物总量、类别、级别与巡查情况一览。' },
@@ -101,6 +127,32 @@ onMounted(async () => {
 
 .about-info {
   margin-bottom: 8px;
+}
+
+.version-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.version-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #168b5d;
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+}
+
+.version-button:disabled {
+  cursor: wait;
+  opacity: .6;
+}
+
+.update-error {
+  color: #c45656;
 }
 
 h3 {
