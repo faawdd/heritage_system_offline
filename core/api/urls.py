@@ -36,6 +36,7 @@ from core.api.views import (
     OfflineTileCatalogDetailAPIView,
     OfflineTileDataAPIView,
     SystemVersionAPIView,
+    SystemAboutAPIView,
     SipuBoundaryImportStartAPIView,
     SipuBoundaryImportStatusAPIView,
 )
@@ -53,6 +54,7 @@ app_name = 'core_api'
 urlpatterns = [
     path('health/', HealthAPIView.as_view(), name='health'),
     path('system/version/', SystemVersionAPIView.as_view(), name='system_version'),
+    path('system/about/', SystemAboutAPIView.as_view(), name='system_about'),
     path('system/sipu-import/start/', SipuBoundaryImportStartAPIView.as_view(), name='sipu_import_start'),
     path('system/sipu-import/status/<uuid:job_id>/', SipuBoundaryImportStatusAPIView.as_view(), name='sipu_import_status'),
     path('system/sipu-boundary-import/start/', SipuBoundaryImportStartAPIView.as_view(), name='sipu_boundary_import_start'),

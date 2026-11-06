@@ -129,6 +129,7 @@
     <div v-if="!isDesktop" class="copyright text-center">
       <p class="copy-footer-29">© {{ new Date().getFullYear() }} {{ systemName }}。保留所有权利</p>
     </div>
+    <p class="login-version">版本 {{ appVersion }}</p>
   </section>
 </template>
 
@@ -151,6 +152,7 @@ const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
 const isDesktop = window.desktopMeta?.runtime === 'electron'
+const appVersion = __APP_VERSION__
 const defaultSystemName = '文物综合管理平台'
 const systemName = computed(() => String(route.query.system_name || defaultSystemName))
 
@@ -362,6 +364,17 @@ async function submitForgotPassword() {
 </script>
 
 <style scoped>
+.login-version {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 8px;
+  margin: 0;
+  text-align: center;
+  font-size: 12px;
+  color: #8a94a6;
+  pointer-events: none;
+}
 html {
   scroll-behavior: smooth;
 }

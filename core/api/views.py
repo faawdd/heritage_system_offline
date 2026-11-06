@@ -22,7 +22,7 @@ from django.utils import timezone
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from rest_framework_simplejwt.tokens import AccessToken
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
-from rest_framework.permissions import IsAdminUser
+from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -133,6 +133,23 @@ class SystemVersionAPIView(APIView):
     def get(self, request):
         payload = get_system_version_payload()
         return Response({'success': True, 'data': payload})
+
+
+class SystemAboutAPIView(APIView):
+    """关于页面：所有登录用户可见的系统名称与开源协议（版本号由前端构建时注入）。"""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        payload = get_system_version_payload()
+        return Response({
+            'success': True,
+            'data': {
+                'system_name': payload['system_name'],
+                'license': 'Apache License 2.0',
+                'license_url': 'https://www.apache.org/licenses/LICENSE-2.0',
+            },
+        })
 
 
 class SipuBoundaryImportStartAPIView(APIView):

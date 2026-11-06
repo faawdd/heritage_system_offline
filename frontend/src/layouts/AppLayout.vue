@@ -427,7 +427,7 @@ const menuGroups = computed(() => {
   })).filter(group => group.items.length)
   return [
     ...filtered,
-    { key: 'personal', title: '个人设置', items: [{ label: '外观设置', to: '/settings/appearance' }] }
+    { key: 'personal', title: '个人设置', items: [{ label: '外观设置', to: '/settings/appearance' }, { label: '关于系统', to: '/settings/about' }] }
   ]
 })
 
