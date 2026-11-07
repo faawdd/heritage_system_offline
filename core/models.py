@@ -193,6 +193,7 @@ class InspectionRecord(models.Model):
     # 巡查时的位置信息（用于水印和数据记录）
     latitude = models.FloatField("巡查纬度", null=True, blank=True, help_text="巡查时的GPS纬度")
     longitude = models.FloatField("巡查经度", null=True, blank=True, help_text="巡查时的GPS经度")
+    distance_meters = models.FloatField("距文物点直线距离（米）", null=True, blank=True, help_text="根据巡查定位与当时文物点坐标计算的近似距离")
 
     class Meta:
         verbose_name = "巡查登记存档"

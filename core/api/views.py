@@ -1793,6 +1793,7 @@ class InspectionListAPIView(APIView):
             'issue_details': item.issue_details or '',
             'latitude': item.latitude,
             'longitude': item.longitude,
+            'distance_meters': item.distance_meters,
             'photo_url': _build_inspection_photo_url(item.photo, request),
         }
 
