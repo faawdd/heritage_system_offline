@@ -1,6 +1,8 @@
 import json
 import re
 
+from django.db.models import Q
+
 from core.models import HeritageSite, InspectionRecord
 from core.services.heritage_inference import parse_address
 
@@ -86,6 +88,43 @@ def get_heritage_map_points():
             }
         )
     return rows
+
+
+def get_heritage_map_page(cursor, kind):
+    fields = ('body_boundary', 'protection_zone', 'control_zone')
+    queryset = HeritageSite.objects.filter(pk__gt=cursor).order_by('pk')
+    if kind == 'points':
+        sites = list(queryset.only('id', 'registration_id', 'name', 'longitude', 'latitude', 'level')[:501])
+        more = len(sites) > 500
+        sites = sites[:500]
+        rows = []
+        for site in sites:
+            try:
+                lng, lat = float(site.longitude), float(site.latitude)
+            except (TypeError, ValueError):
+                continue
+            rows.append({
+                'id': site.id, 'registration_id': site.registration_id, 'name': site.name,
+                'lng': lng, 'lat': lat, 'level': site.level, 'level_label': site.get_level_display(),
+            })
+        return rows, sites[-1].pk if more else None
+
+    fields = ('body_boundary',) if kind == 'body' else fields
+    has_geometry = Q()
+    for field in fields:
+        has_geometry |= Q(**{f'{field}__isnull': False}) & ~Q(**{field: ''}) & ~Q(**{field: '[]'})
+    rows = []
+    size = 0
+    more = False
+    for site in queryset.filter(has_geometry).only('id', *fields).iterator(chunk_size=1):
+        values = {field: getattr(site, field) for field in fields}
+        row_size = sum(len((value or '').encode('utf-8')) for value in values.values())
+        if len(rows) >= 20 or (rows and size + row_size > 512 * 1024):
+            more = True
+            break
+        rows.append({'id': site.pk, **{field: _parse_zone(value) for field, value in values.items()}})
+        size += row_size
+    return rows, rows[-1]['id'] if more else None
 
 
 def get_heritage_stats_meta():

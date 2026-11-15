@@ -132,6 +132,7 @@
           <span class="kml-locate-meta">{{ locationAccuracyText }}</span>
           <span v-for="item in locationZoneHits" :key="item.key" class="kml-locate-zone" :class="`is-${item.type}`">{{ item.label }}</span>
           <span v-if="locationZoneHits.length === 0" class="kml-locate-zone is-none">不在已加载的 KML 要素及文物范围内</span>
+          <span v-if="!heritageGeometryComplete" class="kml-locate-zone is-none">文物范围未加载完成，范围判断可能不完整</span>
         </template>
       </button>
       <button
@@ -258,6 +259,7 @@ const measureMode = ref(false)
 const measureText = ref('')
 const isKmlLoading = ref(false)
 const isHeritageLoading = ref(false)
+const heritageGeometryComplete = ref(false)
 const heritageError = ref('')
 const loadingText = ref('正在加载KML...')
 const popupVisible = ref(false)
@@ -1421,7 +1423,7 @@ function toggleOverlapLayer() {
 
 function updateBoundaryZoomVisibility() {
   const zoom = mapRef.value?.getView()?.getZoom()
-  const showBoundary = Number.isFinite(zoom) && zoom >= BOUNDARY_ZOOM_THRESHOLD
+  const showBoundary = Number.isFinite(zoom) && zoom >= BOUNDARY_ZOOM_THRESHOLD && heritageGeometryComplete.value
 
   if (heritageLayerRef.value) {
     heritageLayerRef.value.setVisible(showHeritageLayer.value && !showBoundary)
@@ -1442,92 +1444,93 @@ async function loadHeritageLayer() {
   const controller = new AbortController()
   heritageController = controller
   isHeritageLoading.value = true
+  heritageGeometryComplete.value = false
+  updateBoundaryZoomVisibility()
   try {
-    const result = await fetchHeritageMapPoints({ signal: controller.signal })
-    if (controller.signal.aborted) return
-    if (!result.success) throw new Error(result.message || '文物点图层加载失败')
-    tips.value = tips.value.filter((tip) => tip !== heritageError.value)
-    heritageError.value = ''
-    const rows = result?.rows || []
-    heritageSource.clear()
-    heritageBoundarySource.clear()
-    protectionZoneSource.clear()
-    controlZoneSource.clear()
-    siteBoundaryRingsMap.clear()
+    const pointsById = new Map()
+    await fetchHeritageMapPoints({
+      signal: controller.signal,
+      geometry: 'geometry',
+      onPoints(rows) {
+        tips.value = tips.value.filter((tip) => tip !== heritageError.value)
+        heritageError.value = ''
+        heritageSource.clear()
+        heritageBoundarySource.clear()
+        protectionZoneSource.clear()
+        controlZoneSource.clear()
+        siteBoundaryRingsMap.clear()
+        rows.forEach((row) => {
+          pointsById.set(row.id, row)
+          const lon = Number(row?.longitude ?? row?.lng)
+          const lat = Number(row?.latitude ?? row?.lat)
+          if (!validLonLat(row?.longitude ?? row?.lng, row?.latitude ?? row?.lat)) return
 
-    rows.forEach((row) => {
-      const lon = Number(row?.longitude ?? row?.lng)
-      const lat = Number(row?.latitude ?? row?.lat)
-      if (!validLonLat(row?.longitude ?? row?.lng, row?.latitude ?? row?.lat)) {
-        return
-      }
-
-      const siteId = String(row?.id || '')
-      const siteName = String(row?.name || '')
-      const siteLevel = String(row?.level || '')
-
-      const feature = new Feature({ geometry: new Point(fromLonLat([lon, lat])) })
-      feature.set('isHeritage', true)
-      feature.set('site_id', siteId)
-      feature.set('site_name', siteName)
-      feature.set('site_level', siteLevel)
-      feature.setStyle(heritagePointStyle())
-      heritageSource.addFeature(feature)
-
-      const rings = Array.isArray(row?.body_boundary) ? row.body_boundary : []
-      if (rings.length > 0) {
-        siteBoundaryRingsMap.set(siteId, rings)
-      }
-      rings.forEach((ring) => {
-        if (!Array.isArray(ring) || ring.length < 3) {
-          return
-        }
-        const coords = ring
-          .filter((pt) => validLonLat(pt?.[0], pt?.[1]))
-          .map((pt) => fromLonLat([Number(pt[0]), Number(pt[1])]))
-        if (coords.length < 3) return
-        const polygonFeature = new Feature({ geometry: new Polygon([coords]) })
-        polygonFeature.set('isHeritage', true)
-        polygonFeature.set('site_id', siteId)
-        polygonFeature.set('site_name', siteName)
-        polygonFeature.set('site_level', siteLevel)
-        polygonFeature.setStyle(heritageBoundaryStyle())
-        heritageBoundarySource.addFeature(polygonFeature)
-      })
-
-      ;[
-        { key: 'protection_zone', source: protectionZoneSource, style: protectionZoneStyle },
-        { key: 'control_zone', source: controlZoneSource, style: controlZoneStyle }
-      ].forEach(({ key, source, style }) => {
-        const zoneRings = Array.isArray(row?.[key]) ? row[key] : []
-        zoneRings.forEach((zoneRing) => {
-          if (!Array.isArray(zoneRing) || zoneRing.length < 3) {
-            return
-          }
-          const coordinates = zoneRing
-            .filter((point) => validLonLat(point?.[0], point?.[1]))
-            .map((point) => [Number(point[0]), Number(point[1])])
-            .map((point) => fromLonLat(point))
-          if (coordinates.length < 3) {
-            return
-          }
-          if (distanceInMetersBy3857(coordinates[0], coordinates[coordinates.length - 1]) > 1) {
-            coordinates.push(coordinates[0].slice())
-          }
-          const feature = new Feature({ geometry: new Polygon([coordinates]) })
-          feature.set('site_id', siteId)
-          feature.set('site_name', siteName)
-          feature.set('isProtectionZone', key === 'protection_zone')
-          feature.set('isControlZone', key === 'control_zone')
-          feature.setStyle(style())
-          source.addFeature(feature)
+          const feature = new Feature({ geometry: new Point(fromLonLat([lon, lat])) })
+          feature.set('isHeritage', true)
+          feature.set('site_id', String(row?.id || ''))
+          feature.set('site_name', String(row?.name || ''))
+          feature.set('site_level', String(row?.level || ''))
+          feature.setStyle(heritagePointStyle())
+          heritageSource.addFeature(feature)
         })
-      })
-    })
+        updateBoundaryZoomVisibility()
+        reloadConflictLayer()
+        fitAll()
+      },
+      onGeometry(rows) {
+        rows.forEach((boundary) => {
+          const row = pointsById.get(boundary.id)
+          if (!row || !validLonLat(row?.longitude ?? row?.lng, row?.latitude ?? row?.lat)) return
+          const siteId = String(row.id || '')
+          const siteName = String(row.name || '')
+          const siteLevel = String(row.level || '')
+          const rings = Array.isArray(boundary.body_boundary) ? boundary.body_boundary : []
+          if (rings.length > 0) siteBoundaryRingsMap.set(siteId, rings)
+          rings.forEach((ring) => {
+            if (!Array.isArray(ring) || ring.length < 3) return
+            const coords = ring
+              .filter((pt) => validLonLat(pt?.[0], pt?.[1]))
+              .map((pt) => fromLonLat([Number(pt[0]), Number(pt[1])]))
+            if (coords.length < 3) return
+            const polygonFeature = new Feature({ geometry: new Polygon([coords]) })
+            polygonFeature.set('isHeritage', true)
+            polygonFeature.set('site_id', siteId)
+            polygonFeature.set('site_name', siteName)
+            polygonFeature.set('site_level', siteLevel)
+            polygonFeature.setStyle(heritageBoundaryStyle())
+            heritageBoundarySource.addFeature(polygonFeature)
+          })
 
-    updateBoundaryZoomVisibility()
+          ;[
+            { key: 'protection_zone', source: protectionZoneSource, style: protectionZoneStyle },
+            { key: 'control_zone', source: controlZoneSource, style: controlZoneStyle }
+          ].forEach(({ key, source, style }) => {
+            const zoneRings = Array.isArray(boundary?.[key]) ? boundary[key] : []
+            zoneRings.forEach((zoneRing) => {
+              if (!Array.isArray(zoneRing) || zoneRing.length < 3) return
+              const coordinates = zoneRing
+                .filter((point) => validLonLat(point?.[0], point?.[1]))
+                .map((point) => fromLonLat([Number(point[0]), Number(point[1])]))
+              if (coordinates.length < 3) return
+              if (distanceInMetersBy3857(coordinates[0], coordinates[coordinates.length - 1]) > 1) {
+                coordinates.push(coordinates[0].slice())
+              }
+              const feature = new Feature({ geometry: new Polygon([coordinates]) })
+              feature.set('site_id', siteId)
+              feature.set('site_name', siteName)
+              feature.set('isProtectionZone', key === 'protection_zone')
+              feature.set('isControlZone', key === 'control_zone')
+              feature.setStyle(style())
+              source.addFeature(feature)
+            })
+          })
+        })
+        updateBoundaryZoomVisibility()
+      }
+    })
+    heritageGeometryComplete.value = true
     reloadConflictLayer()
-    fitAll()
+    updateBoundaryZoomVisibility()
   } catch (error) {
     if (isCanceledRequest(error) || controller.signal.aborted) return
     tips.value = tips.value.filter((tip) => tip !== heritageError.value)

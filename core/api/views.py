@@ -19,6 +19,8 @@ from django.db.models import Q, Count
 from django.http import HttpResponse
 from django.contrib.auth.models import User
 from django.utils import timezone
+from django.utils.decorators import method_decorator
+from django.views.decorators.gzip import gzip_page
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from rest_framework_simplejwt.tokens import AccessToken
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -37,6 +39,7 @@ from core.services import sipu_display
 from core.services.heritage_registry import sync_registration, sync_site_to_registration
 from core.services.heritage_service import (
     get_heritage_detail_payload,
+    get_heritage_map_page,
     get_heritage_map_points,
     get_heritage_stats_meta,
 )
@@ -407,15 +410,27 @@ class DashboardOverviewAPIView(APIView):
         )
 
 
+@method_decorator(gzip_page, name='dispatch')
 class HeritageMapPointsAPIView(APIView):
     permission_classes = [IsAdminUser]
 
     def get(self, request):
-        rows = get_heritage_map_points()
-        for row in rows:
-            row['preview_url'] = legacy_views.build_heritage_preview_entry_url(
-                request.user, row.get('registration_id') or row['id'])
-        return Response({'success': True, 'rows': rows})
+        kind = request.query_params.get('view')
+        if kind is not None:
+            cursor = request.query_params.get('cursor', '0')
+            if kind not in ('points', 'body', 'geometry') or not cursor.isdecimal() or len(cursor) > 18:
+                return Response({'success': False, 'message': '地图数据分页参数无效'}, status=400)
+            rows, next_cursor = get_heritage_map_page(int(cursor), kind)
+        else:
+            rows, next_cursor = get_heritage_map_points(), None
+        if kind in (None, 'points'):
+            for row in rows:
+                row['preview_url'] = legacy_views.build_heritage_preview_entry_url(
+                    request.user, row.get('registration_id') or row['id'])
+        result = {'success': True, 'rows': rows}
+        if kind is not None:
+            result['next_cursor'] = next_cursor
+        return Response(result)
 
 
 class HeritageStatsMetaAPIView(APIView):
