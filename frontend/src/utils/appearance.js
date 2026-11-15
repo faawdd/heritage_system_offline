@@ -20,7 +20,12 @@ export const THEME_MODES = [
   { label: '暗色', value: 'dark' }
 ]
 
-export const DEFAULT_APPEARANCE = { fontFamily: 'default', fontSize: 14, themeMode: 'system' }
+export const COLOR_THEMES = [
+  { label: '经典蓝', value: 'blue', swatch: '#66adff' },
+  { label: '微信薄荷绿', value: 'wechat-mint', swatch: '#07C160' }
+]
+
+export const DEFAULT_APPEARANCE = { fontFamily: 'default', fontSize: 14, themeMode: 'system', colorTheme: 'blue' }
 
 function sanitize(raw = {}) {
   const fontFamily = FONT_OPTIONS.some((item) => item.value === raw.fontFamily) ? raw.fontFamily : DEFAULT_APPEARANCE.fontFamily
@@ -29,7 +34,8 @@ function sanitize(raw = {}) {
     ? Math.min(FONT_SIZE_RANGE.max, Math.max(FONT_SIZE_RANGE.min, Math.round(size)))
     : DEFAULT_APPEARANCE.fontSize
   const themeMode = THEME_MODES.some((item) => item.value === raw.themeMode) ? raw.themeMode : DEFAULT_APPEARANCE.themeMode
-  return { fontFamily, fontSize, themeMode }
+  const colorTheme = COLOR_THEMES.some((item) => item.value === raw.colorTheme) ? raw.colorTheme : DEFAULT_APPEARANCE.colorTheme
+  return { fontFamily, fontSize, themeMode, colorTheme }
 }
 
 function load() {
@@ -65,13 +71,18 @@ export function applyAppearance() {
   root.style.setProperty('--el-font-size-extra-small', `${Math.max(size - 2, 10)}px`)
   root.style.setProperty('--el-font-size-large', `${size + 2}px`)
   root.setAttribute('data-theme', resolveTheme(appearanceState.themeMode))
+  root.setAttribute('data-color', appearanceState.colorTheme)
 }
 
 export function setAppearance(patch = {}) {
   Object.assign(appearanceState, sanitize({ ...appearanceState, ...patch }))
   localStorage.setItem(
     APPEARANCE_KEY,
-    JSON.stringify({ fontFamily: appearanceState.fontFamily, fontSize: appearanceState.fontSize })
+    JSON.stringify({
+      fontFamily: appearanceState.fontFamily,
+      fontSize: appearanceState.fontSize,
+      colorTheme: appearanceState.colorTheme
+    })
   )
   localStorage.setItem(THEME_MODE_KEY, appearanceState.themeMode)
   applyAppearance()
