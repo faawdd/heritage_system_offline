@@ -22,7 +22,7 @@ export const THEME_MODES = [
 
 export const COLOR_THEMES = [
   { label: '经典蓝', value: 'blue', swatch: '#66adff' },
-  { label: '微信薄荷绿', value: 'wechat-mint', swatch: '#07C160' }
+  { label: '薄荷绿', value: 'wechat-mint', swatch: '#07C160' }
 ]
 
 export const DEFAULT_APPEARANCE = { fontFamily: 'default', fontSize: 14, themeMode: 'system', colorTheme: 'blue' }

@@ -23,9 +23,7 @@
             :href="group.to"
             :data-title="group.title"
           >
-            <span class="menu-icon" :class="`menu-icon--${getGroupIconType(group.title)}`" aria-hidden="true">
-              {{ getGroupIconLabel(group.title) }}
-            </span>
+            <component :is="getGroupIcon(group.title)" class="menu-icon" aria-hidden="true" />
           </a>
           <router-link
             v-else
@@ -34,9 +32,7 @@
             :to="group.to"
             :data-title="group.title"
           >
-            <span class="menu-icon" :class="`menu-icon--${getGroupIconType(group.title)}`" aria-hidden="true">
-              {{ getGroupIconLabel(group.title) }}
-            </span>
+            <component :is="getGroupIcon(group.title)" class="menu-icon" aria-hidden="true" />
           </router-link>
         </template>
       </div>
@@ -44,9 +40,7 @@
       <div class="sidebar-group" v-for="group in menuGroups" :key="group.key" v-show="!isSidebarCollapsed">
         <button class="sidebar-group-title" type="button" @click="toggleGroup(group.key)">
           <span class="group-title-main">
-            <span class="menu-icon" :class="`menu-icon--${getGroupIconType(group.title)}`" aria-hidden="true">
-              {{ getGroupIconLabel(group.title) }}
-            </span>
+            <component :is="getGroupIcon(group.title)" class="menu-icon" aria-hidden="true" />
             <span>{{ group.title }}</span>
           </span>
           <span class="sidebar-group-arrow" :class="{ open: isGroupOpen(group.key) }">▾</span>
@@ -58,6 +52,7 @@
               class="nav-link nav-sublink"
               :href="item.to"
             >
+              <component :is="getMenuIcon(item.to)" class="menu-item-icon" aria-hidden="true" />
               {{ item.label }}
             </a>
             <router-link
@@ -65,6 +60,7 @@
               class="nav-link nav-sublink"
               :to="item.to"
             >
+              <component :is="getMenuIcon(item.to)" class="menu-item-icon" aria-hidden="true" />
               {{ item.label }}
             </router-link>
           </template>
@@ -188,6 +184,27 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElNotification } from 'element-plus'
+import {
+  Camera,
+  Clock,
+  Connection,
+  DataBoard,
+  Document,
+  Files,
+  FolderOpened,
+  Grid,
+  Histogram,
+  Key,
+  List,
+  Location,
+  Management,
+  MapLocation,
+  Memo,
+  OfficeBuilding,
+  Setting,
+  Tools,
+  User
+} from '@element-plus/icons-vue'
 import { useAuthStore } from '../stores/system/authStore'
 import { checkDesktopUpdates } from '../utils/desktopUpdates'
 import {
@@ -231,6 +248,31 @@ const passwordForm = reactive({
 })
 const passwordSecurityQuestions = ref(Array.from({ length: 3 }, () => ({ question_id: '', answer: '' })))
 const securityQuestionBank = ref([])
+
+const menuIcons = {
+  '/dashboard': DataBoard,
+  '/reports': Document,
+  '/heritage/map': MapLocation,
+  '/heritage/stats': Histogram,
+  '/heritage/immovable': OfficeBuilding,
+  '/heritage/inspections': Clock,
+  '/heritage/inspections/management': List,
+  '/heritage/kanerjing': Location,
+  '/collect/immovable': Camera,
+  '/collect/records': Files,
+  '/projects': FolderOpened,
+  '/gis/kml-management': MapLocation,
+  '/gis/ovkml-convert': Connection,
+  '/system/users': User,
+  '/system/roles': Management,
+  '/system/permissions': Key,
+  '/system/logs': Memo,
+  '/system/ai-config': Tools,
+  '/system/data-management': List,
+  '/system/offline-maps': MapLocation,
+  '/settings/appearance': Setting,
+  '/settings/about': Document
+}
 
 function hasValidSecurityQuestions(questions) {
   const ids = questions.map(item => item.question_id)
@@ -638,44 +680,28 @@ function toggleSidebar() {
   isSidebarCollapsed.value = !isSidebarCollapsed.value
 }
 
-function getGroupIconType(title = '') {
+function getGroupIcon(title = '') {
   const text = String(title || '').trim()
+  if (text.includes('个人设置')) return User
+  if (text.includes('工作台')) return DataBoard
+  if (text.includes('采集')) return Camera
   if (text.includes('文物')) {
-    return 'heritage'
+    return OfficeBuilding
   }
   if (text.includes('项目')) {
-    return 'project'
+    return FolderOpened
   }
   if (text.toUpperCase().includes('GIS') || text.includes('地图')) {
-    return 'gis'
+    return MapLocation
   }
   if (text.includes('系统')) {
-    return 'system'
+    return Setting
   }
-  if (text.includes('工作台')) {
-    return 'workspace'
-  }
-  return 'default'
+  return Grid
 }
 
-function getGroupIconLabel(title = '') {
-  const type = getGroupIconType(title)
-  if (type === 'heritage') {
-    return '文'
-  }
-  if (type === 'project') {
-    return '项'
-  }
-  if (type === 'gis') {
-    return 'G'
-  }
-  if (type === 'system') {
-    return '系'
-  }
-  if (type === 'workspace') {
-    return '台'
-  }
-  return '•'
+function getMenuIcon(path = '') {
+  return menuIcons[path] || Document
 }
 
 function handleSystemThemeChange() {

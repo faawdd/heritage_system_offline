@@ -2345,7 +2345,7 @@ watch(
 
 .dot-location {
   background: #2563eb;
-  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.22);
+  box-shadow: 0 0 0 4px rgba(var(--accent-rgb), 0.22);
 }
 
 .kml-locate-stack {
@@ -2419,10 +2419,10 @@ watch(
 
 @keyframes kml-locate-pulse {
   0% {
-    box-shadow: 0 0 0 2px #ffffff, 0 0 0 2px rgba(37, 99, 235, 0.45);
+    box-shadow: 0 0 0 2px #ffffff, 0 0 0 2px rgba(var(--accent-rgb), 0.45);
   }
   100% {
-    box-shadow: 0 0 0 2px #ffffff, 0 0 0 9px rgba(37, 99, 235, 0);
+    box-shadow: 0 0 0 2px #ffffff, 0 0 0 9px rgba(var(--accent-rgb), 0);
   }
 }
 
