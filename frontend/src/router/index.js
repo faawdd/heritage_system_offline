@@ -25,6 +25,7 @@ import RoleListView from '../views/system/role/RoleListView.vue'
 import PermissionCatalogView from '../views/system/role/PermissionCatalogView.vue'
 import LogListView from '../views/system/log/LogListView.vue'
 import AppearanceSettingsView from '../views/settings/AppearanceSettingsView.vue'
+import AboutView from '../views/settings/AboutView.vue'
 import { useAuthStore } from '../stores/system/authStore'
 
 const routes = [
@@ -55,6 +56,7 @@ const routes = [
       { path: 'gis/kml-management', component: KmlManagementView },
       { path: 'gis/ovkml-convert', component: OvkmlConvertView },
       { path: 'settings/appearance', component: AppearanceSettingsView },
+      { path: 'settings/about', component: AboutView },
       { path: 'system/users', component: UserListView, meta: { capability: 'view_users' } },
       { path: 'system/roles', component: RoleListView, meta: { capability: 'view_groups' } },
       { path: 'system/permissions', component: PermissionCatalogView, meta: { capability: ['view_groups', 'view_users'] } },

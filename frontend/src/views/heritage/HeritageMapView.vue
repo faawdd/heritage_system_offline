@@ -8,6 +8,7 @@
       :keyword="keyword"
       :show-point-popup="true"
       :enable-map-tools="true"
+      :boundaries-ready="boundariesReady"
       @open-detail="openDetail"
     />
 
@@ -57,6 +58,7 @@
         </div>
 
         <div class="heritage-menu-body">
+          <p v-if="loading && points.length && !boundariesReady" class="heritage-load-status" role="status">文物点已加载，正在加载本体边界…</p>
           <div class="heritage-search-row">
             <el-input
               v-model="keyword"
@@ -155,6 +157,7 @@ import HeritageMapCanvas from '../../components/heritage/HeritageMapCanvas.vue'
 
 const mapCanvasRef = ref(null)
 const loading = ref(false)
+const boundariesReady = ref(false)
 const keyword = ref('')
 const points = ref([])
 const activeLevels = ref(['GB', 'SB', 'XB', 'DS'])
@@ -239,15 +242,20 @@ async function loadData() {
   if (loading.value) return
   loading.value = true
   try {
-    const result = await fetchHeritageMapPoints({ signal: mapDataController.signal })
+    const result = await fetchHeritageMapPoints({
+      signal: mapDataController.signal,
+      geometry: 'body',
+      onPoints: (rows) => { boundariesReady.value = false; points.value = rows }
+    })
     if (mapDataController.signal.aborted) return
     if (!result.success) {
       throw new Error(result.message || '加载点位失败')
     }
     points.value = result.rows || []
+    boundariesReady.value = true
   } catch (error) {
     if (isCanceledRequest(error)) return
-    ElMessage.error(networkErrorMessage(error, '加载失败'))
+    ElMessage.error(`文物点或边界加载失败：${networkErrorMessage(error, '加载失败')}，请点击刷新重试`)
   } finally {
     loading.value = false
   }
@@ -354,6 +362,12 @@ loadData()
   justify-content: space-between;
   padding: 12px 14px;
   border-bottom: 1px solid var(--line);
+}
+
+.heritage-load-status {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .menu-header-title {

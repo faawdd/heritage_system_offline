@@ -1170,7 +1170,7 @@ onMounted(() => {
   border: 0;
   border-radius: 10px;
   background: linear-gradient(135deg, #0284c7, #2563eb);
-  box-shadow: 0 7px 16px rgba(2, 132, 199, 0.2);
+  box-shadow: 0 7px 16px rgba(var(--accent-rgb), 0.2);
   font-weight: 650;
 }
 
@@ -1414,14 +1414,14 @@ onMounted(() => {
 :deep(.floating-form-block .el-input__wrapper:hover),
 :deep(.floating-form-block .el-select__wrapper:hover),
 :deep(.floating-form-block .el-input-number:hover) {
-  box-shadow: 0 0 0 1px rgba(14, 116, 144, 0.45) inset;
+  box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.45) inset;
 }
 
 :deep(.floating-form-block .el-button--primary),
 :deep(.floating-form-block .el-button--success),
 :deep(.floating-form-block .el-button--warning) {
   border: 0;
-  box-shadow: 0 8px 18px rgba(14, 116, 144, 0.22);
+  box-shadow: 0 8px 18px rgba(var(--accent-rgb), 0.22);
   transition: transform 140ms ease, box-shadow 140ms ease, filter 140ms ease, opacity 140ms ease;
 }
 
@@ -1440,13 +1440,13 @@ onMounted(() => {
 
 :deep(.floating-form-block .el-button:hover) {
   transform: translateY(-1px);
-  box-shadow: 0 12px 24px rgba(14, 116, 144, 0.25);
+  box-shadow: 0 12px 24px rgba(var(--accent-rgb), 0.25);
 }
 
 :deep(.floating-form-block .el-button:active) {
   transform: translateY(0) scale(0.98);
   filter: saturate(1.06);
-  box-shadow: 0 5px 12px rgba(14, 116, 144, 0.2);
+  box-shadow: 0 5px 12px rgba(var(--accent-rgb), 0.2);
 }
 
 :deep(.floating-form-block .el-button.is-disabled),

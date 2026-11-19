@@ -1,12 +1,20 @@
 import client from './client'
 import { MAP_REQUEST_TIMEOUT, requestMapData } from '../utils/networkRequest.js'
+import { loadHeritageMapData } from '../utils/heritageMapLoader.js'
 
-export async function fetchHeritageMapPoints({ signal } = {}) {
-  const response = await requestMapData(
-    () => client.get('/api/v1/heritage/map-points/', { signal, timeout: MAP_REQUEST_TIMEOUT }),
-    { signal }
-  )
-  return response.data
+export async function fetchHeritageMapPoints({ signal, geometry = 'none', onPoints, onGeometry } = {}) {
+  return loadHeritageMapData({
+    signal, geometry, onPoints, onGeometry,
+    async fetchPage(view, cursor, pageSignal) {
+      const response = await requestMapData(
+        () => client.get('/api/v1/heritage/map-points/', {
+          params: { view, cursor }, signal: pageSignal, timeout: MAP_REQUEST_TIMEOUT
+        }),
+        { signal: pageSignal }
+      )
+      return response.data
+    }
+  })
 }
 
 export async function fetchHeritageStatsMeta() {

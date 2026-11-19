@@ -310,6 +310,7 @@ def serialize_inspection(record: InspectionRecord) -> dict:
         "issue_details": record.issue_details or "",
         "latitude": record.latitude,
         "longitude": record.longitude,
+        "distance_meters": record.distance_meters,
         "photo_url": photo_url,
     }
 
@@ -549,6 +550,7 @@ def upload_inspection(
     site_id: int = Form(...),
     latitude: float = Form(...),
     longitude: float = Form(...),
+    distance_meters: float | None = Form(None),
     is_normal: bool = Form(True),
     issue_details: str = Form(""),
     photo: UploadFile = File(...),
@@ -559,6 +561,9 @@ def upload_inspection(
         raise HTTPException(status_code=403, detail="管理员用户组不允许新增巡查记录")
     if role not in {"超级管理员", "管理员", "文物看护员"}:
         raise HTTPException(status_code=403, detail="No patrol permission")
+
+    if distance_meters is not None and (not math.isfinite(distance_meters) or not 0 <= distance_meters <= math.pi * 6371000):
+        raise HTTPException(status_code=400, detail="巡查距离无效")
 
     site = HeritageSite.objects.filter(id=site_id).first()
     if site is None:
@@ -589,6 +594,7 @@ def upload_inspection(
         photo=photo_rel_path,
         latitude=latitude,
         longitude=longitude,
+        distance_meters=distance_meters,
     )
 
     return {

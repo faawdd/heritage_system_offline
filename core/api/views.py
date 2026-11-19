@@ -19,10 +19,12 @@ from django.db.models import Q, Count
 from django.http import HttpResponse
 from django.contrib.auth.models import User
 from django.utils import timezone
+from django.utils.decorators import method_decorator
+from django.views.decorators.gzip import gzip_page
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from rest_framework_simplejwt.tokens import AccessToken
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
-from rest_framework.permissions import IsAdminUser
+from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -37,6 +39,7 @@ from core.services import sipu_display
 from core.services.heritage_registry import sync_registration, sync_site_to_registration
 from core.services.heritage_service import (
     get_heritage_detail_payload,
+    get_heritage_map_page,
     get_heritage_map_points,
     get_heritage_stats_meta,
 )
@@ -133,6 +136,23 @@ class SystemVersionAPIView(APIView):
     def get(self, request):
         payload = get_system_version_payload()
         return Response({'success': True, 'data': payload})
+
+
+class SystemAboutAPIView(APIView):
+    """关于页面：所有登录用户可见的系统名称与开源协议（版本号由前端构建时注入）。"""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        payload = get_system_version_payload()
+        return Response({
+            'success': True,
+            'data': {
+                'system_name': payload['system_name'],
+                'license': 'Apache License 2.0',
+                'license_url': 'https://www.apache.org/licenses/LICENSE-2.0',
+            },
+        })
 
 
 class SipuBoundaryImportStartAPIView(APIView):
@@ -390,15 +410,27 @@ class DashboardOverviewAPIView(APIView):
         )
 
 
+@method_decorator(gzip_page, name='dispatch')
 class HeritageMapPointsAPIView(APIView):
     permission_classes = [IsAdminUser]
 
     def get(self, request):
-        rows = get_heritage_map_points()
-        for row in rows:
-            row['preview_url'] = legacy_views.build_heritage_preview_entry_url(
-                request.user, row.get('registration_id') or row['id'])
-        return Response({'success': True, 'rows': rows})
+        kind = request.query_params.get('view')
+        if kind is not None:
+            cursor = request.query_params.get('cursor', '0')
+            if kind not in ('points', 'body', 'geometry') or not cursor.isdecimal() or len(cursor) > 18:
+                return Response({'success': False, 'message': '地图数据分页参数无效'}, status=400)
+            rows, next_cursor = get_heritage_map_page(int(cursor), kind)
+        else:
+            rows, next_cursor = get_heritage_map_points(), None
+        if kind in (None, 'points'):
+            for row in rows:
+                row['preview_url'] = legacy_views.build_heritage_preview_entry_url(
+                    request.user, row.get('registration_id') or row['id'])
+        result = {'success': True, 'rows': rows}
+        if kind is not None:
+            result['next_cursor'] = next_cursor
+        return Response(result)
 
 
 class HeritageStatsMetaAPIView(APIView):
@@ -1776,6 +1808,7 @@ class InspectionListAPIView(APIView):
             'issue_details': item.issue_details or '',
             'latitude': item.latitude,
             'longitude': item.longitude,
+            'distance_meters': item.distance_meters,
             'photo_url': _build_inspection_photo_url(item.photo, request),
         }
 

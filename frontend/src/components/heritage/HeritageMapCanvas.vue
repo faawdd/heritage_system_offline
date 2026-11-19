@@ -96,6 +96,10 @@ const props = defineProps({
   enableMapTools: {
     type: Boolean,
     default: false
+  },
+  boundariesReady: {
+    type: Boolean,
+    default: true
   }
 })
 
@@ -173,7 +177,7 @@ const abnormalStyle =
     })
   })
 
-function applyPoints() {
+function applyPoints(shouldFit = true) {
   vectorSource.clear()
   boundarySource.clear()
 
@@ -215,12 +219,12 @@ function applyPoints() {
     })
   })
   updateBoundaryZoomVisibility()
-  fitHeritagePoints(mapRef.value, props.points || [])
+  if (shouldFit) fitHeritagePoints(mapRef.value, props.points || [])
 }
 
 function updateBoundaryZoomVisibility() {
   const zoom = mapRef.value?.getView()?.getZoom()
-  const showBoundary = props.enableMapTools && Number.isFinite(zoom) && zoom >= BOUNDARY_ZOOM_THRESHOLD
+  const showBoundary = props.enableMapTools && props.boundariesReady && Number.isFinite(zoom) && zoom >= BOUNDARY_ZOOM_THRESHOLD
   boundaryLayerRef.value?.setVisible(showBoundary)
   vectorLayerRef.value?.setVisible(!showBoundary)
 }
@@ -477,11 +481,23 @@ defineExpose({
 
 watch(
   () => [props.points, props.activeLevels, props.keyword],
-  () => {
-    applyPoints()
+  (current, previous) => {
+    const oldPoints = previous?.[0]
+    const newPoints = current[0]
+    const geometryOnly = props.enableMapTools && props.boundariesReady
+      && current[1] === previous?.[1] && current[2] === previous?.[2]
+      && oldPoints && oldPoints !== newPoints && oldPoints.length === newPoints.length
+      && oldPoints.every((point, index) => {
+        const next = newPoints[index]
+        return point.id === next.id && (point.lng ?? point.longitude) === (next.lng ?? next.longitude)
+          && (point.lat ?? point.latitude) === (next.lat ?? next.latitude)
+      })
+    applyPoints(!geometryOnly)
   },
   { deep: true }
 )
+
+watch(() => props.boundariesReady, updateBoundaryZoomVisibility)
 
 watch(
   () => [props.abnormalPoints, props.showAbnormalHeat],

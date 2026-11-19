@@ -30,6 +30,23 @@
         </div>
       </el-form-item>
 
+      <el-form-item label="主题色">
+        <div class="color-theme-options" role="group" aria-label="主题色">
+          <button
+            v-for="item in COLOR_THEMES"
+            :key="item.value"
+            type="button"
+            class="color-theme-option"
+            :class="{ 'is-active': appearanceState.colorTheme === item.value }"
+            :aria-pressed="appearanceState.colorTheme === item.value"
+            @click="setAppearance({ colorTheme: item.value })"
+          >
+            <span class="color-theme-swatch" :style="{ backgroundColor: item.swatch }" />
+            <span>{{ item.label }}</span>
+          </button>
+        </div>
+      </el-form-item>
+
       <el-form-item label="默认主题偏好">
         <el-radio-group :model-value="appearanceState.themeMode" @change="(v) => setAppearance({ themeMode: v })">
           <el-radio-button v-for="item in THEME_MODES" :key="item.value" :value="item.value">{{ item.label }}</el-radio-button>
@@ -51,6 +68,7 @@
 <script setup>
 import {
   appearanceState,
+  COLOR_THEMES,
   FONT_OPTIONS,
   FONT_SIZE_RANGE,
   THEME_MODES,
@@ -76,6 +94,33 @@ import {
 .font-size-row {
   width: 100%;
   padding-right: 12px;
+}
+.color-theme-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.color-theme-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+.color-theme-option.is-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.color-theme-swatch {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 50%;
 }
 .appearance-preview {
   width: 100%;

@@ -1,9 +1,10 @@
-const { app, BrowserWindow, dialog, ipcMain } = require('electron')
+const { app, BrowserWindow, dialog, ipcMain, net: electronNet, shell } = require('electron')
 const { spawn } = require('child_process')
 const fs = require('fs')
 const http = require('http')
 const net = require('net')
 const path = require('path')
+const { DOWNLOAD_URL, checkForUpdates } = require('./updates.cjs')
 
 const DEFAULT_BACKEND_PORT = 18000
 const BACKEND_START_TIMEOUT_MS = 30000
@@ -310,6 +311,20 @@ ipcMain.handle('desktop-auth:require-login', (event) => {
   createLoginWindow(`${backendOrigin}/login?${loginQuery.toString()}`, activeSystemName)
   mainWindow.close()
   return { success: true }
+})
+
+ipcMain.handle('desktop-updates:check', async (event, currentVersion) => {
+  if (!mainWindow || event.sender.id !== mainWindow.webContents.id) {
+    throw new Error('当前窗口无法检查更新')
+  }
+  return checkForUpdates(currentVersion, (url, options) => electronNet.fetch(url, options))
+})
+
+ipcMain.handle('desktop-updates:open-download', async (event) => {
+  if (!mainWindow || event.sender.id !== mainWindow.webContents.id) {
+    throw new Error('当前窗口无法打开下载页面')
+  }
+  await shell.openExternal(DOWNLOAD_URL)
 })
 
 ipcMain.handle('desktop-setup:complete', async (_event, payload = {}) => {

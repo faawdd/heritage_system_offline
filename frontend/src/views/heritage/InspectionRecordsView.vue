@@ -41,6 +41,11 @@
         <el-table-column prop="site_name" label="文物名称" min-width="180" />
         <el-table-column prop="site_code" label="四普编号" width="140" />
         <el-table-column prop="inspector_name" label="巡查员" width="120" />
+        <el-table-column label="距文物点直线距离" width="155">
+          <template #default="scope">
+            {{ formatDistance(scope.row.distance_meters) }}
+          </template>
+        </el-table-column>
         <el-table-column prop="is_normal" label="状态" width="100">
           <template #default="scope">
             <el-tag :type="scope.row.is_normal ? 'success' : 'danger'">
@@ -101,6 +106,12 @@ const router = useRouter()
 const rows = ref([])
 const currentPhotoUrl = ref('')
 const photoDialogVisible = ref(false)
+
+function formatDistance(meters) {
+  if (meters == null || !Number.isFinite(Number(meters)) || Number(meters) < 0) return '无法计算'
+  const value = Number(meters)
+  return value < 1000 ? `约 ${Math.round(value)} 米` : `约 ${(value / 1000).toFixed(value < 10000 ? 1 : 0)} 公里`
+}
 
 const filters = reactive({
   keyword: '',

@@ -26,7 +26,7 @@ jobs:
             build_cmd: npx electron-builder --publish never --win nsis --x64
             artifact_name: windows-x64
           - id: macos-arm64
-            os: macos-14
+            os: macos-15
             asset_paths: |
               frontend/dist-electron/*.dmg
               frontend/dist-electron/*-arm64-mac.zip
