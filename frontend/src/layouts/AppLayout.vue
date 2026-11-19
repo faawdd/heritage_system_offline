@@ -287,7 +287,7 @@ const staticMenuGroups = [
       { label: '用户组管理', to: '/system/roles' },
       { label: '权限条目', to: '/system/permissions' },
       { label: '日志中心', to: '/system/logs' },
-      { label: 'DeepSeek配置', to: '/system/ai-config' },
+      { label: 'AI后端配置', to: '/system/ai-config' },
       { label: '数据管理', to: '/system/data-management' },
       { label: '离线地图切片', to: '/system/offline-maps' },
     ]
@@ -331,7 +331,7 @@ function ensureHeritageEntries(groups = []) {
     { label: '用户组管理', to: '/system/roles' },
     { label: '权限条目', to: '/system/permissions' },
     { label: '日志中心', to: '/system/logs' },
-    { label: 'DeepSeek配置', to: '/system/ai-config' },
+    { label: 'AI后端配置', to: '/system/ai-config' },
     { label: '数据管理', to: '/system/data-management' },
     { label: '离线地图切片', to: '/system/offline-maps' }
   ]

@@ -32,6 +32,12 @@ from .land_project_services import (
     DOCUMENT_NUM_FIELDS,
 )
 from core.services.heritage_service import normalize_township_name, site_township
+from core.services.ai_service import chat_completion, get_ai_config
+from core.services.project_import_service import (
+    analyze_project_files,
+    collect_import_files,
+    create_project_from_files,
+)
 import base64
 import hashlib
 import hmac
@@ -93,6 +99,7 @@ LAND_PROJECT_ACTION_LABELS = {
     'record_archaeology_reply': '录入考古批复结果',
     'archive_case': '办结归档',
     'generate_official_document': '生成公文',
+    'smart_import': 'AI智能导入',
 }
 
 
@@ -2506,6 +2513,61 @@ def land_project_create_api(request):
 @csrf_exempt
 @require_POST
 @staff_member_required
+def land_project_smart_import_analyze_api(request):
+    if not is_management_admin(request.user):
+        return JsonResponse({'success': False, 'message': '无权限'}, status=403)
+    uploads = request.FILES.getlist('files')
+    if not uploads and request.FILES.get('file'):
+        uploads = [request.FILES['file']]
+    try:
+        files = collect_import_files(uploads)
+        preview = analyze_project_files(files)
+    except ValueError as exc:
+        return JsonResponse({'success': False, 'message': str(exc)}, status=400)
+    except Exception:
+        logger.exception('智能识别项目文件失败')
+        return JsonResponse({'success': False, 'message': '智能识别失败，请查看服务端日志'}, status=500)
+    return JsonResponse({'success': True, 'data': preview})
+
+
+@csrf_exempt
+@require_POST
+@staff_member_required
+def land_project_smart_import_create_api(request):
+    if not is_management_admin(request.user):
+        return JsonResponse({'success': False, 'message': '无权限'}, status=403)
+    uploads = request.FILES.getlist('files')
+    if not uploads and request.FILES.get('file'):
+        uploads = [request.FILES['file']]
+    try:
+        metadata = json.loads((request.POST.get('metadata') or '{}').strip() or '{}')
+        if not isinstance(metadata, dict):
+            raise ValueError('导入信息格式错误')
+        files = collect_import_files(uploads)
+        project = create_project_from_files(files, metadata, request.user)
+        _record_land_project_operation(
+            project=project,
+            user=request.user,
+            action='smart_import',
+            payload={
+                'file_count': len(files),
+                'project_name': project.project_name,
+                'company_name': project.company_name,
+            },
+            status_before='',
+            status_after=project.status,
+        )
+    except (ValueError, json.JSONDecodeError) as exc:
+        return JsonResponse({'success': False, 'message': str(exc)}, status=400)
+    except Exception:
+        logger.exception('智能导入项目失败')
+        return JsonResponse({'success': False, 'message': '智能导入失败，请查看服务端日志'}, status=500)
+    return JsonResponse({'success': True, 'project_id': str(project.id), 'status': project.status})
+
+
+@csrf_exempt
+@require_POST
+@staff_member_required
 def land_project_upload_api(request, project_id):
     """
     文件自动归档：
@@ -3510,11 +3572,6 @@ def _build_project_feasibility_context(project):
 
 
 def _generate_official_doc_json_with_deepseek(payload, project):
-    try:
-        from openai import OpenAI
-    except Exception as exc:
-        raise ValueError(f'缺少 openai SDK 依赖，请先安装：{exc}')
-
     doc_type = (payload.get('docType') or '').strip()
     user_input = (payload.get('userInput') or '').strip()
     if doc_type not in {'qing_shi', 'fu_han'}:
@@ -3522,18 +3579,8 @@ def _generate_official_doc_json_with_deepseek(payload, project):
     if not user_input:
         raise ValueError('userInput 不能为空')
 
-    api_key = _get_system_config_value('deepseek.api_key', '')
-    if not api_key:
-        raise ValueError('未配置 DeepSeek API Key，请前往系统管理-DeepSeek配置填写')
-
-    base_url = _get_system_config_value('deepseek.base_url', 'https://api.deepseek.com/v1').strip()
-    model_name = _get_system_config_value('deepseek.model', 'deepseek-chat').strip() or 'deepseek-chat'
-    system_prompt = _get_system_config_value('deepseek.system_prompt', DEFAULT_DEEPSEEK_SYSTEM_PROMPT)
-    temperature_text = _get_system_config_value('deepseek.temperature', '0.3').strip()
-    try:
-        temperature = float(temperature_text)
-    except (TypeError, ValueError):
-        temperature = 0.3
+    config = get_ai_config()
+    system_prompt = config.system_prompt or DEFAULT_DEEPSEEK_SYSTEM_PROMPT
 
     year_text = str(timezone.localdate().year)
     system_prompt = system_prompt.replace('CURRENT_YEAR', year_text)
@@ -3560,24 +3607,18 @@ def _generate_official_doc_json_with_deepseek(payload, project):
         f"{feasibility_hint}"
     )
 
-    client = OpenAI(api_key=api_key, base_url=base_url)
     try:
-        response = client.chat.completions.create(
-            model=model_name,
+        content = chat_completion(
             messages=[
                 {'role': 'system', 'content': system_prompt},
                 {'role': 'user', 'content': user_prompt},
             ],
-            temperature=temperature,
+            config=config,
+            temperature=config.temperature,
+            max_tokens=config.max_tokens,
         )
     except Exception as exc:
-        raise ValueError(f'DeepSeek API 调用失败：{exc}')
-
-    content = ''
-    try:
-        content = response.choices[0].message.content or ''
-    except Exception:
-        pass
+        raise ValueError(str(exc) or 'AI 服务调用失败')
 
     ai_result = _parse_ai_json_content(content)
     _validate_ai_result_fields(doc_type, ai_result)

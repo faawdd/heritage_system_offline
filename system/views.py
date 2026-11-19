@@ -50,6 +50,7 @@ from system.serializers import (
     UserCreateUpdateSerializer,
     UserListSerializer,
 )
+from core.services.ai_service import AIConfig, PROVIDER_DEFAULTS, get_ai_config, list_models, provider_defaults
 
 
 def _get_client_ip(request):
@@ -427,44 +428,55 @@ def _mask_secret(value):
     return f"{text[:4]}{'*' * (len(text) - 8)}{text[-4:]}"
 
 
-class DeepSeekConfigAPIView(APIView):
+class AIConfigAPIView(APIView):
     permission_classes = [IsManagementAdmin]
 
     def get(self, request):
-        api_key = SystemConfig.objects.filter(key='deepseek.api_key').values_list('value', flat=True).first() or ''
-        base_url = SystemConfig.objects.filter(key='deepseek.base_url').values_list('value', flat=True).first() or 'https://api.deepseek.com/v1'
-        model = SystemConfig.objects.filter(key='deepseek.model').values_list('value', flat=True).first() or 'deepseek-chat'
-        temperature = SystemConfig.objects.filter(key='deepseek.temperature').values_list('value', flat=True).first() or '0.3'
-        system_prompt = SystemConfig.objects.filter(key='deepseek.system_prompt').values_list('value', flat=True).first() or ''
-
+        config = get_ai_config()
         return Response(
             {
                 'success': True,
                 'data': {
-                    'has_api_key': bool(str(api_key).strip()),
-                    'api_key_masked': _mask_secret(api_key),
-                    'base_url': str(base_url),
-                    'model': str(model),
-                    'temperature': str(temperature),
-                    'system_prompt': str(system_prompt),
+                    'provider': config.provider,
+                    'has_api_key': bool(config.api_key),
+                    'api_key_masked': _mask_secret(config.api_key),
+                    'base_url': config.base_url,
+                    'model': config.model,
+                    'temperature': str(config.temperature),
+                    'system_prompt': config.system_prompt,
+                    'timeout': config.timeout,
+                    'max_tokens': config.max_tokens,
+                    'providers': [
+                        {
+                            'value': value,
+                            **details,
+                        }
+                        for value, details in PROVIDER_DEFAULTS.items()
+                    ],
                 },
             }
         )
 
     def put(self, request):
-        denied = _forbid_if_no_write_permission(request, 'system_ai_config', 'update_deepseek_config')
+        denied = _forbid_if_no_write_permission(request, 'system_ai_config', 'update_ai_config')
         if denied:
             return denied
 
+        provider = str(request.data.get('provider') or 'deepseek').strip().lower()
+        if provider == 'chatgpt':
+            provider = 'openai'
+        if provider not in PROVIDER_DEFAULTS:
+            return Response({'success': False, 'message': '不支持的 AI 后端'}, status=status.HTTP_400_BAD_REQUEST)
+        defaults = provider_defaults(provider)
         raw_base_url = (request.data.get('base_url') or '').strip()
         raw_model = (request.data.get('model') or '').strip()
         raw_temperature = (request.data.get('temperature') or '').strip()
         raw_system_prompt = (request.data.get('system_prompt') or '').strip()
         raw_api_key = request.data.get('api_key')
 
-        base_url = raw_base_url or 'https://api.deepseek.com/v1'
-        model = raw_model or 'deepseek-chat'
-        temperature = raw_temperature or '0.3'
+        base_url = raw_base_url or str(defaults['base_url'])
+        model = raw_model or str(defaults['model'])
+        temperature = raw_temperature or '0.2'
 
         try:
             temp_value = float(temperature)
@@ -472,15 +484,24 @@ class DeepSeekConfigAPIView(APIView):
                 raise ValueError()
         except ValueError:
             return Response({'success': False, 'message': 'temperature 必须是 0~1 之间的数字'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            timeout = max(10, min(600, int(request.data.get('timeout') or 120)))
+            max_tokens = max(128, min(8192, int(request.data.get('max_tokens') or 1800)))
+        except (TypeError, ValueError):
+            return Response(
+                {'success': False, 'message': '超时时间和最大输出 token 必须是整数'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         items = [
-            ('deepseek.base_url', base_url, 'string', 'DeepSeek OpenAI 兼容接口地址'),
-            ('deepseek.model', model, 'string', 'DeepSeek 模型名称'),
-            ('deepseek.temperature', str(temp_value), 'string', 'DeepSeek 温度参数'),
+            ('ai.provider', provider, 'string', 'AI 后端类型'),
+            ('ai.base_url', base_url, 'string', 'AI 服务接口地址'),
+            ('ai.model', model, 'string', 'AI 模型名称'),
+            ('ai.temperature', str(temp_value), 'string', 'AI 温度参数'),
+            ('ai.timeout', str(timeout), 'integer', 'AI 请求超时（秒）'),
+            ('ai.max_tokens', str(max_tokens), 'integer', 'AI 最大输出 token'),
+            ('ai.system_prompt', raw_system_prompt, 'text', 'AI 公文生成系统提示词'),
         ]
-
-        if raw_system_prompt:
-            items.append(('deepseek.system_prompt', raw_system_prompt, 'text', 'DeepSeek 公文生成系统提示词'))
 
         for key, value, value_type, remark in items:
             obj, _ = SystemConfig.objects.get_or_create(
@@ -500,20 +521,68 @@ class DeepSeekConfigAPIView(APIView):
             api_key = str(raw_api_key).strip()
             if api_key:
                 obj, _ = SystemConfig.objects.get_or_create(
-                    key='deepseek.api_key',
+                    key='ai.api_key',
                     defaults={
                         'value': api_key,
                         'value_type': 'string',
-                        'remark': 'DeepSeek API Key',
+                        'remark': 'AI 服务 API Key',
                         'is_public': False,
                     },
                 )
                 if obj.value != api_key:
                     obj.value = api_key
                     obj.save(update_fields=['value', 'updated_at'])
+                provider_key, _ = SystemConfig.objects.get_or_create(
+                    key=f'ai.{provider}.api_key',
+                    defaults={
+                        'value': api_key,
+                        'value_type': 'string',
+                        'remark': f'{defaults["label"]} API Key',
+                        'is_public': False,
+                    },
+                )
+                if provider_key.value != api_key:
+                    provider_key.value = api_key
+                    provider_key.save(update_fields=['value', 'updated_at'])
 
-        _record_operation(request, 'system_ai_config', 'update_deepseek_config', success=True)
-        return Response({'success': True, 'message': 'DeepSeek 配置已保存'})
+        _record_operation(request, 'system_ai_config', 'update_ai_config', success=True)
+        return Response({'success': True, 'message': 'AI 后端配置已保存'})
+
+
+class DeepSeekConfigAPIView(AIConfigAPIView):
+    """兼容旧版前端地址，实际返回统一 AI 配置。"""
+
+
+class AIModelListAPIView(APIView):
+    permission_classes = [IsManagementAdmin]
+
+    def post(self, request):
+        current = get_ai_config()
+        provider = str(request.data.get('provider') or current.provider).strip().lower()
+        if provider == 'chatgpt':
+            provider = 'openai'
+        if provider not in PROVIDER_DEFAULTS:
+            return Response({'success': False, 'message': '不支持的 AI 后端'}, status=status.HTTP_400_BAD_REQUEST)
+        defaults = provider_defaults(provider)
+        submitted_key = str(request.data.get('api_key') or '').strip()
+        config = AIConfig(
+            provider=provider,
+            api_key=submitted_key or (current.api_key if provider == current.provider else ''),
+            base_url=str(request.data.get('base_url') or defaults['base_url']).strip(),
+            model=str(request.data.get('model') or defaults['model']).strip(),
+            temperature=current.temperature,
+            system_prompt=current.system_prompt,
+            timeout=current.timeout,
+            max_tokens=current.max_tokens,
+        )
+        try:
+            models = list_models(config)
+        except Exception as exc:
+            return Response(
+                {'success': False, 'message': f'模型列表检测失败：{exc}'},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        return Response({'success': True, 'data': {'models': models, 'count': len(models)}})
 
 
 class UserListCreateAPIView(APIView):

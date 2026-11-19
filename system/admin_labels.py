@@ -22,7 +22,7 @@ ACTION_NAMES = {
     'create_role': '新增用户组', 'update_role': '修改用户组', 'delete_role': '删除用户组',
     'apply_template': '恢复用户组模板权限', 'assign_permissions': '分配用户组权限',
     'assign_menus': '分配用户组菜单', 'create_menu': '新增菜单', 'update_menu': '修改菜单',
-    'delete_menu': '删除菜单', 'update_deepseek_config': '修改人工智能配置',
+    'delete_menu': '删除菜单', 'update_deepseek_config': '修改人工智能配置', 'update_ai_config': '修改人工智能配置',
     'add_user': '新增用户', 'change_user': '修改用户', 'delete_user': '删除用户',
     'assign_user_permissions': '分配用户直接权限', 'add_group': '新增用户组',
     'change_group': '修改用户组', 'delete_group': '删除用户组',

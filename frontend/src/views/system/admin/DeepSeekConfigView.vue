@@ -1,41 +1,78 @@
 <template>
   <section>
     <header class="page-header">
-      <h1>DeepSeek 配置</h1>
-      <p>配置公文 AI 生成所需的 API 参数与系统提示词。</p>
+      <h1>AI 后端配置</h1>
+      <p>统一配置本地 Ollama、DeepSeek、阿里云百炼（Qwen）、Kimi、Gemini 和 ChatGPT。</p>
     </header>
 
+    <el-alert
+      class="top-space"
+      type="info"
+      :closable="false"
+      title="Ollama 部署在当前系统服务器时，通常可使用 http://127.0.0.1:11434；跨服务器部署可填写可访问地址。"
+    />
+
     <div class="card top-space" v-loading="loading">
-      <el-form :model="form" label-width="140px" style="max-width: 900px">
+      <el-form :model="form" label-width="150px" style="max-width: 980px">
+        <el-form-item label="AI 后端">
+          <el-radio-group v-model="form.provider" @change="applyProviderDefaults">
+            <el-radio-button v-for="provider in providers" :key="provider.value" :value="provider.value">
+              {{ provider.label }}
+            </el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+
         <el-form-item label="API Key">
           <el-input
             v-model="form.api_key"
             type="password"
             show-password
-            placeholder="输入新 API Key（留空则不修改）"
+            :disabled="form.provider === 'ollama'"
+            placeholder="输入新 API Key（留空则保留当前配置）"
           />
-          <div class="hint">当前：{{ form.api_key_masked || '未配置' }}</div>
+          <div class="hint">当前：{{ form.api_key_masked || (form.provider === 'ollama' ? '本地模型无需配置' : '未配置') }}</div>
         </el-form-item>
 
         <el-form-item label="Base URL">
-          <el-input v-model="form.base_url" placeholder="https://api.deepseek.com/v1" />
+          <el-input v-model="form.base_url" placeholder="服务地址" />
         </el-form-item>
 
         <el-form-item label="模型名称">
-          <el-input v-model="form.model" placeholder="deepseek-chat" />
+          <el-select
+            v-model="form.model"
+            filterable
+            allow-create
+            default-first-option
+            placeholder="检测后选择，或直接输入模型名"
+            style="width: 100%"
+          >
+            <el-option v-for="model in models" :key="model" :label="model" :value="model" />
+          </el-select>
+          <div class="model-actions">
+            <el-button :loading="detecting" @click="detectModels">自动检测模型列表</el-button>
+            <span class="hint">检测不到时仍可手工输入模型标识。</span>
+          </div>
         </el-form-item>
 
         <el-form-item label="Temperature">
-          <el-input v-model="form.temperature" placeholder="0.3" />
-          <div class="hint">推荐 0.2 - 0.4，数值越低越稳定。</div>
+          <el-slider v-model="form.temperature" :min="0" :max="1" :step="0.05" show-input />
         </el-form-item>
 
-        <el-form-item label="System Prompt">
+        <el-form-item label="最大输出 Token">
+          <el-input-number v-model="form.max_tokens" :min="128" :max="8192" :step="128" />
+          <div class="hint">项目导入固定使用紧凑摘要，可在不降低识别质量的情况下显著减少输入 token。</div>
+        </el-form-item>
+
+        <el-form-item label="请求超时（秒）">
+          <el-input-number v-model="form.timeout" :min="10" :max="600" :step="10" />
+        </el-form-item>
+
+        <el-form-item label="公文 System Prompt">
           <el-input
             v-model="form.system_prompt"
             type="textarea"
-            :rows="16"
-            placeholder="可自定义系统提示词，留空则后端使用默认提示词"
+            :rows="14"
+            placeholder="留空使用系统默认公文生成提示词"
           />
         </el-form-item>
 
@@ -52,34 +89,54 @@
 import { reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 
-import { fetchDeepSeekConfig, updateDeepSeekConfig } from '../../../api/system/systemApi'
+import { fetchAIModels, fetchDeepSeekConfig, updateDeepSeekConfig } from '../../../api/system/systemApi'
 
 const loading = ref(false)
 const saving = ref(false)
+const detecting = ref(false)
+const providers = ref([])
+const models = ref([])
 
 const form = reactive({
+  provider: 'deepseek',
   api_key: '',
   api_key_masked: '',
   base_url: 'https://api.deepseek.com/v1',
   model: 'deepseek-chat',
-  temperature: '0.3',
+  temperature: 0.2,
+  max_tokens: 1800,
+  timeout: 120,
   system_prompt: ''
 })
+
+function applyProviderDefaults(provider) {
+  const selected = providers.value.find((item) => item.value === provider)
+  if (!selected) return
+  form.base_url = selected.base_url
+  form.model = selected.model
+  form.api_key = ''
+  form.api_key_masked = provider === 'ollama' ? '本地模型无需配置' : ''
+  models.value = []
+}
 
 async function loadConfig() {
   loading.value = true
   try {
     const result = await fetchDeepSeekConfig()
-    if (!result.success) {
-      throw new Error(result.message || '加载配置失败')
-    }
+    if (!result.success) throw new Error(result.message || '加载配置失败')
     const data = result.data || {}
-    form.api_key = ''
-    form.api_key_masked = data.api_key_masked || ''
-    form.base_url = data.base_url || 'https://api.deepseek.com/v1'
-    form.model = data.model || 'deepseek-chat'
-    form.temperature = String(data.temperature || '0.3')
-    form.system_prompt = data.system_prompt || ''
+    providers.value = data.providers || []
+    Object.assign(form, {
+      provider: data.provider || 'deepseek',
+      api_key: '',
+      api_key_masked: data.api_key_masked || '',
+      base_url: data.base_url || 'https://api.deepseek.com/v1',
+      model: data.model || 'deepseek-chat',
+      temperature: Number(data.temperature ?? 0.2),
+      max_tokens: Number(data.max_tokens ?? 1800),
+      timeout: Number(data.timeout ?? 120),
+      system_prompt: data.system_prompt || ''
+    })
   } catch (error) {
     ElMessage.error(error?.message || '加载配置失败')
   } finally {
@@ -87,21 +144,32 @@ async function loadConfig() {
   }
 }
 
+async function detectModels() {
+  detecting.value = true
+  try {
+    const result = await fetchAIModels({
+      provider: form.provider,
+      api_key: form.api_key,
+      base_url: form.base_url,
+      model: form.model
+    })
+    if (!result.success) throw new Error(result.message || '检测模型失败')
+    models.value = result.data?.models || []
+    if (models.value.length && !models.value.includes(form.model)) form.model = models.value[0]
+    ElMessage.success(`检测到 ${models.value.length} 个模型`)
+  } catch (error) {
+    ElMessage.error(error?.message || '检测模型失败')
+  } finally {
+    detecting.value = false
+  }
+}
+
 async function saveConfig() {
   saving.value = true
   try {
-    const payload = {
-      api_key: form.api_key,
-      base_url: (form.base_url || '').trim(),
-      model: (form.model || '').trim(),
-      temperature: String(form.temperature || '').trim(),
-      system_prompt: form.system_prompt || ''
-    }
-    const result = await updateDeepSeekConfig(payload)
-    if (!result.success) {
-      throw new Error(result.message || '保存配置失败')
-    }
-    ElMessage.success('配置保存成功')
+    const result = await updateDeepSeekConfig({ ...form, temperature: String(form.temperature) })
+    if (!result.success) throw new Error(result.message || '保存配置失败')
+    ElMessage.success('AI 后端配置保存成功')
     await loadConfig()
   } catch (error) {
     ElMessage.error(error?.message || '保存配置失败')
@@ -118,5 +186,12 @@ loadConfig()
   margin-top: 6px;
   color: var(--muted);
   font-size: calc(12rem / 14);
+}
+
+.model-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
 }
 </style>

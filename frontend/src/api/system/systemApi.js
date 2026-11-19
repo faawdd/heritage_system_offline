@@ -133,12 +133,17 @@ export async function fetchSystemMenus() {
 }
 
 export async function fetchDeepSeekConfig() {
-  const response = await client.get('/api/v1/system/ai-config/deepseek/')
+  const response = await client.get('/api/v1/system/ai-config/')
   return response.data
 }
 
 export async function updateDeepSeekConfig(payload) {
-  const response = await client.put('/api/v1/system/ai-config/deepseek/', payload)
+  const response = await client.put('/api/v1/system/ai-config/', payload)
+  return response.data
+}
+
+export async function fetchAIModels(payload) {
+  const response = await client.post('/api/v1/system/ai-config/models/', payload)
   return response.data
 }
 

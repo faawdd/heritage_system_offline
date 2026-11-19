@@ -28,6 +28,7 @@
       </el-select>
       <el-button type="primary" @click="store.loadProjects">查询</el-button>
       <el-button type="success" @click="goCreate">新建项目</el-button>
+      <el-button type="primary" plain @click="smartImportVisible = true">AI 智能导入</el-button>
     </div>
 
     <el-dialog v-model="createDialogVisible" title="新建用地项目" width="560px" destroy-on-close>
@@ -56,6 +57,75 @@
       <template #footer>
         <el-button @click="createDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="creating" @click="submitCreate">创建并进入详情</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="smartImportVisible" title="AI 智能导入项目" width="900px" destroy-on-close>
+      <el-alert
+        type="info"
+        :closable="false"
+        title="可上传项目文件夹或 ZIP。系统只将文件清单和有限文本摘要交给 AI，用于识别项目名称、企业单位、矢量叠加文件、公文和现场照片。"
+      />
+      <div class="import-actions">
+        <input ref="folderInput" class="hidden-input" type="file" multiple webkitdirectory @change="selectImportFiles" />
+        <input ref="archiveInput" class="hidden-input" type="file" accept=".zip" @change="selectImportFiles" />
+        <el-button @click="folderInput?.click()">选择项目文件夹</el-button>
+        <el-button @click="archiveInput?.click()">选择 ZIP 压缩包</el-button>
+        <span v-if="importFiles.length" class="import-file-count">已选 {{ importFiles.length }} 个文件</span>
+      </div>
+
+      <template v-if="importPreview">
+        <el-divider>识别结果（可人工修正）</el-divider>
+        <el-alert
+          v-for="warning in importPreview.warnings || []"
+          :key="warning"
+          class="top-space"
+          type="warning"
+          :closable="false"
+          :title="warning"
+        />
+        <el-form label-width="110px" :model="importForm">
+          <el-form-item label="项目名称" required>
+            <el-input v-model="importForm.project_name" />
+          </el-form-item>
+          <el-form-item label="企业单位" required>
+            <el-input v-model="importForm.company_name" />
+          </el-form-item>
+          <el-form-item label="来函日期">
+            <el-date-picker
+              v-model="importForm.incoming_doc_date"
+              type="date"
+              value-format="YYYY-MM-DD"
+              style="width: 100%"
+            />
+          </el-form-item>
+        </el-form>
+        <el-table :data="importForm.attachments" max-height="360" border size="small">
+          <el-table-column prop="name" label="文件" min-width="240" show-overflow-tooltip />
+          <el-table-column label="归档类型" width="180">
+            <template #default="{ row }">
+              <el-select v-model="row.file_type" size="small">
+                <el-option v-for="item in attachmentTypes" :key="item.value" v-bind="item" />
+              </el-select>
+            </template>
+          </el-table-column>
+          <el-table-column label="公文类别" width="180">
+            <template #default="{ row }">
+              <el-select v-model="row.category" :disabled="row.file_type !== 'official_doc'" size="small">
+                <el-option v-for="item in documentCategories" :key="item.value" v-bind="item" />
+              </el-select>
+            </template>
+          </el-table-column>
+          <el-table-column prop="reason" label="识别依据" min-width="180" show-overflow-tooltip />
+        </el-table>
+        <p class="token-note">{{ importPreview.token_strategy }}</p>
+      </template>
+      <template #footer>
+        <el-button @click="smartImportVisible = false">取消</el-button>
+        <el-button :loading="analyzing" :disabled="!importFiles.length" @click="analyzeImport">AI 识别</el-button>
+        <el-button type="primary" :loading="importing" :disabled="!importPreview" @click="confirmImport">
+          确认创建项目
+        </el-button>
       </template>
     </el-dialog>
 
@@ -190,7 +260,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
 
-import { createProject } from '../../api/projectApi'
+import { analyzeSmartProjectImport, createProject, createSmartProjectImport } from '../../api/projectApi'
 import { useProjectStore } from '../../stores/projectStore'
 
 const store = useProjectStore()
@@ -203,6 +273,39 @@ const archivedExpanded = computed({
 })
 const createDialogVisible = ref(false)
 const creating = ref(false)
+const smartImportVisible = ref(false)
+const analyzing = ref(false)
+const importing = ref(false)
+const folderInput = ref(null)
+const archiveInput = ref(null)
+const importFiles = ref([])
+const importPreview = ref(null)
+const importForm = reactive({
+  project_name: '',
+  company_name: '',
+  incoming_doc_date: '',
+  attachments: []
+})
+const attachmentTypes = [
+  { label: '初步选址矢量', value: 'preliminary_kml' },
+  { label: '正式选址矢量', value: 'kml' },
+  { label: '现场照片', value: 'field_photo' },
+  { label: '公文', value: 'official_doc' },
+  { label: '考古报告', value: 'archaeology_report' },
+  { label: '坎儿井方案', value: 'kanerjing_plan' },
+  { label: '其他附件', value: 'other' }
+]
+const documentCategories = [
+  { label: '项目方查询函', value: 'incoming_request' },
+  { label: '县局请示', value: 'county_request' },
+  { label: '市局回复', value: 'city_reply' },
+  { label: '考古请示', value: 'archaeology_request' },
+  { label: '自治区批复', value: 'region_approval' },
+  { label: '市局最终复函', value: 'city_final_reply' },
+  { label: '国务院批复', value: 'state_council_approval' },
+  { label: '给项目方复函', value: 'final_reply' },
+  { label: '其他公文', value: 'other' }
+]
 const createForm = reactive({
   project_name: '',
   preliminary_project_name: '',
@@ -327,6 +430,57 @@ function goDetail(projectId) {
   router.push(`/projects/${projectId}`)
 }
 
+function selectImportFiles(event) {
+  importFiles.value = Array.from(event.target.files || [])
+  importPreview.value = null
+  importForm.attachments = []
+  event.target.value = ''
+}
+
+async function analyzeImport() {
+  if (!importFiles.value.length) return
+  analyzing.value = true
+  try {
+    const result = await analyzeSmartProjectImport(importFiles.value)
+    if (!result.success) throw new Error(result.message || 'AI 识别失败')
+    importPreview.value = result.data
+    Object.assign(importForm, {
+      project_name: result.data.project_name || '',
+      company_name: result.data.company_name || '',
+      incoming_doc_date: result.data.incoming_doc_date || '',
+      attachments: result.data.attachments || []
+    })
+    if (result.data.warnings?.length) ElMessage.warning('AI 服务暂不可用，已生成本地规则识别结果，请人工复核')
+    else ElMessage.success('AI 识别完成，请复核后创建')
+  } catch (error) {
+    ElMessage.error(error?.message || 'AI 识别失败')
+  } finally {
+    analyzing.value = false
+  }
+}
+
+async function confirmImport() {
+  if (!importForm.project_name || !importForm.company_name) {
+    ElMessage.warning('请补充项目名称和企业单位')
+    return
+  }
+  importing.value = true
+  try {
+    const result = await createSmartProjectImport(importFiles.value, { ...importForm })
+    if (!result.success) throw new Error(result.message || '智能导入失败')
+    ElMessage.success('项目及附件已导入')
+    smartImportVisible.value = false
+    importPreview.value = null
+    importFiles.value = []
+    await store.loadProjects()
+    router.push(`/projects/${result.project_id}`)
+  } catch (error) {
+    ElMessage.error(error?.message || '智能导入失败')
+  } finally {
+    importing.value = false
+  }
+}
+
 onMounted(() => {
   store.loadProjects()
 })
@@ -356,6 +510,27 @@ onMounted(() => {
 .section-toggle {
   color: var(--el-color-primary);
   font-size: 13px;
+}
+
+.import-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.hidden-input {
+  display: none;
+}
+
+.import-file-count,
+.token-note {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.token-note {
+  margin-bottom: 0;
 }
 
 .project-dashboard {

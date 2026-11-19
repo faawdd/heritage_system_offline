@@ -22,6 +22,27 @@ export async function createProject(payload) {
   return response.data
 }
 
+export async function analyzeSmartProjectImport(files) {
+  const formData = new FormData()
+  files.forEach((file) => formData.append('files', file, file.webkitRelativePath || file.name))
+  const response = await client.post('/api/v1/projects/smart-import/analyze/', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 30 * 60 * 1000
+  })
+  return response.data
+}
+
+export async function createSmartProjectImport(files, metadata) {
+  const formData = new FormData()
+  files.forEach((file) => formData.append('files', file, file.webkitRelativePath || file.name))
+  formData.set('metadata', JSON.stringify(metadata))
+  const response = await client.post('/api/v1/projects/smart-import/create/', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 30 * 60 * 1000
+  })
+  return response.data
+}
+
 export async function uploadProjectFile(projectId, formData) {
   const response = await client.post(`/api/v1/projects/${projectId}/upload/`, formData, {
     headers: {
