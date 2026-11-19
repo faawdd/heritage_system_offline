@@ -26,10 +26,36 @@ export async function analyzeSmartProjectImport(files) {
   const formData = new FormData()
   files.forEach((file) => formData.append('files', file, file.webkitRelativePath || file.name))
   const response = await client.post('/api/v1/projects/smart-import/analyze/', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-    timeout: 30 * 60 * 1000
+    headers: { 'Content-Type': 'multipart/form-data' }
   })
-  return response.data
+  if (!response.data?.success || !response.data?.data?.job_id) {
+    throw new Error(response.data?.message || 'AI 识别任务启动失败')
+  }
+  const jobId = response.data.data.job_id
+  const deadline = Date.now() + 10 * 60 * 1000
+  let failures = 0
+  while (Date.now() < deadline) {
+    await sleep(1200)
+    let statusResponse
+    try {
+      statusResponse = await client.get(`/api/v1/projects/smart-import/jobs/${jobId}/`)
+      failures = 0
+    } catch (error) {
+      failures += 1
+      if (error?.response?.status === 404) {
+        throw new Error('AI 识别任务已过期，请重新上传文件')
+      }
+      if (failures >= 10) throw error
+      continue
+    }
+    const job = statusResponse.data?.data
+    if (!statusResponse.data?.success || !job) {
+      throw new Error(statusResponse.data?.message || '查询识别进度失败')
+    }
+    if (job.status === 'succeeded') return { success: true, data: job.result }
+    if (job.status === 'failed') throw new Error(job.error || 'AI 识别失败')
+  }
+  throw new Error('AI 识别耗时过长，请稍后重试')
 }
 
 export async function createSmartProjectImport(files, metadata) {

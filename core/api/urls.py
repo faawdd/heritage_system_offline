@@ -89,6 +89,7 @@ urlpatterns = [
     path('projects/<uuid:project_id>/', legacy_views.land_project_detail_api, name='land_project_detail'),
     path('projects/create/', legacy_views.land_project_create_api, name='land_project_create'),
     path('projects/smart-import/analyze/', legacy_views.land_project_smart_import_analyze_api, name='land_project_smart_import_analyze'),
+    path('projects/smart-import/jobs/<uuid:job_id>/', legacy_views.land_project_smart_import_job_api, name='land_project_smart_import_job'),
     path('projects/smart-import/create/', legacy_views.land_project_smart_import_create_api, name='land_project_smart_import_create'),
     path('projects/<uuid:project_id>/upload/', legacy_views.land_project_upload_api, name='land_project_upload'),
     path('projects/<uuid:project_id>/delete/', legacy_views.land_project_delete_api, name='land_project_delete'),

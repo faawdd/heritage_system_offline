@@ -2,14 +2,17 @@ import io
 import json
 import tempfile
 import zipfile
+from unittest import mock
 from unittest.mock import patch
 
+from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from pypdf import PdfWriter
 
 from core.services.ai_service import AIConfig, chat_completion, get_ai_config, list_models
 from core.services.project_import_service import analyze_project_files, collect_import_files, create_project_from_files
+from core.services import smart_import_jobs
 from system.models import SystemConfig
 
 
@@ -143,3 +146,40 @@ class ProjectSmartImportTests(TestCase):
         self.assertTrue(project.preliminary_kml_file_path)
         self.assertEqual(project.documents.count(), 1)
         self.assertEqual(project.field_photos.count(), 1)
+
+    def test_analysis_api_returns_job_immediately_and_exposes_result(self):
+        user = get_user_model().objects.create_superuser('ai-import-admin', password='test-password')
+        self.client.force_login(user)
+
+        class InlineThread:
+            def __init__(self, target, args, **kwargs):
+                self.target = target
+                self.args = args
+
+            def start(self):
+                self.target(*self.args)
+
+        expected = {
+            'project_name': '异步项目',
+            'company_name': '异步单位',
+            'incoming_doc_date': '',
+            'attachments': [],
+            'warnings': [],
+        }
+        with mock.patch.object(smart_import_jobs.threading, 'Thread', InlineThread), \
+                mock.patch.object(smart_import_jobs, 'analyze_project_files', return_value=expected):
+            started = self.client.post(
+                '/api/v1/projects/smart-import/analyze/',
+                {'files': SimpleUploadedFile('说明.txt', b'project text')},
+                secure=True,
+            )
+            self.assertEqual(started.status_code, 202)
+            job_id = started.json()['data']['job_id']
+            status_response = self.client.get(
+                f'/api/v1/projects/smart-import/jobs/{job_id}/',
+                secure=True,
+            )
+
+        self.assertEqual(status_response.status_code, 200)
+        self.assertEqual(status_response.json()['data']['status'], 'succeeded')
+        self.assertEqual(status_response.json()['data']['result'], expected)

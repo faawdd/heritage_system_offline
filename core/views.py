@@ -34,10 +34,12 @@ from .land_project_services import (
 from core.services.heritage_service import normalize_township_name, site_township
 from core.services.ai_service import chat_completion, get_ai_config
 from core.services.project_import_service import (
-    analyze_project_files,
     collect_import_files,
     create_project_from_files,
 )
+from core.services.smart_import_jobs import get_job as get_smart_import_job
+from core.services.smart_import_jobs import public_job as public_smart_import_job
+from core.services.smart_import_jobs import start_job as start_smart_import_job
 import base64
 import hashlib
 import hmac
@@ -2521,13 +2523,23 @@ def land_project_smart_import_analyze_api(request):
         uploads = [request.FILES['file']]
     try:
         files = collect_import_files(uploads)
-        preview = analyze_project_files(files)
+        job = start_smart_import_job(files)
     except ValueError as exc:
         return JsonResponse({'success': False, 'message': str(exc)}, status=400)
     except Exception:
         logger.exception('智能识别项目文件失败')
         return JsonResponse({'success': False, 'message': '智能识别失败，请查看服务端日志'}, status=500)
-    return JsonResponse({'success': True, 'data': preview})
+    return JsonResponse({'success': True, 'data': public_smart_import_job(job)}, status=202)
+
+
+@staff_member_required
+def land_project_smart_import_job_api(request, job_id):
+    if not is_management_admin(request.user):
+        return JsonResponse({'success': False, 'message': '无权限'}, status=403)
+    job = get_smart_import_job(job_id)
+    if not job:
+        return JsonResponse({'success': False, 'message': '识别任务不存在或已过期'}, status=404)
+    return JsonResponse({'success': True, 'data': public_smart_import_job(job)})
 
 
 @csrf_exempt
