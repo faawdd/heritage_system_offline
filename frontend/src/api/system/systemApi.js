@@ -147,6 +147,11 @@ export async function fetchAIModels(payload) {
   return response.data
 }
 
+export async function testAIConnection(payload) {
+  const response = await client.post('/api/v1/system/ai-config/test/', payload)
+  return response.data
+}
+
 export async function startSipuBoundaryImport(payload) {
   const response = await client.post('/api/v1/system/sipu-import/start/', payload)
   return response.data

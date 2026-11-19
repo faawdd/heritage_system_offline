@@ -50,8 +50,17 @@
           </el-select>
           <div class="model-actions">
             <el-button :loading="detecting" @click="detectModels">自动检测模型列表</el-button>
+            <el-button :loading="testing" type="success" plain @click="testConnection">测试连接</el-button>
             <span class="hint">检测不到时仍可手工输入模型标识。</span>
           </div>
+          <el-alert
+            v-if="connectionResult"
+            class="connection-result"
+            type="success"
+            :closable="false"
+            :title="`连接成功：${connectionResult.provider} / ${connectionResult.model}，耗时 ${connectionResult.elapsed_ms} ms`"
+            :description="`模型响应：${connectionResult.response}；模型列表检测${connectionResult.model_list_supported ? `成功（${connectionResult.model_count} 个）` : '不支持或失败，但对话接口可用'}`"
+          />
         </el-form-item>
 
         <el-form-item label="Temperature">
@@ -89,11 +98,13 @@
 import { reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 
-import { fetchAIModels, fetchDeepSeekConfig, updateDeepSeekConfig } from '../../../api/system/systemApi'
+import { fetchAIModels, fetchDeepSeekConfig, testAIConnection, updateDeepSeekConfig } from '../../../api/system/systemApi'
 
 const loading = ref(false)
 const saving = ref(false)
 const detecting = ref(false)
+const testing = ref(false)
+const connectionResult = ref(null)
 const providers = ref([])
 const models = ref([])
 
@@ -117,6 +128,7 @@ function applyProviderDefaults(provider) {
   form.api_key = ''
   form.api_key_masked = provider === 'ollama' ? '本地模型无需配置' : ''
   models.value = []
+  connectionResult.value = null
 }
 
 async function loadConfig() {
@@ -164,6 +176,27 @@ async function detectModels() {
   }
 }
 
+async function testConnection() {
+  testing.value = true
+  connectionResult.value = null
+  try {
+    const result = await testAIConnection({
+      provider: form.provider,
+      api_key: form.api_key,
+      base_url: form.base_url,
+      model: form.model,
+      timeout: Math.min(Number(form.timeout) || 30, 30)
+    })
+    if (!result.success) throw new Error(result.message || '连接测试失败')
+    connectionResult.value = result.data
+    ElMessage.success('AI 后端连接成功')
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.message || error?.message || '连接测试失败')
+  } finally {
+    testing.value = false
+  }
+}
+
 async function saveConfig() {
   saving.value = true
   try {
@@ -193,5 +226,9 @@ loadConfig()
   align-items: center;
   gap: 12px;
   margin-top: 8px;
+}
+
+.connection-result {
+  margin-top: 10px;
 }
 </style>

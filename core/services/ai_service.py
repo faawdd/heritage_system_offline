@@ -1,4 +1,5 @@
 import json
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -155,6 +156,40 @@ def list_models(config: AIConfig) -> list[str]:
             if isinstance(item, dict) and str(item.get('id') or item.get('name') or '').strip()
         }
     )
+
+
+def test_connection(config: AIConfig) -> dict[str, Any]:
+    started_at = time.monotonic()
+    model_list_supported = True
+    models: list[str] = []
+    try:
+        models = list_models(config)
+    except (requests.RequestException, ValueError):
+        model_list_supported = False
+
+    content = chat_completion(
+        [{'role': 'user', 'content': '请仅回复 ok'}],
+        config=AIConfig(
+            provider=config.provider,
+            api_key=config.api_key,
+            base_url=config.base_url,
+            model=config.model,
+            temperature=0,
+            system_prompt='',
+            timeout=min(config.timeout, 30),
+            max_tokens=16,
+        ),
+        temperature=0,
+        max_tokens=16,
+    )
+    return {
+        'provider': config.provider,
+        'model': config.model,
+        'response': content[:200],
+        'elapsed_ms': round((time.monotonic() - started_at) * 1000),
+        'model_list_supported': model_list_supported,
+        'model_count': len(models),
+    }
 
 
 def chat_completion(

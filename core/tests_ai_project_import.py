@@ -78,6 +78,28 @@ class AIServiceTests(TestCase):
         self.assertFalse(payload['stream'])
         self.assertEqual(payload['options']['num_predict'], 500)
 
+    @patch('core.services.ai_service.list_models', return_value=['qwen2.5:7b'])
+    @patch('core.services.ai_service.chat_completion', return_value='{"ok":true}')
+    def test_connection_uses_short_request_and_reports_latency(self, completion, _models):
+        from core.services.ai_service import test_connection
+
+        config = AIConfig(
+            provider='ollama',
+            api_key='',
+            base_url='http://127.0.0.1:11434',
+            model='qwen2.5:7b',
+            timeout=120,
+        )
+
+        result = test_connection(config)
+
+        self.assertEqual(result['provider'], 'ollama')
+        self.assertEqual(result['model_count'], 1)
+        self.assertGreaterEqual(result['elapsed_ms'], 0)
+        request_config = completion.call_args.kwargs['config']
+        self.assertEqual(request_config.timeout, 30)
+        self.assertEqual(request_config.max_tokens, 16)
+
 
 class ProjectSmartImportTests(TestCase):
     def setUp(self):

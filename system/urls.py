@@ -4,6 +4,7 @@ from system.views import (
     DeepSeekConfigAPIView,
     AIConfigAPIView,
     AIModelListAPIView,
+    AIConnectionTestAPIView,
     ChangePasswordAPIView,
     ForgotPasswordQuestionsAPIView,
     ForgotPasswordResetAPIView,
@@ -54,5 +55,6 @@ urlpatterns = [
     path('audit-log/', AuditLogListAPIView.as_view(), name='audit_log'),
     path('ai-config/', AIConfigAPIView.as_view(), name='ai_config'),
     path('ai-config/models/', AIModelListAPIView.as_view(), name='ai_model_list'),
+    path('ai-config/test/', AIConnectionTestAPIView.as_view(), name='ai_connection_test'),
     path('ai-config/deepseek/', DeepSeekConfigAPIView.as_view(), name='deepseek_config'),
 ]

@@ -50,7 +50,14 @@ from system.serializers import (
     UserCreateUpdateSerializer,
     UserListSerializer,
 )
-from core.services.ai_service import AIConfig, PROVIDER_DEFAULTS, get_ai_config, list_models, provider_defaults
+from core.services.ai_service import (
+    AIConfig,
+    PROVIDER_DEFAULTS,
+    get_ai_config,
+    list_models,
+    provider_defaults,
+    test_connection,
+)
 
 
 def _get_client_ip(request):
@@ -583,6 +590,37 @@ class AIModelListAPIView(APIView):
                 status=status.HTTP_502_BAD_GATEWAY,
             )
         return Response({'success': True, 'data': {'models': models, 'count': len(models)}})
+
+
+class AIConnectionTestAPIView(APIView):
+    permission_classes = [IsManagementAdmin]
+
+    def post(self, request):
+        current = get_ai_config()
+        provider = str(request.data.get('provider') or current.provider).strip().lower()
+        if provider == 'chatgpt':
+            provider = 'openai'
+        if provider not in PROVIDER_DEFAULTS:
+            return Response({'success': False, 'message': '不支持的 AI 后端'}, status=status.HTTP_400_BAD_REQUEST)
+        defaults = provider_defaults(provider)
+        submitted_key = str(request.data.get('api_key') or '').strip()
+        try:
+            config = AIConfig(
+                provider=provider,
+                api_key=submitted_key or (current.api_key if provider == current.provider else ''),
+                base_url=str(request.data.get('base_url') or defaults['base_url']).strip(),
+                model=str(request.data.get('model') or defaults['model']).strip(),
+                temperature=0,
+                timeout=max(10, min(30, int(request.data.get('timeout') or 30))),
+                max_tokens=16,
+            )
+            result = test_connection(config)
+        except (TypeError, ValueError) as exc:
+            return Response(
+                {'success': False, 'message': f'连接测试失败：{exc}'},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        return Response({'success': True, 'message': 'AI 后端连接成功', 'data': result})
 
 
 class UserListCreateAPIView(APIView):
