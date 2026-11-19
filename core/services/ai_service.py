@@ -16,7 +16,7 @@ PROVIDER_DEFAULTS = {
     },
     'bailian': {
         'label': '阿里云百炼（Qwen）',
-        'base_url': 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+        'base_url': 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1',
         'model': 'qwen-plus',
         'requires_api_key': True,
     },
