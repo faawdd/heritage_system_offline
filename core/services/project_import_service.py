@@ -40,11 +40,23 @@ def _safe_name(name: str) -> str:
     return '/'.join(parts) or '未命名文件'
 
 
+def _is_ignored_file(name: str) -> bool:
+    parts = str(name or '').replace('\\', '/').split('/')
+    return any(
+        part.startswith('.')
+        or part == '__MACOSX'
+        or part.lower() == 'thumbs.db'
+        for part in parts
+    )
+
+
 def collect_import_files(uploaded_files) -> list[ImportFile]:
     files: list[ImportFile] = []
     total_size = 0
     for upload in uploaded_files:
         upload_name = _safe_name(upload.name)
+        if _is_ignored_file(upload_name):
+            continue
         upload_size = int(getattr(upload, 'size', 0) or 0)
         if upload_size > MAX_FILE_SIZE:
             raise ValueError(f'文件 {upload_name} 超过单文件 30MB 限制')
@@ -76,6 +88,8 @@ def _unpack_zip(raw: bytes, archive_name: str) -> list[ImportFile]:
                 if item.is_dir() or item.filename.startswith('__MACOSX/'):
                     continue
                 name = _safe_name(f'{archive_name.rsplit(".", 1)[0]}/{item.filename}')
+                if _is_ignored_file(name):
+                    continue
                 content = archive.read(item)
                 if len(content) > MAX_FILE_SIZE:
                     raise ValueError(f'压缩包成员 {name} 超过单文件 30MB 限制')
@@ -120,15 +134,22 @@ def _normalize_extracted_text(text: str) -> str:
 
 
 def _clean_metadata_value(value: str) -> str:
-    return re.sub(
+    normalized = re.sub(
         r'[\s、，,；;。:：]+$',
         '',
         str(value or '').strip(),
-    )[:120]
+    )
+    normalized = re.sub(r'^(?:现有|原有|为现有|该)', '', normalized).strip()
+    return normalized[:120]
 
 
 def _has_metadata_value(value: Any) -> bool:
     return str(value or '').strip() not in {'', '待补充', '未知', '未识别', 'N/A', 'null', 'None'}
+
+
+def _clean_company_value(value: str) -> str:
+    normalized = _clean_metadata_value(value)
+    return re.sub(r'^.*?(?:关于申请核实|关于核实|申请核实)', '', normalized).strip()
 
 
 def _heuristic_metadata(files: list[ImportFile], texts: dict[str, str]) -> dict[str, Any]:
@@ -141,6 +162,9 @@ def _heuristic_metadata(files: list[ImportFile], texts: dict[str, str]) -> dict[
     for pattern in (
         r'项目名称\s*[：:]\s*([^\n\r，,。；;]{2,100})',
         r'工程名称\s*[：:]\s*([^\n\r，,。；;]{2,100})',
+        r'拟在[^\n。；;]{0,40}?建设\s*([^\n\r，,。；;]{2,100}?建设项目)',
+        r'拟建设\s*([^\n\r，,。；;]{2,100}?建设项目)',
+        r'关于建设\s*([^\n\r，,。；;]{2,100}?建设项目)',
         r'关于(.{2,100}?(?:项目|工程))(?:建设|选址|规划)?(?:事宜|申请)?的函',
         r'([^/\n\r]{2,100}?(?:项目|工程))(?:[-_（( ]*)?(?:查询函|来函|选址申请|建设申请|请示)',
     ):
@@ -154,12 +178,27 @@ def _heuristic_metadata(files: list[ImportFile], texts: dict[str, str]) -> dict[
     ):
         match = re.search(pattern, searchable)
         if match:
-            company_name = _clean_metadata_value(match.group(1))
+            company_name = _clean_company_value(match.group(1))
             break
     if not project_name and files:
-        first_path = files[0].name.split('/')
+        preferred_file = next(
+            (
+                item for item in files
+                if os.path.splitext(item.name)[1].lower() in {'.kml', '.kmz'}
+                and re.search(r'建设项目', item.name)
+            ),
+            files[0],
+        )
+        first_path = preferred_file.name.split('/')
         candidate = first_path[0] if len(first_path) > 1 else os.path.splitext(first_path[0])[0]
         project_name = re.sub(r'(?i)\.(zip|rar)$', '', _clean_metadata_value(candidate))
+        project_name = re.sub(
+            r'^.{2,100}?(?=(?:多式联运|光伏|风电|道路|铁路|高速|桥梁|水利|项目))',
+            '',
+            project_name,
+            count=1,
+        )
+        project_name = re.sub(r'[\s（(]*\(?\d+\)?[\s）)]*$', '', project_name)
     if not company_name:
         company_name = ''
     incoming_doc_date = ''
@@ -254,7 +293,7 @@ def analyze_project_files(files: list[ImportFile]) -> dict[str, Any]:
             if not _has_metadata_value(result.get(key)):
                 result[key] = manifest[key]
         result['project_name'] = _clean_metadata_value(result.get('project_name', ''))
-        result['company_name'] = _clean_metadata_value(result.get('company_name', ''))
+        result['company_name'] = _clean_company_value(result.get('company_name', ''))
         result['attachments'] = manifest['attachments']
     except ValueError as exc:
         result = manifest

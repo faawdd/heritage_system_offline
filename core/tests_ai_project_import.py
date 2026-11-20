@@ -126,6 +126,15 @@ class ProjectSmartImportTests(TestCase):
         self.assertEqual(len(files), 3)
         self.assertTrue(all(item.name.startswith('项目资料/') for item in files))
 
+    def test_hidden_system_files_are_ignored(self):
+        upload = SimpleUploadedFile('项目/.DS_Store', b'system data')
+        files = collect_import_files([
+            upload,
+            SimpleUploadedFile('项目/现场照片.jpg', b'image'),
+        ])
+
+        self.assertEqual([item.name for item in files], ['现场照片.jpg'])
+
     @patch('core.services.project_import_service.chat_completion')
     def test_analysis_sends_compact_manifest_and_returns_editable_preview(self, completion):
         completion.return_value = json.dumps({
@@ -165,6 +174,20 @@ class ProjectSmartImportTests(TestCase):
         self.assertEqual(len(preview['attachments']), 3)
         self.assertEqual(completion.call_args.kwargs['max_tokens'], 600)
         self.assertLessEqual(completion.call_args.kwargs['config'].timeout, 45)
+
+    @patch('core.services.project_import_service.chat_completion', side_effect=ValueError('local fallback'))
+    def test_local_project_name_is_extracted_from_project_application_text(self, _completion):
+        content = (
+            '关于申请核实新疆瑞科拓新物流有限公司多式联运集装箱转运场站建设项目场址占用文物情况的函\n'
+            '我公司拟在鄯善县建设多式联运集装箱转运场站建设项目。\n'
+            '新疆瑞科拓新物流有限公司\n'
+        )
+        files = [collect_import_files([SimpleUploadedFile('申请函.txt', content.encode())])[0]]
+
+        preview = analyze_project_files(files)
+
+        self.assertEqual(preview['project_name'], '多式联运集装箱转运场站建设项目')
+        self.assertEqual(preview['company_name'], '新疆瑞科拓新物流有限公司')
 
     def test_confirmed_import_creates_project_and_classifies_attachments(self):
         files = collect_import_files([self.make_zip_upload()])
