@@ -460,7 +460,11 @@ async function analyzeImport() {
 }
 
 async function confirmImport() {
-  if (!importForm.project_name || !importForm.company_name) {
+  const missingValues = ['', '待补充', '未知', '未识别', 'N/A', 'null', 'None']
+  if (
+    missingValues.includes(importForm.project_name.trim())
+    || missingValues.includes(importForm.company_name.trim())
+  ) {
     ElMessage.warning('请补充项目名称和企业单位')
     return
   }
@@ -475,7 +479,7 @@ async function confirmImport() {
     await store.loadProjects()
     router.push(`/projects/${result.project_id}`)
   } catch (error) {
-    ElMessage.error(error?.message || '智能导入失败')
+    ElMessage.error(error?.response?.data?.message || error?.message || '智能导入失败')
   } finally {
     importing.value = false
   }

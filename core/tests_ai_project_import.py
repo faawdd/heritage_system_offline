@@ -144,10 +144,27 @@ class ProjectSmartImportTests(TestCase):
 
         self.assertEqual(preview['project_name'], '示例道路项目')
         self.assertEqual(preview['file_count'], 3)
-        self.assertIn('12000', preview['token_strategy'])
+        self.assertIn('6000', preview['token_strategy'])
         prompt = completion.call_args.args[0][1]['content']
         self.assertIn('manifest', prompt)
         self.assertNotIn('not-a-real-image', prompt)
+
+    @patch('core.services.project_import_service.chat_completion')
+    def test_analysis_fills_blank_ai_fields_from_local_metadata(self, completion):
+        completion.return_value = json.dumps({
+            'project_name': '',
+            'company_name': '未知',
+            'incoming_doc_date': '',
+        }, ensure_ascii=False)
+        files = collect_import_files([self.make_zip_upload()])
+
+        preview = analyze_project_files(files)
+
+        self.assertEqual(preview['project_name'], '项目资料')
+        self.assertEqual(preview['company_name'], '')
+        self.assertEqual(len(preview['attachments']), 3)
+        self.assertEqual(completion.call_args.kwargs['max_tokens'], 600)
+        self.assertLessEqual(completion.call_args.kwargs['config'].timeout, 45)
 
     def test_confirmed_import_creates_project_and_classifies_attachments(self):
         files = collect_import_files([self.make_zip_upload()])

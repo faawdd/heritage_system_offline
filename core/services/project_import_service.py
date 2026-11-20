@@ -13,14 +13,14 @@ from django.db import transaction
 
 from core.land_project_services import build_project_media_path
 from core.models import LandUseProjectApproval, LandUseProjectDocument, LandUseProjectFieldPhoto
-from core.services.ai_service import chat_completion, parse_json_response
+from core.services.ai_service import AIConfig, chat_completion, get_ai_config, parse_json_response
 
 
 MAX_FILE_COUNT = 200
 MAX_FILE_SIZE = 30 * 1024 * 1024
 MAX_TOTAL_SIZE = 100 * 1024 * 1024
-MAX_TEXT_PER_FILE = 3500
-MAX_AI_TEXT = 12000
+MAX_TEXT_PER_FILE = 2400
+MAX_AI_TEXT = 6000
 IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff', '.webp'}
 VECTOR_EXTENSIONS = {'.kml', '.kmz', '.ovkml', '.ovkmz'}
 DOCUMENT_EXTENSIONS = {'.pdf', '.doc', '.docx'}
@@ -94,7 +94,9 @@ def _extract_text(item: ImportFile) -> str:
             from docx import Document
 
             doc = Document(io.BytesIO(item.content))
-            return '\n'.join(p.text for p in doc.paragraphs if p.text.strip())[:MAX_TEXT_PER_FILE]
+            return _normalize_extracted_text(
+                '\n'.join(p.text for p in doc.paragraphs if p.text.strip())
+            )[:MAX_TEXT_PER_FILE]
         if ext == '.pdf':
             from pypdf import PdfReader
 
@@ -104,36 +106,62 @@ def _extract_text(item: ImportFile) -> str:
                 pages.append(page.extract_text() or '')
                 if sum(len(value) for value in pages) >= MAX_TEXT_PER_FILE:
                     break
-            return '\n'.join(pages)[:MAX_TEXT_PER_FILE]
+            return _normalize_extracted_text('\n'.join(pages))[:MAX_TEXT_PER_FILE]
     except Exception:
         return ''
     return ''
 
 
+def _normalize_extracted_text(text: str) -> str:
+    normalized = text.replace('\u0000', ' ').replace('\r', '\n')
+    normalized = re.sub(r'[ \t\f\v]+', ' ', normalized)
+    normalized = re.sub(r'(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])', '', normalized)
+    return normalized.strip()
+
+
+def _clean_metadata_value(value: str) -> str:
+    return re.sub(
+        r'[\s、，,；;。:：]+$',
+        '',
+        str(value or '').strip(),
+    )[:120]
+
+
+def _has_metadata_value(value: Any) -> bool:
+    return str(value or '').strip() not in {'', '待补充', '未知', '未识别', 'N/A', 'null', 'None'}
+
+
 def _heuristic_metadata(files: list[ImportFile], texts: dict[str, str]) -> dict[str, Any]:
     combined = '\n'.join(texts.values())
+    filenames = '\n'.join(item.name for item in files)
+    searchable = f'{combined}\n{filenames}'
     project_name = ''
     company_name = ''
-    date_match = re.search(r'(20\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})', combined)
+    date_match = re.search(r'(20\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})', searchable)
     for pattern in (
-        r'项目名称[：:]\s*([^\n\r，,。]{2,80})',
-        r'关于(.{2,60}?)(?:项目|工程)(?:建设)?的函',
+        r'项目名称\s*[：:]\s*([^\n\r，,。；;]{2,100})',
+        r'工程名称\s*[：:]\s*([^\n\r，,。；;]{2,100})',
+        r'关于(.{2,100}?(?:项目|工程))(?:建设|选址|规划)?(?:事宜|申请)?的函',
+        r'([^/\n\r]{2,100}?(?:项目|工程))(?:[-_（( ]*)?(?:查询函|来函|选址申请|建设申请|请示)',
     ):
-        match = re.search(pattern, combined)
+        match = re.search(pattern, searchable)
         if match:
-            project_name = match.group(1).strip()
+            project_name = _clean_metadata_value(match.group(1))
             break
-    for pattern in (r'(?:建设单位|企业单位|项目单位|来函单位)[：:]\s*([^\n\r，,。]{2,80})',):
-        match = re.search(pattern, combined)
+    for pattern in (
+        r'(?:建设单位|企业单位|项目单位|来函单位|申报单位)\s*[：:]\s*([^\n\r，,。；;]{2,100})',
+        r'([^\n\r/，,。；;]{2,60}(?:集团有限公司|有限责任公司|股份有限公司|有限公司|供电公司|电力公司))',
+    ):
+        match = re.search(pattern, searchable)
         if match:
-            company_name = match.group(1).strip()
+            company_name = _clean_metadata_value(match.group(1))
             break
     if not project_name and files:
-        project_name = files[0].name.split('/')[0]
-        if '.' in project_name:
-            project_name = project_name.rsplit('.', 1)[0]
+        first_path = files[0].name.split('/')
+        candidate = first_path[0] if len(first_path) > 1 else os.path.splitext(first_path[0])[0]
+        project_name = re.sub(r'(?i)\.(zip|rar)$', '', _clean_metadata_value(candidate))
     if not company_name:
-        company_name = '待补充'
+        company_name = ''
     incoming_doc_date = ''
     if date_match:
         try:
@@ -195,39 +223,39 @@ def analyze_project_files(files: list[ImportFile]) -> dict[str, Any]:
     }
     system_prompt = (
         '你是文物保护建设项目归档助手。只依据提供的有限文件摘要识别信息，不推测不存在的数据。'
-        '必须返回JSON，字段：project_name、company_name、incoming_doc_date、attachments。'
-        'attachments是数组，每项含name、file_type、category、reason。'
-        'file_type仅可为preliminary_kml、kml、field_photo、official_doc、archaeology_report、kanerjing_plan、other。'
-        'category仅可为incoming_request、county_request、city_reply、archaeology_request、region_approval、'
-        'city_final_reply、state_council_approval、final_reply、other。日期格式为YYYY-MM-DD，未知返回空字符串。'
+        '附件类型已由本地规则判断，你只识别项目元数据。必须返回JSON，字段：project_name、company_name、'
+        'incoming_doc_date。日期格式为YYYY-MM-DD，无法确定的字段返回空字符串。'
     )
     warning = ''
     try:
+        config = get_ai_config()
+        import_config = AIConfig(
+            provider=config.provider,
+            api_key=config.api_key,
+            base_url=config.base_url,
+            model=config.model,
+            temperature=0.1,
+            system_prompt='',
+            timeout=min(config.timeout, 45),
+            max_tokens=600,
+        )
         result = parse_json_response(
             chat_completion(
                 [
                     {'role': 'system', 'content': system_prompt},
                     {'role': 'user', 'content': json.dumps(prompt, ensure_ascii=False)},
                 ],
+                config=import_config,
                 temperature=0.1,
-                max_tokens=2400,
+                max_tokens=600,
             )
         )
-        result.setdefault('project_name', manifest['project_name'])
-        result.setdefault('company_name', manifest['company_name'])
-        result.setdefault('incoming_doc_date', manifest['incoming_doc_date'])
-        attachments = result.get('attachments')
-        attachments = attachments if isinstance(attachments, list) else []
-        result['attachments'] = [
-            next(
-                (
-                    row for row in attachments
-                    if isinstance(row, dict) and row.get('name') == item.name
-                ),
-                _heuristic_attachment(item),
-            )
-            for item in files
-        ]
+        for key in ('project_name', 'company_name', 'incoming_doc_date'):
+            if not _has_metadata_value(result.get(key)):
+                result[key] = manifest[key]
+        result['project_name'] = _clean_metadata_value(result.get('project_name', ''))
+        result['company_name'] = _clean_metadata_value(result.get('company_name', ''))
+        result['attachments'] = manifest['attachments']
     except ValueError as exc:
         result = manifest
         warning = str(exc)
@@ -235,7 +263,7 @@ def analyze_project_files(files: list[ImportFile]) -> dict[str, Any]:
     result['warnings'] = [warning] if warning else []
     result['file_count'] = len(files)
     result['total_size'] = sum(item.size for item in files)
-    result['token_strategy'] = '仅提交文件清单及最多 12000 字符摘要，未上传原始二进制文件内容'
+    result['token_strategy'] = f'仅提交文件清单及最多 {MAX_AI_TEXT} 字符摘要，未上传原始二进制文件内容'
     return result
 
 
@@ -243,7 +271,7 @@ def create_project_from_files(files: list[ImportFile], metadata: dict[str, Any],
     project_name = str(metadata.get('project_name') or '').strip()
     company_name = str(metadata.get('company_name') or '').strip()
     date_text = str(metadata.get('incoming_doc_date') or '').strip()
-    if not project_name or not company_name or company_name == '待补充':
+    if not _has_metadata_value(project_name) or not _has_metadata_value(company_name):
         raise ValueError('请补充项目名称和企业单位')
     try:
         incoming_date = datetime.strptime(date_text, '%Y-%m-%d').date() if date_text else date.today()

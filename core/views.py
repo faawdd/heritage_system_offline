@@ -2521,6 +2521,10 @@ def land_project_smart_import_analyze_api(request):
     uploads = request.FILES.getlist('files')
     if not uploads and request.FILES.get('file'):
         uploads = [request.FILES['file']]
+    paths = request.POST.getlist('paths')
+    for index, upload in enumerate(uploads):
+        if index < len(paths) and paths[index]:
+            upload.name = paths[index]
     try:
         files = collect_import_files(uploads)
         job = start_smart_import_job(files)
@@ -2551,6 +2555,10 @@ def land_project_smart_import_create_api(request):
     uploads = request.FILES.getlist('files')
     if not uploads and request.FILES.get('file'):
         uploads = [request.FILES['file']]
+    paths = request.POST.getlist('paths')
+    for index, upload in enumerate(uploads):
+        if index < len(paths) and paths[index]:
+            upload.name = paths[index]
     try:
         metadata = json.loads((request.POST.get('metadata') or '{}').strip() or '{}')
         if not isinstance(metadata, dict):
