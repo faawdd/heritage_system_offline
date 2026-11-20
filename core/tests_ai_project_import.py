@@ -189,6 +189,25 @@ class ProjectSmartImportTests(TestCase):
         self.assertEqual(preview['project_name'], '多式联运集装箱转运场站建设项目')
         self.assertEqual(preview['company_name'], '新疆瑞科拓新物流有限公司')
 
+    def test_enterprise_letter_is_prioritized_for_ai_metadata(self):
+        files = collect_import_files([
+            SimpleUploadedFile('上行文-请示.docx', b'not-docx'),
+            SimpleUploadedFile('申请核实企业项目查询函.txt', '项目名称：企业函项目\n建设单位：企业公司'.encode()),
+        ])
+
+        with patch(
+            'core.services.project_import_service.chat_completion',
+            return_value='{"project_name":"企业函项目","company_name":"企业公司","incoming_doc_date":""}',
+        ) as completion:
+            preview = analyze_project_files(files)
+
+        prompt = completion.call_args.args[0][1]['content']
+        self.assertLess(
+            prompt.index('企业方查询函/申请函：申请核实企业项目查询函.txt'),
+            prompt.index('上行请示') if '上行请示' in prompt else len(prompt),
+        )
+        self.assertEqual(preview['metadata_sources'][0]['priority'], 1)
+
     def test_confirmed_import_creates_project_and_classifies_attachments(self):
         files = collect_import_files([self.make_zip_upload()])
         metadata = {

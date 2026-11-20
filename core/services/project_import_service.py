@@ -152,8 +152,25 @@ def _clean_company_value(value: str) -> str:
     return re.sub(r'^.*?(?:关于申请核实|关于核实|申请核实)', '', normalized).strip()
 
 
+def _metadata_priority(item: ImportFile) -> tuple[int, str]:
+    lower_name = item.name.lower()
+    text_name = os.path.basename(lower_name)
+    if any(word in text_name for word in ('查询函', '来函', '申请函', '企业函', '核实')):
+        priority = 0
+    elif any(word in text_name for word in ('上行文', '请示')):
+        priority = 1
+    elif os.path.splitext(text_name)[1] in {'.kml', '.kmz'}:
+        priority = 2
+    elif any(word in text_name for word in ('复函', '批复', '回复')):
+        priority = 3
+    else:
+        priority = 4
+    return priority, lower_name
+
+
 def _heuristic_metadata(files: list[ImportFile], texts: dict[str, str]) -> dict[str, Any]:
-    combined = '\n'.join(texts.values())
+    ordered_files = sorted(files, key=_metadata_priority)
+    combined = '\n'.join(texts.get(item.name, '') for item in ordered_files)
     filenames = '\n'.join(item.name for item in files)
     searchable = f'{combined}\n{filenames}'
     project_name = ''
@@ -238,11 +255,21 @@ def analyze_project_files(files: list[ImportFile]) -> dict[str, Any]:
     manifest = _heuristic_metadata(files, texts)
     excerpt_parts = []
     remaining = MAX_AI_TEXT
-    for name, text in texts.items():
+    for item in sorted(files, key=_metadata_priority):
+        name = item.name
+        text = texts.get(name, '')
         if not text or remaining <= 0:
             continue
         snippet = text[: min(remaining, MAX_TEXT_PER_FILE)]
-        excerpt_parts.append(f'### {name}\n{snippet}')
+        priority = _metadata_priority(item)[0]
+        source_label = {
+            0: '企业方查询函/申请函',
+            1: '上行请示',
+            2: '选址矢量文件',
+            3: '回复类公文',
+            4: '其他附件',
+        }[priority]
+        excerpt_parts.append(f'### 来源等级{priority + 1}：{source_label}：{name}\n{snippet}')
         remaining -= len(snippet)
 
     prompt = {
@@ -263,7 +290,8 @@ def analyze_project_files(files: list[ImportFile]) -> dict[str, Any]:
     system_prompt = (
         '你是文物保护建设项目归档助手。只依据提供的有限文件摘要识别信息，不推测不存在的数据。'
         '附件类型已由本地规则判断，你只识别项目元数据。必须返回JSON，字段：project_name、company_name、'
-        'incoming_doc_date。日期格式为YYYY-MM-DD，无法确定的字段返回空字符串。'
+        'incoming_doc_date。必须优先采用来源等级1的企业方查询函/申请函，其次来源等级2的上行请示；'
+        '回复类公文、文件名、KML仅作为补充。日期格式为YYYY-MM-DD，无法确定的字段返回空字符串。'
     )
     warning = ''
     try:
@@ -295,11 +323,30 @@ def analyze_project_files(files: list[ImportFile]) -> dict[str, Any]:
         result['project_name'] = _clean_metadata_value(result.get('project_name', ''))
         result['company_name'] = _clean_company_value(result.get('company_name', ''))
         result['attachments'] = manifest['attachments']
+        result['metadata_sources'] = [
+            {
+                'name': item.name,
+                'priority': _metadata_priority(item)[0] + 1,
+                'used_for_ai': bool(texts.get(item.name)),
+            }
+            for item in sorted(files, key=_metadata_priority)
+        ]
     except ValueError as exc:
         result = manifest
         warning = str(exc)
 
     result['warnings'] = [warning] if warning else []
+    result.setdefault(
+        'metadata_sources',
+        [
+            {
+                'name': item.name,
+                'priority': _metadata_priority(item)[0] + 1,
+                'used_for_ai': False,
+            }
+            for item in sorted(files, key=_metadata_priority)
+        ],
+    )
     result['file_count'] = len(files)
     result['total_size'] = sum(item.size for item in files)
     result['token_strategy'] = f'仅提交文件清单及最多 {MAX_AI_TEXT} 字符摘要，未上传原始二进制文件内容'
