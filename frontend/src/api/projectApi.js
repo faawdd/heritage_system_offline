@@ -164,6 +164,13 @@ export async function deleteProjectDocument(projectId, documentId) {
   return response.data
 }
 
+export async function updateProjectDocumentCategory(projectId, documentId, category) {
+  const response = await client.post(`/api/v1/projects/${projectId}/documents/${documentId}/category/`, {
+    category
+  })
+  return response.data
+}
+
 export async function downloadProjectDocumentsArchive(projectId) {
   return client.get(`/api/v1/projects/${projectId}/documents/archive/`, {
     responseType: 'blob'

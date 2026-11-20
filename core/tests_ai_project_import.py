@@ -10,8 +10,14 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from pypdf import PdfWriter
 
+from core.models import LandUseProjectApproval, LandUseProjectDocument
 from core.services.ai_service import AIConfig, chat_completion, get_ai_config, list_models
-from core.services.project_import_service import analyze_project_files, collect_import_files, create_project_from_files
+from core.services.project_import_service import (
+    _heuristic_attachment,
+    analyze_project_files,
+    collect_import_files,
+    create_project_from_files,
+)
 from core.services import smart_import_jobs
 from system.models import SystemConfig
 
@@ -207,6 +213,41 @@ class ProjectSmartImportTests(TestCase):
             prompt.index('上行请示') if '上行请示' in prompt else len(prompt),
         )
         self.assertEqual(preview['metadata_sources'][0]['priority'], 1)
+
+    def test_upstream_request_is_classified_as_county_request(self):
+        files = collect_import_files([
+            SimpleUploadedFile('上行文-关于建设某项目选址的请示.docx', b'document'),
+        ])
+
+        attachment = _heuristic_attachment(files[0])
+
+        self.assertEqual(attachment['file_type'], 'official_doc')
+        self.assertEqual(attachment['category'], 'county_request')
+
+    def test_uploaded_document_category_can_be_updated(self):
+        user = get_user_model().objects.create_superuser('document-admin', password='test-password')
+        project = LandUseProjectApproval.objects.create(
+            project_name='类别调整项目',
+            company_name='测试单位',
+        )
+        document = LandUseProjectDocument.objects.create(
+            project=project,
+            category=LandUseProjectDocument.CATEGORY_OTHER,
+            file_path='projects/test/document.pdf',
+            file_name='document.pdf',
+        )
+        self.client.force_login(user)
+
+        response = self.client.post(
+            f'/api/v1/projects/{project.id}/documents/{document.id}/category/',
+            data=json.dumps({'category': LandUseProjectDocument.CATEGORY_COUNTY_REQUEST}),
+            content_type='application/json',
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        document.refresh_from_db()
+        self.assertEqual(document.category, LandUseProjectDocument.CATEGORY_COUNTY_REQUEST)
 
     def test_confirmed_import_creates_project_and_classifies_attachments(self):
         files = collect_import_files([self.make_zip_upload()])

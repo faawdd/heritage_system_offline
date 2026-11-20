@@ -102,6 +102,7 @@ LAND_PROJECT_ACTION_LABELS = {
     'archive_case': '办结归档',
     'generate_official_document': '生成公文',
     'smart_import': 'AI智能导入',
+    'update_official_doc_category': '调整公文类别',
 }
 
 
@@ -2958,6 +2959,49 @@ def land_project_document_delete_api(request, project_id, document_id):
         status_after=project.status,
     )
     return JsonResponse({'success': True})
+
+
+@csrf_exempt
+@require_POST
+@staff_member_required
+def land_project_document_category_api(request, project_id, document_id):
+    if not is_management_admin(request.user):
+        return JsonResponse({'success': False, 'message': '无权限'}, status=403)
+
+    document = LandUseProjectDocument.objects.filter(id=document_id, project_id=project_id).first()
+    if not document:
+        return JsonResponse({'success': False, 'message': '公文不存在'}, status=404)
+    if document.project.status == LandUseProjectApproval.STATUS_ARCHIVED:
+        return JsonResponse({'success': False, 'message': '项目已结案归档，公文类别不可修改'}, status=400)
+    try:
+        payload = _load_json_payload(request)
+    except ValueError as exc:
+        return JsonResponse({'success': False, 'message': str(exc)}, status=400)
+
+    category = str(payload.get('category') or '').strip()
+    valid_categories = {code: label for code, label in LandUseProjectDocument.CATEGORY_CHOICES}
+    if category not in valid_categories:
+        return JsonResponse({'success': False, 'message': '请选择正确的公文类别'}, status=400)
+    if category == document.category:
+        return JsonResponse({'success': True, 'category': category, 'category_label': valid_categories[category]})
+
+    previous = document.category
+    document.category = category
+    document.save(update_fields=['category'])
+    _record_land_project_operation(
+        project=document.project,
+        user=request.user,
+        action='update_official_doc_category',
+        payload={
+            'document_id': document.id,
+            'file_name': document.file_name,
+            'from_category': previous,
+            'to_category': category,
+        },
+        status_before=document.project.status,
+        status_after=document.project.status,
+    )
+    return JsonResponse({'success': True, 'category': category, 'category_label': valid_categories[category]})
 
 
 @staff_member_required

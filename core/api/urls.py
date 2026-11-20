@@ -101,6 +101,7 @@ urlpatterns = [
     path('projects/<uuid:project_id>/documents/archive/', legacy_views.land_project_documents_archive_api, name='land_project_documents_archive'),
     path('projects/<uuid:project_id>/documents/<int:document_id>/download/', legacy_views.land_project_document_download_api, name='land_project_document_download'),
     path('projects/<uuid:project_id>/documents/<int:document_id>/delete/', legacy_views.land_project_document_delete_api, name='land_project_document_delete'),
+    path('projects/<uuid:project_id>/documents/<int:document_id>/category/', legacy_views.land_project_document_category_api, name='land_project_document_category'),
     path('projects/next-shanshan-doc/', legacy_views.land_project_next_doc_num_api, name='land_project_next_doc_num'),
     path('projects/<uuid:project_id>/workflow-action/', legacy_views.land_project_workflow_action_api, name='land_project_workflow_action'),
     path('projects/<uuid:project_id>/controls/', legacy_views.land_project_controls_api, name='land_project_controls'),

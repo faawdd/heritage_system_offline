@@ -306,7 +306,23 @@
             max-height="300"
             class="doc-table"
           >
-            <el-table-column prop="category_label" label="类别" min-width="150" />
+            <el-table-column label="类别" min-width="180">
+              <template #default="{ row }">
+                <el-select
+                  :model-value="row.category"
+                  :disabled="guide.is_archived"
+                  size="small"
+                  @change="changeDocumentCategory(row, $event)"
+                >
+                  <el-option
+                    v-for="item in docCategories"
+                    :key="item.value"
+                    :value="item.value"
+                    :label="item.label"
+                  />
+                </el-select>
+              </template>
+            </el-table-column>
             <el-table-column prop="doc_num" label="文号" min-width="140" />
             <el-table-column prop="issued_date" label="成文日期" width="110" />
             <el-table-column prop="file_name" label="文件" min-width="160" />
@@ -424,6 +440,7 @@ import {
   fetchProjectDetail,
   linkProjectKmlRecord,
   runProjectWorkflowAction,
+  updateProjectDocumentCategory,
   uploadProjectFile,
   verifyPreliminarySpatialSafety,
   verifyProjectSpatialSafety
@@ -740,6 +757,20 @@ async function submitDocumentUpload() {
 
 function downloadDocument(row) {
   window.open(row.download_url, '_blank')
+}
+
+async function changeDocumentCategory(row, category) {
+  if (!category || category === row.category) return
+  try {
+    const result = await updateProjectDocumentCategory(projectId, row.id, category)
+    if (!result.success) throw new Error(result.message || '类别调整失败')
+    row.category = result.category
+    row.category_label = result.category_label
+    ElMessage.success(`公文类别已调整为${result.category_label}`)
+    await loadDetail()
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.message || error?.message || '类别调整失败')
+  }
 }
 
 async function removeDocument(row) {

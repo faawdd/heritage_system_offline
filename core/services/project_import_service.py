@@ -241,11 +241,13 @@ def _heuristic_attachment(item: ImportFile) -> dict[str, str]:
         inferred_type = 'preliminary_kml'
     elif ext in IMAGE_EXTENSIONS:
         inferred_type = 'field_photo'
-    elif any(word in lower_name for word in ('查询函', '来函', '申请')):
+    elif any(word in lower_name for word in ('查询函', '来函', '申请函', '企业函', '申请核实')):
         category = 'incoming_request'
+    elif any(word in lower_name for word in ('上行文', '请示')):
+        category = 'county_request'
     elif any(word in lower_name for word in ('现场', '勘查', '照片', '选址')):
         inferred_type = 'field_photo' if ext in IMAGE_EXTENSIONS else inferred_type
-    elif any(word in lower_name for word in ('复函', '批复')):
+    elif any(word in lower_name for word in ('复函', '批复', '复文')):
         category = 'city_reply'
     return {'name': item.name, 'file_type': inferred_type, 'category': category, 'reason': '按文件类型和名称识别'}
 
