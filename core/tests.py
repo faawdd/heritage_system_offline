@@ -3,7 +3,7 @@ from django.test import TestCase
 from django.urls import reverse
 from rest_framework_simplejwt.tokens import AccessToken
 
-from .models import HeritageSite, LandUseProjectApproval
+from .models import HeritageSite, InspectionRecord, LandUseProjectApproval
 
 
 class HeritageDashboardKanerjingFilterTests(TestCase):
@@ -77,6 +77,28 @@ class HeritageDashboardKanerjingFilterTests(TestCase):
 		self.assertEqual(payload['total'], 1)
 		self.assertEqual(payload['labels'], ['石窟寺及石刻'])
 		self.assertEqual(payload['data'], [1])
+
+	def test_heritage_detail_payload_includes_archive_and_inspection_details(self):
+		site = HeritageSite.objects.get(sip_code='S001')
+		InspectionRecord.objects.create(
+			site=site,
+			inspector=self.user,
+			is_normal=False,
+			issue_details='墙体局部开裂',
+			longitude=90.1,
+			latitude=42.1,
+			distance_meters=125,
+		)
+		response = self.client.get(f'/api/v1/heritage/{site.id}/detail/', secure=True)
+		self.assertEqual(response.status_code, 200)
+		payload = response.json()['data']
+		self.assertEqual(payload['name'], '吐峪沟石窟')
+		self.assertEqual(payload['category_label'], '石窟寺及石刻')
+		self.assertEqual(len(payload['inspection_records']), 1)
+		record = payload['inspection_records'][0]
+		self.assertEqual(record['inspector_name'], 'staff_user')
+		self.assertEqual(record['issue_details'], '墙体局部开裂')
+		self.assertEqual(record['distance_meters'], 125)
 
 	def test_classification_detail_and_export_use_selected_segment(self):
 		detail_url = '/api/v1/heritage/classification-stats/detail/'

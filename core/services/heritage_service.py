@@ -152,7 +152,10 @@ def get_heritage_detail_payload(site_id):
         return None
 
     inspection_rows = []
-    for record in InspectionRecord.objects.filter(site=heritage).order_by('-inspect_time')[:10]:
+    for record in InspectionRecord.objects.select_related('inspector').filter(site=heritage).order_by('-inspect_time')[:20]:
+        photo_urls = []
+        if record.photo:
+            photo_urls.append(record.photo.url)
         inspection_rows.append(
             {
                 'id': record.id,
@@ -161,8 +164,23 @@ def get_heritage_detail_payload(site_id):
                 'issue_details': record.issue_details or '',
                 'latitude': record.latitude,
                 'longitude': record.longitude,
+                'distance_meters': record.distance_meters,
+                'inspector_id': record.inspector_id,
+                'inspector_name': record.inspector.get_full_name() or record.inspector.username,
+                'photo_url': record.photo.url if record.photo else '',
+                'photo_urls': photo_urls,
             }
         )
+
+    registration = heritage.registration
+    township = registration.township if registration else ''
+    village = registration.village if registration else ''
+    former_name = registration.former_name if registration else ''
+    era = registration.era if registration else ''
+    heritage_type = registration.heritage_type if registration else ''
+    ownership_detail = registration.ownership_detail if registration else ''
+    management_unit = registration.management_unit if registration else ''
+    coordinate_system = registration.coordinate_system if registration else ''
 
     return {
         'id': heritage.id,
@@ -177,6 +195,14 @@ def get_heritage_detail_payload(site_id):
         'latitude': float(heritage.latitude),
         'description': heritage.description,
         'manager': heritage.manager,
+        'former_name': former_name,
+        'era': era,
+        'heritage_type': heritage_type,
+        'township': township,
+        'village': village,
+        'ownership_detail': ownership_detail,
+        'management_unit': management_unit,
+        'coordinate_system': coordinate_system,
         'body_boundary_data': _parse_zone(heritage.body_boundary),
         'protection_zone_data': _parse_zone(heritage.protection_zone),
         'control_zone_data': _parse_zone(heritage.control_zone),

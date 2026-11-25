@@ -150,12 +150,14 @@
 <script setup>
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useRouter } from 'vue-router'
 
 import { fetchHeritageMapPoints } from '../../api/heritageApi'
 import { isCanceledRequest, networkErrorMessage } from '../../utils/networkRequest.js'
 import HeritageMapCanvas from '../../components/heritage/HeritageMapCanvas.vue'
 
 const mapCanvasRef = ref(null)
+const router = useRouter()
 const loading = ref(false)
 const boundariesReady = ref(false)
 const keyword = ref('')
@@ -232,10 +234,8 @@ function focusPointOnMap(item) {
 }
 
 function openDetail(payload) {
-  if (!payload?.id || !payload.preview_url) {
-    return
-  }
-  window.open(payload.preview_url, '_blank', 'noopener,noreferrer')
+  if (!payload?.id) return
+  router.push(`/heritage/${payload.id}`)
 }
 
 async function loadData() {

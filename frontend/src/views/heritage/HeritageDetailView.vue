@@ -16,11 +16,18 @@
         <el-descriptions :column="1" border>
           <el-descriptions-item label="文物名称">{{ detail.name || '-' }}</el-descriptions-item>
           <el-descriptions-item label="四普编号">{{ detail.sip_code || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="曾用名/别名">{{ detail.former_name || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="时代">{{ detail.era || '-' }}</el-descriptions-item>
           <el-descriptions-item label="保护等级">{{ detail.level_label || '-' }}</el-descriptions-item>
           <el-descriptions-item label="文物类别">{{ detail.category_label || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="文物类型">{{ detail.heritage_type || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="乡镇/村">{{ detail.township || '-' }}{{ detail.village ? ' / ' + detail.village : '' }}</el-descriptions-item>
           <el-descriptions-item label="详细地址">{{ detail.address || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="经纬度">{{ detail.longitude }}, {{ detail.latitude }}</el-descriptions-item>
+          <el-descriptions-item label="经纬度">{{ detail.longitude ?? '-' }}, {{ detail.latitude ?? '-' }}</el-descriptions-item>
+          <el-descriptions-item label="坐标系">{{ detail.coordinate_system || '-' }}</el-descriptions-item>
           <el-descriptions-item label="管理责任单位">{{ detail.manager || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="登记管理单位">{{ detail.management_unit || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="权属信息">{{ detail.ownership_detail || '-' }}</el-descriptions-item>
           <el-descriptions-item label="现状描述">{{ detail.description || '-' }}</el-descriptions-item>
         </el-descriptions>
       </div>
@@ -38,8 +45,9 @@
 
     <div class="card top-space">
       <h3>最近巡查记录</h3>
-      <el-table :data="detail.inspection_records || []" stripe>
+      <el-table :data="detail.inspection_records || []" v-loading="loading" stripe>
         <el-table-column prop="inspect_time" label="巡查时间" width="180" />
+        <el-table-column prop="inspector_name" label="巡查人" width="120" />
         <el-table-column prop="is_normal" label="状态" width="100">
           <template #default="scope">
             <el-tag :type="scope.row.is_normal ? 'success' : 'danger'">
@@ -47,9 +55,31 @@
             </el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="巡查坐标" width="220">
+          <template #default="scope">
+            {{ formatCoordinates(scope.row) }}
+          </template>
+        </el-table-column>
+        <el-table-column label="距文物点" width="130">
+          <template #default="scope">
+            {{ formatDistance(scope.row.distance_meters) }}
+          </template>
+        </el-table-column>
         <el-table-column prop="issue_details" label="问题描述" min-width="260" />
+        <el-table-column label="现场照片" width="110">
+          <template #default="scope">
+            <el-button v-if="getPhotoUrls(scope.row).length" link type="primary" @click="previewPhotos(scope.row)">
+              查看（{{ getPhotoUrls(scope.row).length }}）
+            </el-button>
+            <span v-else>无照片</span>
+          </template>
+        </el-table-column>
       </el-table>
     </div>
+
+    <el-dialog v-model="photoDialogVisible" title="巡查现场照片" width="720px">
+      <img v-for="url in currentPhotoUrls" :key="url" :src="url" style="width: 100%; max-height: 70vh; object-fit: contain; margin-bottom: 12px" />
+    </el-dialog>
 
     <el-dialog v-model="exportDialogVisible" title="导出文物范围坐标" width="560px">
       <el-form label-width="130px">
@@ -83,6 +113,8 @@ const siteId = route.params.siteId
 const loading = ref(false)
 const exporting = ref(false)
 const exportDialogVisible = ref(false)
+const photoDialogVisible = ref(false)
+const currentPhotoUrls = ref([])
 
 const detail = reactive({
   protection_zone_data: [],
@@ -95,13 +127,39 @@ const exportForm = reactive({
 })
 
 function fillReactive(target, source) {
-  Object.keys(target).forEach((key) => {
-    target[key] = source?.[key] ?? target[key]
-  })
+  Object.assign(target, source || {})
 }
 
 function goMap() {
   router.push('/heritage/map')
+}
+
+function formatDistance(meters) {
+  if (meters == null || !Number.isFinite(Number(meters)) || Number(meters) < 0) return '无法计算'
+  const value = Number(meters)
+  return value < 1000 ? `约 ${Math.round(value)} 米` : `约 ${(value / 1000).toFixed(value < 10000 ? 1 : 0)} 公里`
+}
+
+function formatCoordinates(row) {
+  if (row.longitude == null || row.latitude == null) return '-'
+  return `${row.longitude}, ${row.latitude}`
+}
+
+function normalizePhotoUrl(url) {
+  const raw = String(url || '').trim()
+  if (!raw) return ''
+  if (/^(https?:)?\/\//i.test(raw) || raw.startsWith('data:') || raw.startsWith('blob:')) return raw
+  return new URL(raw.startsWith('/') ? raw : `/${raw}`, window.location.origin).toString()
+}
+
+function getPhotoUrls(row) {
+  const urls = Array.isArray(row.photo_urls) ? row.photo_urls : (row.photo_url ? [row.photo_url] : [])
+  return urls.map(normalizePhotoUrl).filter(Boolean)
+}
+
+function previewPhotos(row) {
+  currentPhotoUrls.value = getPhotoUrls(row)
+  photoDialogVisible.value = currentPhotoUrls.value.length > 0
 }
 
 async function loadDetail() {
