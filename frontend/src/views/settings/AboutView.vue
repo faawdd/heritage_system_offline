@@ -65,9 +65,10 @@ import { ElMessage } from 'element-plus'
 import { fetchSystemAbout } from '../../api/dashboardApi'
 import appLogo from '../../assets/logo.png'
 import { checkDesktopUpdates, openUpdateDownload, updateState } from '../../utils/desktopUpdates'
+import { DEFAULT_SYSTEM_NAME, setSystemName } from '../../utils/systemName'
 
 const appVersion = __APP_VERSION__
-const systemName = ref('文物综合管理平台')
+const systemName = ref(DEFAULT_SYSTEM_NAME)
 const licenseName = ref('Apache License 2.0')
 const licenseUrl = ref('https://www.apache.org/licenses/LICENSE-2.0')
 
@@ -94,7 +95,7 @@ onMounted(async () => {
   try {
     const result = await fetchSystemAbout()
     const data = result?.data || {}
-    systemName.value = data.system_name || systemName.value
+    if (data.system_name) systemName.value = setSystemName(data.system_name)
     licenseName.value = data.license || licenseName.value
     licenseUrl.value = data.license_url || licenseUrl.value
   } catch {

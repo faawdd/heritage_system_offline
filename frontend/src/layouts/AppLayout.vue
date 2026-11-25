@@ -213,13 +213,14 @@ import {
   fetchSystemProfile,
   updateSystemProfile
 } from '../api/system/systemApi'
+import { fetchSystemAbout } from '../api/dashboardApi'
+import { setSystemName, systemName as configuredSystemName } from '../utils/systemName'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 const isDesktop = window.desktopMeta?.runtime === 'electron'
-const defaultSystemName = '文物综合管理平台'
-const systemName = computed(() => localStorage.getItem('heritage_system_name') || defaultSystemName)
+const systemName = computed(() => configuredSystemName.value)
 import { appearanceState, setAppearance } from '../utils/appearance'
 
 const THEME_MODE_KEY = 'heritage_theme_mode'
@@ -752,6 +753,12 @@ watch(
 )
 
 onMounted(() => {
+  fetchSystemAbout()
+    .then((result) => {
+      const name = result?.data?.system_name
+      if (name) setSystemName(name)
+    })
+    .catch(() => {})
   if (isDesktop) {
     checkDesktopUpdates().then((result) => {
       if (result?.updateAvailable) {

@@ -13,6 +13,7 @@ class HeritageDashboardKanerjingFilterTests(TestCase):
 			username='staff_user',
 			password='test-pass-123',
 			is_staff=True,
+			is_superuser=True,
 		)
 		self.client.force_login(self.user)
 		self.url = reverse('heritage_classification_stats_api')
@@ -76,6 +77,26 @@ class HeritageDashboardKanerjingFilterTests(TestCase):
 		self.assertEqual(payload['total'], 1)
 		self.assertEqual(payload['labels'], ['石窟寺及石刻'])
 		self.assertEqual(payload['data'], [1])
+
+	def test_classification_detail_and_export_use_selected_segment(self):
+		detail_url = '/api/v1/heritage/classification-stats/detail/'
+		detail_response = self.client.get(detail_url, {
+			'group_by': 'category',
+			'group_value': 'SKT',
+		}, secure=True)
+		self.assertEqual(detail_response.status_code, 200)
+		detail_payload = detail_response.json()
+		self.assertEqual(detail_payload['total'], 1)
+		self.assertEqual(detail_payload['rows'][0]['name'], '吐峪沟石窟')
+
+		export_url = '/api/v1/heritage/classification-stats/export/'
+		export_response = self.client.get(export_url, {
+			'group_by': 'category',
+			'group_value': 'SKT',
+		}, secure=True)
+		self.assertEqual(export_response.status_code, 200)
+		self.assertEqual(export_response['Content-Type'], 'text/csv; charset=utf-8-sig')
+		self.assertIn('吐峪沟石窟', export_response.content.decode('utf-8-sig'))
 
 
 class ProjectCreateApiAuthenticationTests(TestCase):

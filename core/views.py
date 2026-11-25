@@ -51,6 +51,7 @@ from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth import get_user_model, login as auth_login
 from functools import wraps
 from rest_framework.decorators import api_view, permission_classes
+from rest_framework.response import Response
 from core.permissions.api_permissions import IsManagementAdmin
 from django.db import OperationalError, ProgrammingError, transaction
 from django.db.models import Count, Q
@@ -4029,6 +4030,72 @@ def _build_group_rows(queryset, group_field, choices_map):
     return rows
 
 
+def _filter_heritage_stats_queryset(request, source_config):
+    model_cls = source_config['model']
+    category_field = source_config['category_field']
+    level_field = source_config['level_field']
+    township_field = source_config['township_field']
+    address_field = source_config['address_field']
+    category = request.GET.get('category', '').strip()
+    level = request.GET.get('level', '').strip()
+    township = request.GET.get('township', '').strip()
+    address_keyword = request.GET.get('address_keyword', '').strip()
+    kanerjing_scope = request.GET.get('kanerjing_scope', 'all').strip()
+
+    queryset = model_cls.objects.all()
+    if category:
+        queryset = queryset.filter(**{category_field: category})
+    if level:
+        queryset = queryset.filter(**{level_field: level})
+    if township:
+        selected_township = normalize_township_name(township)
+        candidates = queryset if township_field else queryset.select_related('registration')
+        matching_ids = [
+            item.pk for item in candidates
+            if (normalize_township_name(item.township) if township_field else site_township(item))
+            == selected_township
+        ]
+        queryset = queryset.filter(pk__in=matching_ids)
+    if address_keyword:
+        queryset = queryset.filter(**{f'{address_field}__icontains': address_keyword})
+    if source_config['supports_kanerjing']:
+        queryset = _apply_kanerjing_filter(queryset, kanerjing_scope)
+    else:
+        kanerjing_scope = 'all'
+    return queryset, kanerjing_scope
+
+
+def _filter_heritage_stats_segment(queryset, source_config, group_by, group_value):
+    group_key = (group_by or 'category').strip().lower()
+    category_field = source_config['category_field']
+    level_field = source_config['level_field']
+    township_field = source_config['township_field']
+
+    if group_key in {'level', 'protection_level'}:
+        if group_value:
+            return queryset.filter(**{level_field: group_value})
+        return queryset.filter(Q(**{f'{level_field}__isnull': True}) | Q(**{level_field: ''}))
+    if group_key == 'township':
+        if township_field:
+            if not group_value or group_value == '未标注乡镇':
+                return queryset.filter(township='')
+            return queryset.filter(township__iexact=group_value)
+        selected_township = normalize_township_name(group_value)
+        if not selected_township or group_value == '未标注乡镇':
+            matching_ids = [item.pk for item in queryset.select_related('registration') if not site_township(item)]
+        else:
+            matching_ids = [
+                item.pk for item in queryset.select_related('registration')
+                if normalize_township_name(site_township(item)) == selected_township
+            ]
+        return queryset.filter(pk__in=matching_ids)
+    if group_key == 'heritage_type' and hasattr(queryset.model, 'HERITAGE_TYPE_CHOICES'):
+        return queryset.filter(heritage_type=group_value)
+    if group_value:
+        return queryset.filter(**{category_field: group_value})
+    return queryset.filter(Q(**{f'{category_field}__isnull': True}) | Q(**{category_field: ''}))
+
+
 @api_view(['GET'])
 @permission_classes([IsManagementAdmin])
 def heritage_classification_stats_api(request):
@@ -4127,6 +4194,79 @@ def heritage_classification_stats_api(request):
         },
         'kanerjing_scope': kanerjing_scope if kanerjing_scope in {'all', 'only', 'exclude'} else 'all',
     })
+
+
+def _heritage_stats_item_payload(item, source):
+    if source == 'immovable':
+        category_label = item.get_category_display()
+        level_label = item.get_protection_level_display()
+        code = getattr(item, 'sipu_id', '')
+    else:
+        category_label = item.get_category_display()
+        level_label = item.get_level_display()
+        code = getattr(item, 'sip_code', '')
+    return {
+        'id': item.pk,
+        'name': getattr(item, 'name', ''),
+        'sip_code': code or '',
+        'category': getattr(item, 'category', ''),
+        'category_label': category_label,
+        'level': getattr(item, 'level', getattr(item, 'protection_level', '')),
+        'level_label': level_label,
+        'township': getattr(item, 'township', '') or '',
+        'address': getattr(item, 'address', ''),
+        'longitude': getattr(item, 'longitude', None),
+        'latitude': getattr(item, 'latitude', None),
+        'manager': getattr(item, 'manager', getattr(item, 'manager_unit_name', '')) or '',
+        'description': getattr(item, 'description', '') or '',
+    }
+
+
+@api_view(['GET'])
+@permission_classes([IsManagementAdmin])
+def heritage_classification_stats_detail_api(request):
+    source_config = _resolve_heritage_stats_source(request.GET.get('source', 'auto'))
+    queryset, _kanerjing_scope = _filter_heritage_stats_queryset(request, source_config)
+    queryset = _filter_heritage_stats_segment(
+        queryset,
+        source_config,
+        request.GET.get('group_by', 'category'),
+        request.GET.get('group_value', '').strip(),
+    )
+    queryset = queryset.select_related('registration') if source_config['source'] == 'legacy' else queryset
+    rows = [
+        _heritage_stats_item_payload(item, source_config['source'])
+        for item in queryset.order_by('id')
+    ]
+    return Response({'success': True, 'rows': rows, 'total': len(rows)})
+
+
+@api_view(['GET'])
+@permission_classes([IsManagementAdmin])
+def heritage_classification_stats_export_api(request):
+    source_config = _resolve_heritage_stats_source(request.GET.get('source', 'auto'))
+    queryset, _kanerjing_scope = _filter_heritage_stats_queryset(request, source_config)
+    queryset = _filter_heritage_stats_segment(
+        queryset,
+        source_config,
+        request.GET.get('group_by', 'category'),
+        request.GET.get('group_value', '').strip(),
+    )
+    queryset = queryset.select_related('registration') if source_config['source'] == 'legacy' else queryset
+    filename = f'文物统计细分清单_{timezone.localdate().isoformat()}.csv'
+    response = HttpResponse(content_type='text/csv; charset=utf-8-sig')
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    response.write('\ufeff')
+    writer = csv.writer(response)
+    writer.writerow(['文物名称', '编号', '文物类别', '保护级别', '乡镇', '详细地址', '经度', '纬度', '管理单位', '现状描述'])
+    for item in queryset.order_by('id'):
+        payload = _heritage_stats_item_payload(item, source_config['source'])
+        writer.writerow([
+            payload['name'], payload['sip_code'], payload['category_label'], payload['level_label'],
+            payload['township'], payload['address'], payload['longitude'], payload['latitude'],
+            payload['manager'], payload['description'],
+        ])
+    return response
 
 
 @api_view(['GET'])

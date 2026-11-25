@@ -151,14 +151,16 @@ import {
   resetForgottenPassword
 } from '../../../api/system/systemApi'
 import { useAuthStore } from '../../../stores/system/authStore'
+import { normalizeSystemName, setSystemName, systemName as configuredSystemName } from '../../../utils/systemName'
 
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
 const isDesktop = window.desktopMeta?.runtime === 'electron'
 const appVersion = __APP_VERSION__
-const defaultSystemName = '文物综合管理平台'
-const systemName = computed(() => String(route.query.system_name || defaultSystemName))
+const systemName = computed(() => normalizeSystemName(
+  route.query.system_name || configuredSystemName.value
+))
 
 const loading = ref(false)
 const passwordChangeRequired = ref(false)
@@ -196,7 +198,7 @@ function validateSecurityQuestionSelection(questions) {
 }
 
 onMounted(async () => {
-  localStorage.setItem('heritage_system_name', systemName.value)
+  setSystemName(systemName.value)
   try {
     const result = await fetchSecurityQuestionBank()
     securityQuestionBank.value = result.questions || []

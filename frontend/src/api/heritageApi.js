@@ -27,6 +27,19 @@ export async function fetchHeritageClassificationStats(params = {}) {
   return response.data
 }
 
+export async function fetchHeritageClassificationDetail(params = {}) {
+  const response = await client.get('/api/v1/heritage/classification-stats/detail/', { params })
+  return response.data
+}
+
+export async function exportHeritageClassificationDetail(params = {}) {
+  const response = await client.get('/api/v1/heritage/classification-stats/export/', {
+    params,
+    responseType: 'blob'
+  })
+  return response
+}
+
 export async function fetchHeritageDetail(siteId) {
   const response = await client.get(`/api/v1/heritage/${siteId}/detail/`)
   return response.data

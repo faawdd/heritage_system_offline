@@ -19,6 +19,7 @@ const props = defineProps({
 
 const chartEl = ref(null)
 let chartRef = null
+const emit = defineEmits(['select'])
 
 function renderChart() {
   if (!chartRef) {
@@ -46,6 +47,9 @@ function renderChart() {
 
 onMounted(() => {
   chartRef = echarts.init(chartEl.value)
+  chartRef.on('click', (event) => {
+    if (typeof event.dataIndex === 'number') emit('select', event.dataIndex)
+  })
   renderChart()
   window.addEventListener('resize', chartRef.resize)
 })
